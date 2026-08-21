@@ -282,12 +282,21 @@ enum EncryptionState {
     },
 }
 
+/// A random-access byte source that [`PageReader`] can read pages from.
+///
+/// Implemented for anything that is [`Read`] + [`Seek`], so a database can be
+/// opened from a real file ([`open`](PageReader::open)) or from an in-memory
+/// buffer such as `std::io::Cursor<Vec<u8>>` via
+/// [`open_reader`](PageReader::open_reader).
+pub trait DataSource: Read + Seek {}
+impl<T: Read + Seek + ?Sized> DataSource for T {}
+
 /// Page-level reader for Jet/ACE database files.
 ///
 /// Opens a database file, reads and decrypts the header, and provides
 /// page-level random access.
 pub struct PageReader {
-    file: File,
+    file: Box<dyn DataSource>,
     header: DbHeader,
     file_size: u64,
     page0_buf: Vec<u8>,
@@ -303,9 +312,26 @@ impl PageReader {
     /// [`FileError::PasswordRequired`]. Use [`open_with_password`](Self::open_with_password)
     /// instead.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, FileError> {
-        let reader = Self::open_raw(path)?;
+        Self::finish_open(Self::open_raw(path)?)
+    }
 
-        // Detect encryption — requires open_with_password() to decrypt
+    /// Open a database from an in-memory or otherwise non-file byte source.
+    ///
+    /// Equivalent to [`open`](Self::open), but for any `Read + Seek` source
+    /// (e.g. `std::io::Cursor<Vec<u8>>`) rather than a filesystem path. Useful
+    /// when the database bytes are already in memory, or on targets without a
+    /// filesystem (such as `wasm32-unknown-unknown`).
+    ///
+    /// For password-protected .accdb files, this returns
+    /// [`FileError::PasswordRequired`]. Use
+    /// [`open_reader_with_password`](Self::open_reader_with_password) instead.
+    pub fn open_reader(source: impl Read + Seek + 'static) -> Result<Self, FileError> {
+        Self::finish_open(Self::open_raw_from_reader(source)?)
+    }
+
+    /// Shared tail of [`open`](Self::open) / [`open_reader`](Self::open_reader):
+    /// detect (but do not attempt to decrypt) Office encryption.
+    fn finish_open(reader: Self) -> Result<Self, FileError> {
         if reader.header.version.is_accdb()
             && crypto::parse_encryption_info(&reader.page0_buf)?.is_some()
         {
@@ -324,8 +350,28 @@ impl PageReader {
         path: impl AsRef<Path>,
         password: Option<&str>,
     ) -> Result<Self, FileError> {
-        let mut reader = Self::open_raw(path)?;
+        Self::finish_open_with_password(Self::open_raw(path)?, password)
+    }
 
+    /// Open a database from an in-memory or otherwise non-file byte source,
+    /// with an optional password.
+    ///
+    /// Equivalent to [`open_with_password`](Self::open_with_password), but
+    /// for any `Read + Seek` source rather than a filesystem path.
+    pub fn open_reader_with_password(
+        source: impl Read + Seek + 'static,
+        password: Option<&str>,
+    ) -> Result<Self, FileError> {
+        Self::finish_open_with_password(Self::open_raw_from_reader(source)?, password)
+    }
+
+    /// Shared tail of [`open_with_password`](Self::open_with_password) /
+    /// [`open_reader_with_password`](Self::open_reader_with_password):
+    /// verify the password (if needed) and establish decryption state.
+    fn finish_open_with_password(
+        mut reader: Self,
+        password: Option<&str>,
+    ) -> Result<Self, FileError> {
         // Only .accdb files can have encryption beyond Jet RC4
         if !reader.header.version.is_accdb() {
             return Ok(reader);
@@ -417,11 +463,31 @@ impl PageReader {
         Ok(reader)
     }
 
-    /// Internal: open and decrypt header without checking for Agile Encryption.
+    /// Internal: open a file and decrypt header without checking for Agile Encryption.
     fn open_raw(path: impl AsRef<Path>) -> Result<Self, FileError> {
-        let mut file = File::open(path.as_ref())?;
+        let file = File::open(path.as_ref())?;
         let file_size = file.metadata()?.len();
+        Self::open_raw_from_source(Box::new(file), file_size)
+    }
 
+    /// Internal: open a generic `Read + Seek` source and decrypt header
+    /// without checking for Agile Encryption.
+    ///
+    /// Unlike [`open_raw`](Self::open_raw), the source has no `metadata()` to
+    /// report its length, so the length is discovered by seeking to the end
+    /// (and back to the start, since parsing always begins at offset 0).
+    fn open_raw_from_reader(mut source: impl Read + Seek + 'static) -> Result<Self, FileError> {
+        let file_size = source.seek(SeekFrom::End(0))?;
+        source.seek(SeekFrom::Start(0))?;
+        Self::open_raw_from_source(Box::new(source), file_size)
+    }
+
+    /// Internal: shared header parsing for both [`open_raw`](Self::open_raw)
+    /// and [`open_raw_from_reader`](Self::open_raw_from_reader).
+    fn open_raw_from_source(
+        mut file: Box<dyn DataSource>,
+        file_size: u64,
+    ) -> Result<Self, FileError> {
         // We need at least the version byte at offset 0x14.
         const MIN_HEADER: u64 = (db_header::VERSION + 1) as u64;
         if file_size < MIN_HEADER {
@@ -863,6 +929,47 @@ mod tests {
         let debug = format!("{reader:?}");
         assert!(debug.contains("PageReader"));
         assert!(debug.contains("page_size"));
+    }
+
+    // -- open_reader (in-memory / non-file sources) ----------------------------
+
+    #[test]
+    fn open_reader_from_cursor_matches_open_from_path() {
+        let path = skip_if_missing!("V2003/testV2003.mdb");
+        let bytes = std::fs::read(&path).expect("failed to read fixture into memory");
+
+        let mut from_path = PageReader::open(&path).expect("failed to open from path");
+        let mut from_reader = PageReader::open_reader(std::io::Cursor::new(bytes))
+            .expect("failed to open from in-memory reader");
+
+        assert_eq!(from_reader.header().version, from_path.header().version);
+        assert_eq!(from_reader.page_count(), from_path.page_count());
+
+        let page_from_path = from_path.read_page(0).expect("read page 0 from path").to_vec();
+        let page_from_reader = from_reader
+            .read_page(0)
+            .expect("read page 0 from reader")
+            .to_vec();
+        assert_eq!(page_from_reader, page_from_path);
+    }
+
+    #[test]
+    fn open_reader_too_small_is_file_too_small() {
+        let err = PageReader::open_reader(std::io::Cursor::new(vec![0u8; 4])).unwrap_err();
+        assert!(matches!(err, FileError::FileTooSmall { .. }));
+    }
+
+    #[test]
+    fn open_reader_with_password_rejects_wrong_password() {
+        let path = skip_if_missing!("db2007-rc4cryptoapi.accdb");
+        let bytes = std::fs::read(&path).expect("failed to read fixture into memory");
+
+        let err = PageReader::open_reader_with_password(
+            std::io::Cursor::new(bytes),
+            Some("definitely-not-the-password"),
+        )
+        .unwrap_err();
+        assert!(matches!(err, FileError::InvalidPassword));
     }
 
     // -- find_row error paths -------------------------------------------------
