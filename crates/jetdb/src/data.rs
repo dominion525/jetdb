@@ -1742,16 +1742,15 @@ mod tests {
         }
     }
 
-    #[test]
-    fn row_values_ordered_by_design_time_insert_not_creation_order() {
-        // Same table as `table::tests::columns_ordered_by_design_time_insert_not_creation_order`:
-        // fields ID, A, C created in that order, then B inserted between A
-        // and C in Design View. Row values must line up with the
-        // display-order column list (ID, A, B, C), not creation order
-        // (ID, A, C, B) -- both derive from the same `TableDef::columns`,
-        // so this exercises that the fix applies consistently to row
-        // reading, not just schema/DDL output.
-        let path = skip_if_missing!("V2007/columnOrderTestV2007.accdb");
+    /// Same table as `table::tests::assert_columns_ordered_by_design_time_insert`:
+    /// fields ID, A, C created in that order, then B inserted between A
+    /// and C in Design View. Row values must line up with the
+    /// display-order column list (ID, A, B, C), not creation order
+    /// (ID, A, C, B) -- both derive from the same `TableDef::columns`,
+    /// so this exercises that the fix applies consistently to row
+    /// reading, not just schema/DDL output.
+    fn assert_row_values_ordered_by_design_time_insert(sample_path: &str) {
+        let path = skip_if_missing!(sample_path);
         let mut reader = PageReader::open(&path).unwrap();
         let catalog = crate::catalog::read_catalog(&mut reader).unwrap();
         let entry = catalog
@@ -1771,6 +1770,16 @@ mod tests {
         assert_eq!(row[1], Value::Text("a".to_string()));
         assert_eq!(row[2], Value::Text("b".to_string()));
         assert_eq!(row[3], Value::Text("c".to_string()));
+    }
+
+    #[test]
+    fn row_values_ordered_by_design_time_insert_not_creation_order() {
+        assert_row_values_ordered_by_design_time_insert("V2007/columnOrderTestV2007.accdb");
+    }
+
+    #[test]
+    fn jet3_row_values_ordered_by_design_time_insert_not_creation_order() {
+        assert_row_values_ordered_by_design_time_insert("V1997/columnOrderTestV1997.mdb");
     }
 
     // -- LVAL overflow (Memo / OLE) -------------------------------------------

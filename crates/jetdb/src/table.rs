@@ -83,21 +83,12 @@ pub struct ColumnDef {
     /// `Field.OrdinalPosition`), as opposed to [`Self::col_num`]'s
     /// creation order. These diverge whenever a field is inserted at a
     /// specific position rather than appended -- e.g. inserting a new
-    /// field between two existing ones, or adding a "Calculated" field
-    /// right after the field it references. Unlike `col_num` (a
-    /// permanent, ever-incrementing counter that leaves gaps when
-    /// columns are deleted), this is a dense `0..num_cols` permutation
-    /// that Access renumbers in place on every structural change.
-    ///
-    /// Not implemented for Jet3 (Access 97): confirming an equivalent
-    /// field's offset would need a real Jet3 sample with a
-    /// manually-reordered column, and modern Access can no longer save
-    /// to that format to produce one (see
+    /// field between two existing ones. Unlike `col_num` (a permanent,
+    /// ever-incrementing counter that leaves gaps when columns are
+    /// deleted), this is a dense `0..num_cols` permutation that Access
+    /// renumbers in place on every structural change. See
     /// [`crate::format::JetFormat::coldef_display_index_pos`]'s doc
-    /// comment). For Jet3 this is set equal to `col_num` -- falling back
-    /// to creation order, this crate's pre-existing behavior, which has
-    /// been confirmed not to break reading against every available Jet3
-    /// sample.
+    /// comment for how each format's offset was confirmed.
     pub display_index: u16,
 }
 
@@ -446,9 +437,8 @@ fn parse_column_entries(
         let precision = cursor.u8_at(entry_start + format.coldef_precision_pos)?;
         let is_calculated = !is_jet3
             && (cursor.u8_at(entry_start + COLDEF_EXT_FLAGS_POS)? & CALCULATED_EXT_FLAG_MASK) != 0;
-        let display_index = format
-            .coldef_display_index_pos
-            .and_then(|pos| cursor.u16_le_at(entry_start + pos).ok())
+        let display_index = cursor
+            .u16_le_at(entry_start + format.coldef_display_index_pos)
             .unwrap_or(col_num);
 
         columns.push(ColumnDef {
@@ -727,16 +717,25 @@ mod tests {
         }
     }
 
-    #[test]
-    fn columns_ordered_by_design_time_insert_not_creation_order() {
-        // Table1: fields ID, A, C were created in that order, then B was
-        // inserted between A and C in Design View. Creation order
-        // (col_num) is therefore ID, A, C, B -- but Design View (and this
-        // column list) should show ID, A, B, C.
-        let path = skip_if_missing!("V2007/columnOrderTestV2007.accdb");
+    /// Table1: fields ID, A, C were created in that order, then B was
+    /// inserted between A and C in Design View. Creation order (col_num)
+    /// is therefore ID, A, C, B -- but Design View (and this column
+    /// list) should show ID, A, B, C.
+    fn assert_columns_ordered_by_design_time_insert(sample_path: &str) {
+        let path = skip_if_missing!(sample_path);
         let tdef = assert_user_table_indexes(&path, "Table1");
         let names: Vec<&str> = tdef.columns.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, vec!["ID", "A", "B", "C"]);
+    }
+
+    #[test]
+    fn columns_ordered_by_design_time_insert_not_creation_order() {
+        assert_columns_ordered_by_design_time_insert("V2007/columnOrderTestV2007.accdb");
+    }
+
+    #[test]
+    fn jet3_columns_ordered_by_design_time_insert_not_creation_order() {
+        assert_columns_ordered_by_design_time_insert("V1997/columnOrderTestV1997.mdb");
     }
 
     #[test]
