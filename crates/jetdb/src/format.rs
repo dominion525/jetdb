@@ -224,6 +224,9 @@ pub static JET3: JetFormat = JetFormat {
     coldef_var_col_index_pos: 3,
     coldef_fixed_data_pos: 14,
     data_column_count_pos: 0,
+    // Not independently verified against real bytes -- unlike JET4 (see
+    // below), Jet3/Access 97 has no Decimal number type at all, so these
+    // two fields are never actually read for real data.
     coldef_scale_pos: 9,
     coldef_precision_pos: 10,
 };
@@ -256,8 +259,11 @@ pub static JET4: JetFormat = JetFormat {
     coldef_var_col_index_pos: 7,
     coldef_fixed_data_pos: 21,
     data_column_count_pos: 0,
-    coldef_scale_pos: 11,
-    coldef_precision_pos: 12,
+    // Verified against real Decimal-column bytes (see
+    // `testdata/SOURCES.md`): offset 11 holds precision, offset 12 holds
+    // scale -- the two names below were swapped prior to this fix.
+    coldef_scale_pos: 12,
+    coldef_precision_pos: 11,
 };
 
 // ---------------------------------------------------------------------------
