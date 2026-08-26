@@ -79,6 +79,26 @@ pub struct ColumnDef {
     /// `true` for an Access calculated column (Access 2010 and later), whose
     /// value is an expression result cached in the row.
     pub is_calculated: bool,
+    /// Design-time field order (as shown in Table Designer / DAO
+    /// `Field.OrdinalPosition`), as opposed to [`Self::col_num`]'s
+    /// creation order. These diverge whenever a field is inserted at a
+    /// specific position rather than appended -- e.g. inserting a new
+    /// field between two existing ones, or adding a "Calculated" field
+    /// right after the field it references. Unlike `col_num` (a
+    /// permanent, ever-incrementing counter that leaves gaps when
+    /// columns are deleted), this is a dense `0..num_cols` permutation
+    /// that Access renumbers in place on every structural change.
+    ///
+    /// Not implemented for Jet3 (Access 97): confirming an equivalent
+    /// field's offset would need a real Jet3 sample with a
+    /// manually-reordered column, and modern Access can no longer save
+    /// to that format to produce one (see
+    /// [`crate::format::JetFormat::coldef_display_index_pos`]'s doc
+    /// comment). For Jet3 this is set equal to `col_num` -- falling back
+    /// to creation order, this crate's pre-existing behavior, which has
+    /// been confirmed not to break reading against every available Jet3
+    /// sample.
+    pub display_index: u16,
 }
 
 /// A parsed table definition.
@@ -193,8 +213,11 @@ pub fn read_table_def(
     // 3i. Build index defs
     let indexes = build_index_defs(&logical_indexes, &idx_col_defs, idx_names);
 
-    // 3j. Sort columns by col_num
-    columns.sort_by_key(|c| c.col_num);
+    // 3j. Sort columns by design-time field order (Table Designer / DAO
+    // `Field.OrdinalPosition`), not `col_num` (creation order) -- these
+    // diverge whenever a field was inserted at a specific position
+    // rather than appended. See `ColumnDef::display_index`'s doc comment.
+    columns.sort_by_key(|c| c.display_index);
 
     Ok(TableDef {
         name: name.to_string(),
@@ -423,6 +446,10 @@ fn parse_column_entries(
         let precision = cursor.u8_at(entry_start + format.coldef_precision_pos)?;
         let is_calculated = !is_jet3
             && (cursor.u8_at(entry_start + COLDEF_EXT_FLAGS_POS)? & CALCULATED_EXT_FLAG_MASK) != 0;
+        let display_index = format
+            .coldef_display_index_pos
+            .and_then(|pos| cursor.u16_le_at(entry_start + pos).ok())
+            .unwrap_or(col_num);
 
         columns.push(ColumnDef {
             name: String::new(), // filled by read_names
@@ -436,6 +463,7 @@ fn parse_column_entries(
             scale,
             precision,
             is_calculated,
+            display_index,
         });
 
         cursor.set_position(entry_start + span);
@@ -683,16 +711,32 @@ mod tests {
     }
 
     #[test]
-    fn columns_sorted_by_col_num() {
+    fn columns_sorted_by_display_index() {
+        // MSysObjects columns aren't reordered in Design View, so
+        // display_index and col_num should coincide here -- but the
+        // sort itself is by display_index (see `ColumnDef::display_index`'s
+        // doc comment for why these two can diverge on other tables).
         let path = skip_if_missing!("V2003/testV2003.mdb");
         let mut reader = PageReader::open(&path).unwrap();
         let tdef = read_table_def(&mut reader, "MSysObjects", CATALOG_PAGE).unwrap();
         for w in tdef.columns.windows(2) {
             assert!(
-                w[0].col_num <= w[1].col_num,
-                "columns should be sorted by col_num"
+                w[0].display_index <= w[1].display_index,
+                "columns should be sorted by display_index"
             );
         }
+    }
+
+    #[test]
+    fn columns_ordered_by_design_time_insert_not_creation_order() {
+        // Table1: fields ID, A, C were created in that order, then B was
+        // inserted between A and C in Design View. Creation order
+        // (col_num) is therefore ID, A, C, B -- but Design View (and this
+        // column list) should show ID, A, B, C.
+        let path = skip_if_missing!("V2007/columnOrderTestV2007.accdb");
+        let tdef = assert_user_table_indexes(&path, "Table1");
+        let names: Vec<&str> = tdef.columns.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, vec!["ID", "A", "B", "C"]);
     }
 
     #[test]
@@ -878,6 +922,7 @@ mod tests {
             precision: 0,
             scale: 0,
             is_calculated: false,
+            display_index: 1,
         };
         assert!(is_replication_column(&col));
     }
@@ -896,6 +941,7 @@ mod tests {
             precision: 0,
             scale: 0,
             is_calculated: false,
+            display_index: 1,
         };
         assert!(!is_replication_column(&col));
     }

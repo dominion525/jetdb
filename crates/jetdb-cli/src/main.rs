@@ -683,6 +683,7 @@ mod tests {
             precision,
             scale,
             is_calculated: false,
+            display_index: 0,
         }
     }
 
