@@ -1,6 +1,6 @@
 //! Data row reading and value extraction from table pages.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::encoding;
 use crate::file::{find_row, FileError, PageReader};
@@ -72,9 +72,34 @@ impl ReadResult {
 
 /// Read all data rows from the table's data pages.
 ///
+/// Also detects and decodes Access "Calculated" field values (an expression
+/// cached alongside the row, introduced in Access 2010) via one extra
+/// `MSysObjects.LvProp` read -- see [`read_calculated_value`]'s doc comment
+/// for the byte format. This lookup is skipped for system tables (`MSys*`):
+/// they never have user-defined calculated fields, and
+/// [`crate::prop::read_object_properties`] itself reads `MSysObjects` via
+/// this same function, so attempting the lookup while reading `MSysObjects`
+/// would recurse.
+///
 /// Returns a `ReadResult` containing the successfully parsed rows and a count
 /// of rows that were skipped due to errors (e.g. corrupt row data).
 pub fn read_table_rows(reader: &mut PageReader, table: &TableDef) -> Result<ReadResult, FileError> {
+    let calculated = if table.name.starts_with("MSys") {
+        HashMap::new()
+    } else {
+        crate::prop::read_object_properties(reader, &table.name)
+            .ok()
+            .map(|props| calculated_result_types(&props))
+            .unwrap_or_default()
+    };
+    read_table_rows_impl(reader, table, &calculated)
+}
+
+fn read_table_rows_impl(
+    reader: &mut PageReader,
+    table: &TableDef,
+    calculated: &HashMap<String, ColumnType>,
+) -> Result<ReadResult, FileError> {
     let format = reader.format();
     let is_jet3 = reader.header().version.is_jet3();
     // A per-table property, so compute it once rather than per row. See
@@ -144,7 +169,7 @@ pub fn read_table_rows(reader: &mut PageReader, table: &TableDef) -> Result<Read
 
             let mut values = Vec::with_capacity(table.columns.len());
             for col in &table.columns {
-                let val = read_column_value(&cracked, col, is_jet3, reader);
+                let val = read_column_value(&cracked, col, is_jet3, reader, calculated);
                 values.push(val);
             }
             rows.push(values);
@@ -454,6 +479,7 @@ fn read_column_value(
     col: &ColumnDef,
     is_jet3: bool,
     reader: &mut PageReader,
+    calculated: &HashMap<String, ColumnType>,
 ) -> Value {
     // Boolean is special: value comes from the null mask
     if col.col_type == ColumnType::Boolean {
@@ -463,6 +489,18 @@ fn read_column_value(
     // All other types: check null first
     if is_null(cracked.null_mask, col.col_num) {
         return Value::Null;
+    }
+
+    // Access "Calculated" fields are always delivered through the
+    // variable-length mechanism, whatever their nominal `col.col_type`
+    // says (often just a generic placeholder -- see
+    // `read_calculated_value`'s doc comment).
+    if !col.is_fixed {
+        if let Some(&result_type) = calculated.get(&col.name.to_ascii_lowercase()) {
+            if let Some(var_data) = extract_var_data(cracked, col) {
+                return read_calculated_value(var_data, result_type, is_jet3);
+            }
+        }
     }
 
     if col.is_fixed {
@@ -607,6 +645,24 @@ fn read_fixed_value(cracked: &CrackedRow<'_>, col: &ColumnDef, is_jet3: bool) ->
     }
 }
 
+/// Locates a variable-length column's raw byte slice within the row, per
+/// the `var_offsets` table (`var_offsets[k]..var_offsets[k+1]` for var col
+/// `k`). Shared by [`read_variable_value`] and [`read_calculated_value`]'s
+/// caller, since Access "Calculated" fields also always go through this
+/// storage mechanism.
+fn extract_var_data<'a>(cracked: &CrackedRow<'a>, col: &ColumnDef) -> Option<&'a [u8]> {
+    let var_idx = col.var_col_num as usize;
+    if var_idx + 1 >= cracked.var_offsets.len() {
+        return None;
+    }
+    let start = cracked.var_offsets[var_idx] as usize;
+    let end = cracked.var_offsets[var_idx + 1] as usize;
+    if start > end || end > cracked.row_data.len() {
+        return None;
+    }
+    Some(&cracked.row_data[start..end])
+}
+
 /// Read a variable-length column value.
 fn read_variable_value(
     cracked: &CrackedRow<'_>,
@@ -614,23 +670,9 @@ fn read_variable_value(
     is_jet3: bool,
     reader: &mut PageReader,
 ) -> Value {
-    // var_offsets is read backwards from vcc_pos:
-    // Data for var col k: row_data[var_offsets[k]..var_offsets[k+1]]
-    let var_idx = col.var_col_num as usize;
-
-    // Need var_offsets[var_idx] (start) and var_offsets[var_idx+1] (end)
-    if var_idx + 1 >= cracked.var_offsets.len() {
+    let Some(var_data) = extract_var_data(cracked, col) else {
         return Value::Null;
-    }
-
-    let start = cracked.var_offsets[var_idx] as usize;
-    let end = cracked.var_offsets[var_idx + 1] as usize;
-
-    if start > end || end > cracked.row_data.len() {
-        return Value::Null;
-    }
-
-    let var_data = &cracked.row_data[start..end];
+    };
 
     match col.col_type {
         ColumnType::Text => match encoding::decode_text(var_data, is_jet3) {
@@ -704,6 +746,183 @@ fn read_variable_value(
         }
         _ => Value::Null,
     }
+}
+
+// ---------------------------------------------------------------------------
+// Access "Calculated" fields
+// ---------------------------------------------------------------------------
+
+/// Extracts, for one table, the Result Type of every column that has an
+/// Access "Calculated" field expression -- i.e. every column-level property
+/// map with both an `Expression` and a `ResultType` property. `Expression`
+/// presence is the reliable signal that a column is calculated (a plain
+/// column never has one); `ResultType` is the calculated value's actual
+/// data type, encoded as the same byte values as [`ColumnType`].
+///
+/// Keyed by lowercased column name for case-insensitive lookup against
+/// [`ColumnDef::name`].
+fn calculated_result_types(props: &crate::prop::ObjectProperties) -> HashMap<String, ColumnType> {
+    let mut result = HashMap::new();
+    for map in &props.maps {
+        if map.map_type != crate::prop::PropMapType::Column {
+            continue;
+        }
+        let has_expression = map.properties.iter().any(|p| p.name == "Expression");
+        if !has_expression {
+            continue;
+        }
+        let Some(result_type_prop) = map.properties.iter().find(|p| p.name == "ResultType") else {
+            continue;
+        };
+        let byte = match result_type_prop.value {
+            Value::Byte(b) => b,
+            Value::Int(i) => i as u8,
+            Value::Long(l) => l as u8,
+            _ => continue,
+        };
+        if let Ok(col_type) = ColumnType::try_from(byte) {
+            result.insert(map.name.to_ascii_lowercase(), col_type);
+        }
+    }
+    result
+}
+
+/// Decodes an Access "Calculated" field's cached value, given its actual
+/// `result_type` (from [`calculated_result_types`]'s `Expression`/
+/// `ResultType` properties). `ColumnDef::col_type` can't be used for this:
+/// Access's Calculated Field UI lets a user pick a Result Type (Short
+/// Text, Long Integer, Double, Currency, ...) independently of the
+/// expression, but the column's *declared* physical type ends up as a
+/// generic placeholder for most numeric choices (observed: Integer, Long
+/// Integer, Single, Double, and Currency Result Types all declare the
+/// column as plain `Double`), so only `result_type` says how to actually
+/// read the bytes.
+///
+/// The cached value is always delivered through the variable-length
+/// storage mechanism (`var_data`), wrapped in an envelope: reserved bytes,
+/// then a 4-byte little-endian byte length, then that many bytes holding
+/// the value. Reserved-section shape depends on `result_type`: 16 zero
+/// bytes for every type except Memo, which uses a distinct 28-byte shape
+/// (4-byte tag + 24 zero bytes) -- both verified byte-for-byte against a
+/// real Access 2019 database with a calculated column of every Result Type
+/// available in the Access UI.
+///
+/// Most types' payload uses the *same* encoding a normal fixed/variable
+/// column of that type uses elsewhere in this module. Numeric/Decimal is
+/// the exception: a calculated Decimal result has no reliable external
+/// scale to borrow (unlike an ordinary stored Decimal column, neither
+/// `ColumnDef` nor the `LvProp` properties carry a usable scale for a
+/// calculated field, and an expression's result scale isn't fixed anyway),
+/// so its payload is self-describing instead -- see
+/// [`crate::money::decimal_variant_to_string`]'s doc comment.
+fn read_calculated_value(var_data: &[u8], result_type: ColumnType, is_jet3: bool) -> Value {
+    let reserved_len = if result_type == ColumnType::Memo { 28 } else { 16 };
+    let Some(payload) = extract_calculated_payload(var_data, reserved_len) else {
+        return Value::Null;
+    };
+
+    match result_type {
+        ColumnType::Text => match encoding::decode_text(payload, is_jet3) {
+            Ok(s) => Value::Text(s),
+            Err(_) => Value::Null,
+        },
+        // Memo's payload is raw UTF-16LE (no FF FE compressed-text marker).
+        ColumnType::Memo => match encoding::decode_utf16le(payload) {
+            Ok(s) => Value::Text(s),
+            Err(_) => Value::Null,
+        },
+        ColumnType::Boolean if !payload.is_empty() => Value::Bool(payload[0] != 0),
+        ColumnType::Byte if !payload.is_empty() => Value::Byte(payload[0]),
+        ColumnType::Int if payload.len() >= 2 => {
+            let Ok(bytes) = payload[..2].try_into() else {
+                return Value::Null;
+            };
+            Value::Int(i16::from_le_bytes(bytes))
+        }
+        ColumnType::Long if payload.len() >= 4 => {
+            let Ok(bytes) = payload[..4].try_into() else {
+                return Value::Null;
+            };
+            Value::Long(i32::from_le_bytes(bytes))
+        }
+        ColumnType::Float if payload.len() >= 4 => {
+            let Ok(bytes) = payload[..4].try_into() else {
+                return Value::Null;
+            };
+            Value::Float(f32::from_le_bytes(bytes))
+        }
+        ColumnType::Double if payload.len() >= 8 => {
+            let Ok(bytes) = payload[..8].try_into() else {
+                return Value::Null;
+            };
+            Value::Double(f64::from_le_bytes(bytes))
+        }
+        ColumnType::Money if payload.len() >= 8 => {
+            let Ok(bytes): Result<[u8; 8], _> = payload[..8].try_into() else {
+                return Value::Null;
+            };
+            Value::Money(money::money_to_string(&bytes))
+        }
+        ColumnType::BigInt if payload.len() >= 8 => {
+            let Ok(bytes) = payload[..8].try_into() else {
+                return Value::Null;
+            };
+            Value::BigInt(i64::from_le_bytes(bytes))
+        }
+        ColumnType::Timestamp if payload.len() >= 8 => {
+            let Ok(bytes) = payload[..8].try_into() else {
+                return Value::Null;
+            };
+            Value::Timestamp(f64::from_le_bytes(bytes))
+        }
+        // Exact same 42-byte text encoding `parse_ext_datetime` already
+        // parses for the fixed-width column format.
+        ColumnType::DateTimeExtended if payload.len() == 42 => match parse_ext_datetime(payload) {
+            Some(s) => Value::DateTimeExtended(s),
+            None => Value::Null,
+        },
+        // Same raw 16-byte layout as the ordinary fixed-column format.
+        ColumnType::Guid if payload.len() >= 16 => Value::Guid(format_guid(&payload[..16])),
+        // Self-describing OLE Automation DECIMAL structure -- see
+        // `money::decimal_variant_to_string`'s doc comment for why this
+        // differs from the ordinary fixed-column Numeric format.
+        ColumnType::Numeric if payload.len() >= 16 => {
+            let Ok(bytes): Result<[u8; 16], _> = payload[..16].try_into() else {
+                return Value::Null;
+            };
+            Value::Numeric(money::decimal_variant_to_string(&bytes))
+        }
+        // Anything else: not (yet) reliably decodable -- see this
+        // function's doc comment.
+        _ => Value::Null,
+    }
+}
+
+/// Extracts the payload from an Access "Calculated" field's cached-value
+/// envelope: `reserved_len` reserved bytes, then a 4-byte little-endian
+/// byte length, then that many payload bytes. Returns `None` if the shape
+/// doesn't match (empty/NULL cached value, or data that isn't actually
+/// this envelope), so callers fall back to `Value::Null` rather than
+/// misinterpreting unrelated bytes.
+fn extract_calculated_payload(data: &[u8], reserved_len: usize) -> Option<&[u8]> {
+    let header_len = reserved_len + 4;
+    if data.len() < header_len {
+        return None;
+    }
+    // Only validated for the 16-byte shape (all zero in every sample seen);
+    // Memo's 28-byte reserved section starts with a non-zero 4-byte tag
+    // whose exact meaning isn't confirmed, so it's trusted structurally
+    // (length + resulting slice fitting the buffer) rather than by content.
+    if reserved_len == 16 && data[..16] != [0u8; 16] {
+        return None;
+    }
+    let len_bytes: [u8; 4] = data[reserved_len..header_len].try_into().ok()?;
+    let len = u32::from_le_bytes(len_bytes) as usize;
+    let end = header_len + len;
+    if end > data.len() {
+        return None;
+    }
+    Some(&data[header_len..end])
 }
 
 // ---------------------------------------------------------------------------
@@ -1655,7 +1874,7 @@ mod tests {
             precision: 0,
         };
         assert_eq!(
-            read_column_value(&cracked, &bool_col, false, &mut reader),
+            read_column_value(&cracked, &bool_col, false, &mut reader, &HashMap::new()),
             Value::Bool(true)
         );
 
@@ -1665,7 +1884,7 @@ mod tests {
             ..bool_col.clone()
         };
         assert_eq!(
-            read_column_value(&cracked, &bool_col_false, false, &mut reader),
+            read_column_value(&cracked, &bool_col_false, false, &mut reader, &HashMap::new()),
             Value::Bool(false)
         );
     }
@@ -1695,7 +1914,7 @@ mod tests {
             precision: 0,
         };
         assert_eq!(
-            read_column_value(&cracked, &col, false, &mut reader),
+            read_column_value(&cracked, &col, false, &mut reader, &HashMap::new()),
             Value::Null
         );
     }
@@ -1725,7 +1944,7 @@ mod tests {
             precision: 0,
         };
         assert_eq!(
-            read_column_value(&cracked, &col, false, &mut reader),
+            read_column_value(&cracked, &col, false, &mut reader, &HashMap::new()),
             Value::Int(-42)
         );
     }
@@ -2494,5 +2713,226 @@ mod tests {
             names.iter().any(|n| n.contains("dir")),
             "Expected a VBA dir entry among: {names:?}"
         );
+    }
+
+    // -- Access "Calculated" field envelope -------------------------------------
+    // Byte sequences captured verbatim from a real Access 2019 (.accdb) with a
+    // calculated column of every Result Type available in the Access UI.
+
+    #[test]
+    fn extract_calculated_payload_basic() {
+        let mut data = vec![0u8; 16];
+        data.extend_from_slice(&3u32.to_le_bytes());
+        data.extend_from_slice(&[1, 2, 3]);
+        data.extend_from_slice(&[9, 9, 9]); // trailing padding, ignored
+        assert_eq!(extract_calculated_payload(&data, 16), Some(&[1u8, 2, 3][..]));
+    }
+
+    #[test]
+    fn extract_calculated_payload_rejects_non_zero_reserved() {
+        let mut data = vec![0u8; 15];
+        data.push(1); // 16th reserved byte isn't zero
+        data.extend_from_slice(&2u32.to_le_bytes());
+        data.extend_from_slice(&[1, 2]);
+        assert_eq!(extract_calculated_payload(&data, 16), None);
+    }
+
+    #[test]
+    fn extract_calculated_payload_rejects_length_past_end() {
+        let mut data = vec![0u8; 16];
+        data.extend_from_slice(&100u32.to_le_bytes()); // claims more than exists
+        data.extend_from_slice(&[1, 2, 3]);
+        assert_eq!(extract_calculated_payload(&data, 16), None);
+    }
+
+    #[test]
+    fn extract_calculated_payload_rejects_too_short() {
+        assert_eq!(extract_calculated_payload(&[0u8; 10], 16), None);
+    }
+
+    /// Builds the standard (non-Memo) calculated-field envelope: 16 zero
+    /// bytes, a 4-byte LE length, then `payload`.
+    fn calc_envelope(payload: &[u8]) -> Vec<u8> {
+        let mut data = vec![0u8; 16];
+        data.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        data.extend_from_slice(payload);
+        data
+    }
+
+    #[test]
+    fn read_calculated_value_text() {
+        // "Nancy Freehafer" -- same envelope shape as the Northwind fix,
+        // reusing this module's `encoding::decode_text`.
+        let payload = [
+            0xFF, 0xFE, 0x4E, 0x61, 0x6E, 0x63, 0x79, 0x20, 0x46, 0x72, 0x65, 0x65, 0x68, 0x61, 0x66, 0x65, 0x72,
+        ];
+        let data = calc_envelope(&payload);
+        assert_eq!(
+            read_calculated_value(&data, ColumnType::Text, false),
+            Value::Text("Nancy Freehafer".to_string())
+        );
+    }
+
+    #[test]
+    fn read_calculated_value_memo() {
+        // Memo's envelope is 28 (not 16) reserved bytes, then a length,
+        // then raw UTF-16LE (no FF FE marker) -- "s1 longs1 long".
+        let mut data = vec![0x33, 0x00, 0x00, 0x80];
+        data.extend_from_slice(&[0u8; 24]);
+        let text = "s1 longs1 long";
+        let payload: Vec<u8> = text.encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
+        data.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        data.extend_from_slice(&payload);
+        assert_eq!(read_calculated_value(&data, ColumnType::Memo, false), Value::Text(text.to_string()));
+    }
+
+    #[test]
+    fn read_calculated_value_int_expression_division() {
+        // `[Number Integer]/2` where Number Integer = -32768 -> -16384,
+        // stored as a plain 2-byte Int16 (not the 8-byte Double the
+        // column's declared `col_type` would suggest).
+        let data = calc_envelope(&(-16384i16).to_le_bytes());
+        assert_eq!(read_calculated_value(&data, ColumnType::Int, false), Value::Int(-16384));
+    }
+
+    #[test]
+    fn read_calculated_value_int_rounds_to_even() {
+        // `[Number Integer]/2` where Number Integer = 32767 -> 16383.5,
+        // banker's-rounded to 16384 (nearest even) by Access before caching.
+        let data = calc_envelope(&16384i16.to_le_bytes());
+        assert_eq!(read_calculated_value(&data, ColumnType::Int, false), Value::Int(16384));
+    }
+
+    #[test]
+    fn read_calculated_value_long() {
+        // `[Number Long Integer]/2` where Number Long Integer = -2147483648.
+        let data = calc_envelope(&(-1073741824i32).to_le_bytes());
+        assert_eq!(read_calculated_value(&data, ColumnType::Long, false), Value::Long(-1073741824));
+    }
+
+    #[test]
+    fn read_calculated_value_bigint_rounds_to_even() {
+        // `[Large Number]/2` where Large Number = i64::MIN + 1 ->
+        // -4611686018427387903.5, banker's-rounded to the even neighbor.
+        let data = calc_envelope(&(-4611686018427387904i64).to_le_bytes());
+        assert_eq!(read_calculated_value(&data, ColumnType::BigInt, false), Value::BigInt(-4611686018427387904));
+    }
+
+    #[test]
+    fn read_calculated_value_double() {
+        // `[Number Double]/2`, a full 8-byte (untrimmed) f64 payload.
+        let data = calc_envelope(&(-5.985e307f64).to_le_bytes());
+        assert_eq!(read_calculated_value(&data, ColumnType::Double, false), Value::Double(-5.985e307));
+    }
+
+    #[test]
+    fn read_calculated_value_money() {
+        // `[Currency]/2` where Currency = -99999999999999.9999 -> the
+        // scaled-int64 halves to an exact .5, banker's-rounds to
+        // -50000000000000.0000 before caching.
+        let scaled: i64 = -500000000000000000; // -50000000000000.0000 * 10000
+        let data = calc_envelope(&scaled.to_le_bytes());
+        assert_eq!(
+            read_calculated_value(&data, ColumnType::Money, false),
+            Value::Money("-50000000000000.0000".to_string())
+        );
+    }
+
+    #[test]
+    fn read_calculated_value_timestamp() {
+        // `[Date/Time]` passthrough of 0100-01-01 (days since 1899-12-30).
+        let data = calc_envelope(&(-657434.0f64).to_le_bytes());
+        assert_eq!(read_calculated_value(&data, ColumnType::Timestamp, false), Value::Timestamp(-657434.0));
+    }
+
+    #[test]
+    fn read_calculated_value_boolean() {
+        let data_true = calc_envelope(&[0xFF]);
+        assert_eq!(read_calculated_value(&data_true, ColumnType::Boolean, false), Value::Bool(true));
+        let data_false = calc_envelope(&[0x00]);
+        assert_eq!(read_calculated_value(&data_false, ColumnType::Boolean, false), Value::Bool(false));
+    }
+
+    #[test]
+    fn read_calculated_value_date_time_extended() {
+        // `[Date/Time Extended]` passthrough of 9999-12-31 23:59:59.9999999
+        // -- the exact same 42-byte text encoding as the fixed-width
+        // column format, reusing `parse_ext_datetime` unchanged.
+        let payload = ext_datetime_bytes(3652058, 86399, 9999999);
+        let data = calc_envelope(&payload);
+        assert_eq!(
+            read_calculated_value(&data, ColumnType::DateTimeExtended, false),
+            Value::DateTimeExtended("9999-12-31 23:59:59.9999999".to_string())
+        );
+    }
+
+    #[test]
+    fn read_calculated_value_unsupported_type_is_null_not_garbled() {
+        // A payload too short for any known type falls back to a clean
+        // `Null`, never a guess.
+        let data = calc_envelope(&[1, 2, 3, 4]);
+        assert_eq!(read_calculated_value(&data, ColumnType::Guid, false), Value::Null);
+    }
+
+    #[test]
+    fn read_calculated_value_guid() {
+        // `[Number Replication ID]` passthrough -- same raw 16-byte layout
+        // as the ordinary fixed-column Guid format.
+        let payload = [
+            0x67, 0x45, 0x3e, 0x12, 0x9b, 0xe8, 0xd3, 0x12, 0xa4, 0x56, 0x42, 0x66, 0x14, 0x17, 0x40, 0x00,
+        ];
+        let data = calc_envelope(&payload);
+        assert_eq!(
+            read_calculated_value(&data, ColumnType::Guid, false),
+            Value::Guid("{123E4567-E89B-12D3-A456-426614174000}".to_string())
+        );
+    }
+
+    #[test]
+    fn read_calculated_value_numeric() {
+        // `[Number Decimal 7x2]/2` = 1.23 / 2 = 0.615 -- OLE Automation
+        // DECIMAL structure, see `money::decimal_variant_to_string`.
+        let payload = [
+            0x0e, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x67, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ];
+        let data = calc_envelope(&payload);
+        assert_eq!(
+            read_calculated_value(&data, ColumnType::Numeric, false),
+            Value::Numeric("0.615".to_string())
+        );
+    }
+
+    #[test]
+    fn calculated_result_types_requires_expression_property() {
+        use crate::prop::{ObjectProperties, Property, PropMapType, PropertyMap};
+
+        let props = ObjectProperties {
+            object_name: "Employees".to_string(),
+            maps: vec![
+                // Calculated: has both Expression and ResultType.
+                PropertyMap {
+                    map_type: PropMapType::Column,
+                    name: "FullNameFNLN".to_string(),
+                    properties: vec![
+                        Property { name: "Expression".to_string(), value: Value::Text("x".to_string()), ddl: false },
+                        Property { name: "ResultType".to_string(), value: Value::Byte(10), ddl: false },
+                    ],
+                },
+                // Not calculated: no Expression property at all.
+                PropertyMap {
+                    map_type: PropMapType::Column,
+                    name: "EmployeeID".to_string(),
+                    properties: vec![Property {
+                        name: "ColumnWidth".to_string(),
+                        value: Value::Long(-1),
+                        ddl: false,
+                    }],
+                },
+            ],
+        };
+
+        let result = calculated_result_types(&props);
+        assert_eq!(result.get("fullnamefnln"), Some(&ColumnType::Text));
+        assert_eq!(result.get("employeeid"), None);
     }
 }
