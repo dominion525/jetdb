@@ -38,13 +38,14 @@ pub trait DdlDialect {
 // Primary key detection
 // ---------------------------------------------------------------------------
 
-/// Find the primary key index: UNIQUE + REQUIRED and not a FOREIGN_KEY.
+/// Find the primary key index. `index_type::PRIMARY` is Access's own
+/// `Index.Primary` property, not inferred from the index's name (which the
+/// user can rename freely) or its UNIQUE/REQUIRED flags (an ordinary,
+/// non-primary index can carry either -- e.g. every Attachment/multivalue
+/// column gets its own hidden UNIQUE + REQUIRED index) -- see
+/// `format::index_type`'s doc comment.
 fn find_primary_key(tdef: &TableDef) -> Option<&IndexDef> {
-    tdef.indexes.iter().find(|idx| {
-        idx.index_type != index_type::FOREIGN_KEY
-            && (idx.flags & index_flags::UNIQUE) != 0
-            && (idx.flags & index_flags::REQUIRED) != 0
-    })
+    tdef.indexes.iter().find(|idx| idx.index_type == index_type::PRIMARY)
 }
 
 /// Check if a column is auto-increment.
@@ -683,7 +684,7 @@ mod tests {
                 "PrimaryKey",
                 &[1],
                 index_flags::UNIQUE | index_flags::REQUIRED,
-                index_type::NORMAL,
+                index_type::PRIMARY,
                 0,
             )],
         );
@@ -709,7 +710,7 @@ mod tests {
                 "PrimaryKey",
                 &[1],
                 index_flags::UNIQUE | index_flags::REQUIRED,
-                index_type::NORMAL,
+                index_type::PRIMARY,
                 0,
             )],
         );
@@ -743,7 +744,7 @@ mod tests {
                 "PrimaryKey",
                 &[1],
                 index_flags::UNIQUE | index_flags::REQUIRED,
-                index_type::NORMAL,
+                index_type::PRIMARY,
                 0,
             )],
         );
@@ -773,7 +774,7 @@ mod tests {
                 "PrimaryKey",
                 &[1],
                 index_flags::UNIQUE | index_flags::REQUIRED,
-                index_type::NORMAL,
+                index_type::PRIMARY,
                 0,
             )],
         );
@@ -826,7 +827,7 @@ mod tests {
                 "PrimaryKey",
                 &[1],
                 index_flags::UNIQUE | index_flags::REQUIRED,
-                index_type::NORMAL,
+                index_type::PRIMARY,
                 0,
             )],
         );
@@ -932,7 +933,7 @@ mod tests {
                 "PrimaryKey",
                 &[1],
                 index_flags::UNIQUE | index_flags::REQUIRED,
-                index_type::NORMAL,
+                index_type::PRIMARY,
                 0,
             )],
         );
@@ -959,7 +960,7 @@ mod tests {
                     "PrimaryKey",
                     &[1],
                     index_flags::UNIQUE | index_flags::REQUIRED,
-                    index_type::NORMAL,
+                    index_type::PRIMARY,
                     0,
                 )],
             ),
@@ -974,7 +975,7 @@ mod tests {
                         "PrimaryKey",
                         &[1],
                         index_flags::UNIQUE | index_flags::REQUIRED,
-                        index_type::NORMAL,
+                        index_type::PRIMARY,
                         0,
                     ),
                     index("idx_pid", &[2], 0, index_type::NORMAL, 1),
@@ -1083,7 +1084,7 @@ mod tests {
                 "PrimaryKey",
                 &[1, 2],
                 index_flags::UNIQUE | index_flags::REQUIRED,
-                index_type::NORMAL,
+                index_type::PRIMARY,
                 0,
             )],
         );
@@ -1494,7 +1495,7 @@ mod tests {
                 "PrimaryKey",
                 &[1],
                 index_flags::UNIQUE | index_flags::REQUIRED,
-                index_type::NORMAL,
+                index_type::PRIMARY,
                 0,
             )],
         );
@@ -1533,5 +1534,81 @@ mod tests {
             result.contains("FOREIGN KEY (\"a\", \"b\") REFERENCES \"Parent\" (\"x\", \"y\")"),
             "got:\n{result}"
         );
+    }
+
+    // -- find_primary_key: real samples ----------------------------------------
+    //
+    // primaryKeyTestV2007.accdb, covering a
+    // default-named PK, a renamed PK, a renamed multi-column PK, and a PK
+    // coexisting with other indexes carrying every UNIQUE/IGNORE_NULLS
+    // combination. Regression coverage for `find_primary_key` having
+    // relied on the index literally being named "PrimaryKey" (renamable by
+    // the user, so unreliable) instead of `index_type::PRIMARY` (Access's
+    // own `Index.Primary` property).
+
+    fn test_data_path(relative: &str) -> Option<std::path::PathBuf> {
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let path = std::path::PathBuf::from(manifest_dir).join("../../testdata").join(relative);
+        if path.exists() {
+            Some(path)
+        } else {
+            None
+        }
+    }
+
+    macro_rules! skip_if_missing {
+        ($path:expr) => {
+            match test_data_path($path) {
+                Some(p) => p,
+                None => {
+                    eprintln!("SKIP: test data not found: {}", $path);
+                    return;
+                }
+            }
+        };
+    }
+
+    fn create_table_ddl(path: &std::path::Path, table_name: &str) -> String {
+        let mut reader = crate::file::PageReader::open(path).unwrap();
+        let entries = crate::catalog::read_catalog(&mut reader).unwrap();
+        let entry = entries
+            .iter()
+            .find(|e| e.name == table_name && e.object_type == crate::format::ObjectType::Table)
+            .unwrap_or_else(|| panic!("table '{table_name}' not found"));
+        let tdef = crate::table::read_table_def(&mut reader, &entry.name, entry.table_page).unwrap();
+        generate_create_table(&Access, &tdef, &[])
+    }
+
+    #[test]
+    fn find_primary_key_default_name() {
+        let path = skip_if_missing!("V2007/primaryKeyTestV2007.accdb");
+        let ddl = create_table_ddl(&path, "t1defaultPK");
+        assert!(ddl.contains("PRIMARY KEY ([ID])"), "got:\n{ddl}");
+    }
+
+    #[test]
+    fn find_primary_key_renamed() {
+        // The index itself is named "MyKey", not "PrimaryKey" -- this is
+        // exactly the case a name-based check gets wrong.
+        let path = skip_if_missing!("V2007/primaryKeyTestV2007.accdb");
+        let ddl = create_table_ddl(&path, "t2renamedPK");
+        assert!(ddl.contains("PRIMARY KEY ([ID])"), "got:\n{ddl}");
+    }
+
+    #[test]
+    fn find_primary_key_ignores_other_unique_required_indexes() {
+        // 4 other indexes here span every UNIQUE/IGNORE_NULLS combination
+        // (including plain UNIQUE with no REQUIRED) -- none of them should
+        // be picked over the real, "PrimaryKey"-named PK.
+        let path = skip_if_missing!("V2007/primaryKeyTestV2007.accdb");
+        let ddl = create_table_ddl(&path, "t3defaultPKandOtherIndexes");
+        assert!(ddl.contains("PRIMARY KEY ([ID])"), "got:\n{ddl}");
+    }
+
+    #[test]
+    fn find_primary_key_renamed_multi_column() {
+        let path = skip_if_missing!("V2007/primaryKeyTestV2007.accdb");
+        let ddl = create_table_ddl(&path, "t4renamedPKmulticol");
+        assert!(ddl.contains("PRIMARY KEY ([ID1], [ID2])"), "got:\n{ddl}");
     }
 }
