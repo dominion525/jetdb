@@ -59,6 +59,9 @@ pub enum FileError {
     InvalidFormData {
         reason: &'static str,
     },
+    InvalidMacroData {
+        reason: String,
+    },
     PasswordRequired,
     InvalidPassword,
     UnsupportedEncryption {
@@ -98,6 +101,7 @@ impl fmt::Display for FileError {
             Self::FormNotFound { name } => write!(f, "form/report not found: {name}"),
             Self::InvalidVbaProject { reason } => write!(f, "invalid VBA project: {reason}"),
             Self::InvalidFormData { reason } => write!(f, "invalid form data: {reason}"),
+            Self::InvalidMacroData { reason } => write!(f, "invalid macro data: {reason}"),
             Self::PasswordRequired => write!(f, "this database is password-protected"),
             Self::InvalidPassword => write!(f, "invalid password"),
             Self::UnsupportedEncryption { reason } => {

@@ -128,7 +128,7 @@ pub fn list_forms(reader: &mut PageReader) -> Result<Vec<FormEntry>, FileError> 
         return Ok(Vec::new());
     }
 
-    let root_id = find_root_id(&entries);
+    let root_id = storage::find_root_id(&entries);
 
     let mut result = Vec::new();
 
@@ -137,9 +137,9 @@ pub fn list_forms(reader: &mut PageReader) -> Result<Vec<FormEntry>, FileError> 
         .iter()
         .find(|e| e.parent_id == root_id && e.name == "Forms" && storage::is_storage(e))
     {
-        let dir = find_dir_data(&entries, forms_folder.id);
+        let dir = storage::find_dir_data(&entries, forms_folder.id);
         if let Some(dir_data) = dir {
-            let mapping = parse_dir_data(&dir_data.data)?;
+            let mapping = storage::parse_dir_data(&dir_data.data)?;
             for (name, _storage_num) in mapping {
                 result.push(FormEntry {
                     name,
@@ -154,9 +154,9 @@ pub fn list_forms(reader: &mut PageReader) -> Result<Vec<FormEntry>, FileError> 
         .iter()
         .find(|e| e.parent_id == root_id && e.name == "Reports" && storage::is_storage(e))
     {
-        let dir = find_dir_data(&entries, reports_folder.id);
+        let dir = storage::find_dir_data(&entries, reports_folder.id);
         if let Some(dir_data) = dir {
-            let mapping = parse_dir_data(&dir_data.data)?;
+            let mapping = storage::parse_dir_data(&dir_data.data)?;
             for (name, _storage_num) in mapping {
                 result.push(FormEntry {
                     name,
@@ -371,7 +371,7 @@ fn find_stream(
     name: &str,
     stream_kind: StreamKind,
 ) -> Result<(FormObjectType, Vec<u8>), FileError> {
-    let root_id = find_root_id(entries);
+    let root_id = storage::find_root_id(entries);
 
     // Try Forms first, then Reports
     for (folder_name, obj_type) in [
@@ -382,8 +382,8 @@ fn find_stream(
             .iter()
             .find(|e| e.parent_id == root_id && e.name == folder_name && storage::is_storage(e))
         {
-            if let Some(dir_data) = find_dir_data(entries, folder.id) {
-                let mapping = parse_dir_data(&dir_data.data)?;
+            if let Some(dir_data) = storage::find_dir_data(entries, folder.id) {
+                let mapping = storage::parse_dir_data(&dir_data.data)?;
                 if let Some((_form_name, storage_num)) = mapping.iter().find(|(n, _)| n == name) {
                     // Find the storage entry with this number under the folder
                     if let Some(form_storage) = entries.iter().find(|e| {
@@ -409,113 +409,6 @@ fn find_stream(
     })
 }
 
-/// Find the root entry ID (MSysAccessStorage_ROOT).
-///
-/// The root has `parent_id == id` (self-referencing) or is simply id=1.
-fn find_root_id(entries: &[storage::StorageEntry]) -> i32 {
-    entries
-        .iter()
-        .find(|e| e.parent_id == e.id && storage::is_storage(e))
-        .map(|e| e.id)
-        .unwrap_or(1)
-}
-
-/// Find the DirData stream entry under a folder.
-///
-/// The name may be prefixed with a control character (e.g., "\x03DirData").
-fn find_dir_data(
-    entries: &[storage::StorageEntry],
-    folder_id: i32,
-) -> Option<&storage::StorageEntry> {
-    entries.iter().find(|e| {
-        e.parent_id == folder_id
-            && !storage::is_storage(e)
-            && (e.name == "DirData" || e.name.ends_with("DirData"))
-    })
-}
-
-// ---------------------------------------------------------------------------
-// Internal: DirData parser
-// ---------------------------------------------------------------------------
-
-/// Parse DirData binary into (name, storage_number) pairs.
-///
-/// Format:
-/// - 4-byte header (zeros)
-/// - Entries: `[0x04] [len:u8] [UTF-16LE name] [storage_index:u16LE] [0x0000]`
-///
-/// `len` is normally reliable, but can be too short when names contain characters
-/// whose UTF-16LE low byte is 0x00 (e.g., U+4E00 '一' → 00 4E). We use `len` as
-/// the primary boundary but fall back to scanning if the payload doesn't end with
-/// a null terminator.
-fn parse_dir_data(data: &[u8]) -> Result<Vec<(String, String)>, FileError> {
-    if data.len() < 4 {
-        return Ok(Vec::new());
-    }
-
-    let mut entries = Vec::new();
-    let mut pos = 4; // skip header
-
-    while pos + 1 < data.len() {
-        if data[pos] != 0x04 {
-            break;
-        }
-        let declared_len = data[pos + 1] as usize;
-        pos += 2; // skip marker and len byte
-
-        if declared_len < 4 || pos + declared_len > data.len() {
-            break;
-        }
-
-        // Try declared_len first: check if payload ends with 0x0000
-        let payload_end = pos + declared_len;
-        let ends_with_null =
-            payload_end >= 2 && data[payload_end - 2] == 0x00 && data[payload_end - 1] == 0x00;
-
-        let actual_end = if ends_with_null {
-            payload_end
-        } else {
-            // declared_len is wrong; scan forward for the null terminator.
-            // Look for a u16-aligned 0x0000 that is followed by 0x04 or EOF.
-            let mut scan = pos + declared_len;
-            loop {
-                if scan + 1 >= data.len() {
-                    break scan + 1; // end of data
-                }
-                let val = u16::from_le_bytes([data[scan], data[scan + 1]]);
-                if val == 0x0000 {
-                    break scan + 2; // past the null terminator
-                }
-                scan += 2;
-            }
-        };
-
-        // Payload layout: [name UTF-16LE] [storage_index u16LE] [0x0000]
-        // Last 4 bytes: storage_index(2) + null(2)
-        if actual_end < pos + 4 {
-            pos = actual_end;
-            continue;
-        }
-
-        let name_bytes = &data[pos..actual_end - 4];
-        let storage_index = u16::from_le_bytes([data[actual_end - 4], data[actual_end - 3]]);
-
-        if name_bytes.is_empty() {
-            pos = actual_end;
-            continue;
-        }
-
-        let name =
-            encoding::decode_utf16le(name_bytes).map_err(|_| FileError::InvalidFormData {
-                reason: "invalid UTF-16LE in DirData name",
-            })?;
-
-        entries.push((name, storage_index.to_string()));
-        pos = actual_end;
-    }
-
-    Ok(entries)
-}
 
 // ---------------------------------------------------------------------------
 // Internal: TypeInfo parser
@@ -1052,13 +945,13 @@ mod tests {
     fn parse_dir_data_empty() {
         // Just a 4-byte header
         let data = [0x00, 0x00, 0x00, 0x00];
-        let result = parse_dir_data(&data).unwrap();
+        let result = storage::parse_dir_data(&data).unwrap();
         assert!(result.is_empty());
     }
 
     #[test]
     fn parse_dir_data_too_short() {
-        let result = parse_dir_data(&[0x00]).unwrap();
+        let result = storage::parse_dir_data(&[0x00]).unwrap();
         assert!(result.is_empty());
     }
 
@@ -1075,7 +968,7 @@ mod tests {
         // null terminator
         data.extend_from_slice(&[0x00, 0x00]);
 
-        let result = parse_dir_data(&data).unwrap();
+        let result = storage::parse_dir_data(&data).unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].0, "AB");
         assert_eq!(result[0].1, "5");

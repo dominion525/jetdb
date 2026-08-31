@@ -1,9 +1,11 @@
-//! MSysAccessStorage table reading — shared infrastructure for VBA and form/report extraction.
+//! MSysAccessStorage table reading — shared infrastructure for VBA, form/report,
+//! and macro extraction.
 
 use std::collections::HashSet;
 
 use crate::catalog;
 use crate::data::{self, Value};
+use crate::encoding;
 use crate::file::{FileError, PageReader};
 use crate::table;
 
@@ -124,6 +126,111 @@ pub(crate) fn collect_children<'a>(
             collect_children(entries, entry.id, result, visited);
         }
     }
+}
+
+/// Find the root entry ID (MSysAccessStorage_ROOT).
+///
+/// The root has `parent_id == id` (self-referencing) or is simply id=1.
+pub(crate) fn find_root_id(entries: &[StorageEntry]) -> i32 {
+    entries
+        .iter()
+        .find(|e| e.parent_id == e.id && is_storage(e))
+        .map(|e| e.id)
+        .unwrap_or(1)
+}
+
+/// Find the DirData stream entry under a folder.
+///
+/// The name may be prefixed with a control character (e.g., "\x03DirData").
+pub(crate) fn find_dir_data(entries: &[StorageEntry], folder_id: i32) -> Option<&StorageEntry> {
+    entries.iter().find(|e| {
+        e.parent_id == folder_id
+            && !is_storage(e)
+            && (e.name == "DirData" || e.name.ends_with("DirData"))
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Internal: DirData parser
+// ---------------------------------------------------------------------------
+
+/// Parse DirData binary into (name, storage_number) pairs.
+///
+/// Format:
+/// - 4-byte header (zeros)
+/// - Entries: `[0x04] [len:u8] [UTF-16LE name] [storage_index:u16LE] [0x0000]`
+///
+/// `len` is normally reliable, but can be too short when names contain characters
+/// whose UTF-16LE low byte is 0x00 (e.g., U+4E00 '一' → 00 4E). We use `len` as
+/// the primary boundary but fall back to scanning if the payload doesn't end with
+/// a null terminator.
+pub(crate) fn parse_dir_data(data: &[u8]) -> Result<Vec<(String, String)>, FileError> {
+    if data.len() < 4 {
+        return Ok(Vec::new());
+    }
+
+    let mut entries = Vec::new();
+    let mut pos = 4; // skip header
+
+    while pos + 1 < data.len() {
+        if data[pos] != 0x04 {
+            break;
+        }
+        let declared_len = data[pos + 1] as usize;
+        pos += 2; // skip marker and len byte
+
+        if declared_len < 4 || pos + declared_len > data.len() {
+            break;
+        }
+
+        // Try declared_len first: check if payload ends with 0x0000
+        let payload_end = pos + declared_len;
+        let ends_with_null =
+            payload_end >= 2 && data[payload_end - 2] == 0x00 && data[payload_end - 1] == 0x00;
+
+        let actual_end = if ends_with_null {
+            payload_end
+        } else {
+            // declared_len is wrong; scan forward for the null terminator.
+            // Look for a u16-aligned 0x0000 that is followed by 0x04 or EOF.
+            let mut scan = pos + declared_len;
+            loop {
+                if scan + 1 >= data.len() {
+                    break scan + 1; // end of data
+                }
+                let val = u16::from_le_bytes([data[scan], data[scan + 1]]);
+                if val == 0x0000 {
+                    break scan + 2; // past the null terminator
+                }
+                scan += 2;
+            }
+        };
+
+        // Payload layout: [name UTF-16LE] [storage_index u16LE] [0x0000]
+        // Last 4 bytes: storage_index(2) + null(2)
+        if actual_end < pos + 4 {
+            pos = actual_end;
+            continue;
+        }
+
+        let name_bytes = &data[pos..actual_end - 4];
+        let storage_index = u16::from_le_bytes([data[actual_end - 4], data[actual_end - 3]]);
+
+        if name_bytes.is_empty() {
+            pos = actual_end;
+            continue;
+        }
+
+        let name =
+            encoding::decode_utf16le(name_bytes).map_err(|_| FileError::InvalidFormData {
+                reason: "invalid UTF-16LE in DirData name",
+            })?;
+
+        entries.push((name, storage_index.to_string()));
+        pos = actual_end;
+    }
+
+    Ok(entries)
 }
 
 /// Build the CFB path for a storage entry relative to a given root.
