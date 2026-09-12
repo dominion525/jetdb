@@ -1919,6 +1919,40 @@ mod tests {
         assert_eq!(wrong.var_col_count, 0x3E80);
     }
 
+    /// Northwind's "Order Details" is a Jet3 table whose five columns are all
+    /// fixed-length, so its rows carry no variable-column trailer. Reading the
+    /// byte before the null mask as a variable-column count made the outcome
+    /// depend on the value of the last fixed column: rows with a Discount of 0
+    /// parsed, the rest were skipped.
+    ///
+    /// Requires `scripts/fetch-testdata.sh`.
+    #[test]
+    fn jet3_all_fixed_column_table_reads_every_row() {
+        let path = skip_if_missing!("V1997/nwind.mdb");
+        let mut reader = PageReader::open(&path).unwrap();
+        let catalog = crate::catalog::read_catalog(&mut reader).unwrap();
+        let entry = catalog
+            .iter()
+            .find(|e| e.name == "Order Details")
+            .expect("Order Details in catalog");
+        let table =
+            crate::table::read_table_def(&mut reader, &entry.name, entry.table_page).unwrap();
+        assert!(table.columns.iter().all(|c| c.is_fixed));
+        assert_eq!(table.num_rows, 2155);
+
+        let result = read_table_rows(&mut reader, &table).unwrap();
+        assert_eq!(result.skipped_rows, 0);
+        assert_eq!(result.rows.len(), 2155);
+
+        // Rows with a non-zero Discount are the ones that used to be skipped.
+        let discounted = result
+            .rows
+            .iter()
+            .filter(|row| !matches!(row[4], Value::Float(d) if d == 0.0))
+            .count();
+        assert_eq!(discounted, 838);
+    }
+
     #[test]
     fn crack_row_without_var_cols_rejects_row_shorter_than_null_mask() {
         // col_count=17 → null mask is 3 bytes, leaving no room for the

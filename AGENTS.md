@@ -8,6 +8,7 @@ Supports Jet3 (Access 97) through ACE17 (Access 2019).
 ## Build & Test Commands
 
 ```bash
+scripts/fetch-testdata.sh            # Download test data not stored in the repo
 cargo build                          # Build all crates
 cargo test -p jetdb                  # Library tests only
 cargo test -p jetdb-cli              # CLI tests only (unit + integration)
@@ -37,6 +38,7 @@ List commands output sorted alphabetically. When data is absent (no tables, no q
 ## Testing
 
 - Test data: `testdata/` with real .mdb/.accdb files organized by version (V1997, V2000, V2003, V2007, V2010, V2019)
+- Some files are not stored in the repository and are downloaded by `scripts/fetch-testdata.sh` (see `testdata/SOURCES.md`); CI runs it before `cargo test`
 - All test files use `skip_if_missing!` macro to gracefully skip when test data is absent
 - CLI integration tests use `Command::new(env!("CARGO_BIN_EXE_jetdb"))` to invoke the binary
 - Library tests are in-module `#[cfg(test)] mod tests`

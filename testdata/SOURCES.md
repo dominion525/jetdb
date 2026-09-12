@@ -160,3 +160,15 @@ These files were created by the jetdb project using Microsoft Access for Microso
 | enc_vbaV2003.mdb | Password-protected VBA (Access 2003 format, Jet encryption) |
 | enc_vbaV2007.accdb | Password-protected VBA (Access 2007 format, Agile encryption) |
 | overflow_enc_vbaV2003.mdb | Password-protected VBA with overflow pages (Access 2003 format, Jet encryption) |
+
+## Fetched, not stored in this repository
+
+These files are downloaded by `scripts/fetch-testdata.sh` and are listed in `.gitignore`. Tests that use them are guarded by `skip_if_missing!`, so they are skipped until the script has been run. CI runs the script before `cargo test`.
+
+They are kept out of the repository because their licensing is not stated anywhere. The upstream repository has no LICENSE file, and its README says only "Test files for MDB Tools found on the Internet." The file itself is the Northwind sample database that Microsoft distributed with Access 97, in its German localization: it circulates widely and is treated as freely available, but no explicit grant accompanies it. mdbtools keeps its own test data in a separate repository and downloads it at test time for the same reason.
+
+Each entry is pinned to an immutable commit hash and verified against a SHA-256 digest.
+
+| File | Source | Purpose |
+|------|--------|---------|
+| V1997/nwind.mdb | https://github.com/mdbtools/mdbtestdata `data/nwind.mdb` @ `156fc65` | Jet3 table with only fixed-length columns (`Order Details`), where rows carry no variable-column trailer |

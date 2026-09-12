@@ -19,6 +19,8 @@ cargo test -p jetdb          # Library only
 cargo test -p jetdb-cli      # CLI only
 ```
 
+Some test data is not stored in the repository. Run `scripts/fetch-testdata.sh` once to download it; tests that need it are skipped while it is absent. CI runs the script before `cargo test`. See `testdata/SOURCES.md`.
+
 ### 2. cargo clippy — Linting
 
 Rust static analysis tool. Treats warnings as errors to maintain code quality.
