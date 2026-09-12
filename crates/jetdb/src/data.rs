@@ -77,6 +77,9 @@ impl ReadResult {
 pub fn read_table_rows(reader: &mut PageReader, table: &TableDef) -> Result<ReadResult, FileError> {
     let format = reader.format();
     let is_jet3 = reader.header().version.is_jet3();
+    // A per-table property, so compute it once rather than per row. See
+    // `crack_row`.
+    let has_var_cols = table.columns.iter().any(|c| !c.is_fixed);
     let mut rows = Vec::new();
     let mut skipped_rows = 0usize;
 
@@ -130,7 +133,7 @@ pub fn read_table_rows(reader: &mut PageReader, table: &TableDef) -> Result<Read
             };
 
             let row_data = &page_data[start..start + size];
-            let cracked = match crack_row(row_data, is_jet3) {
+            let cracked = match crack_row(row_data, is_jet3, has_var_cols) {
                 Ok(c) => c,
                 Err(e) => {
                     log::debug!("skipping row on page {page_num} row {row_idx}: {e}");
@@ -179,12 +182,78 @@ struct CrackedRow<'a> {
 // ---------------------------------------------------------------------------
 
 /// Parse the internal structure of a data row.
-fn crack_row<'a>(row_data: &'a [u8], is_jet3: bool) -> Result<CrackedRow<'a>, FileError> {
-    if is_jet3 {
+///
+/// `has_var_cols` is whether the *table definition* declares at least one
+/// variable-length column. A row only carries the `var_col_count` field and
+/// the offset table that follows it when the table has variable-length
+/// columns; for an all-fixed-length table the row is just the column count,
+/// the fixed data and the null mask. Nothing in the row bytes distinguishes
+/// the two cases, so the caller supplies the answer from the schema.
+fn crack_row<'a>(
+    row_data: &'a [u8],
+    is_jet3: bool,
+    has_var_cols: bool,
+) -> Result<CrackedRow<'a>, FileError> {
+    if !has_var_cols {
+        crack_row_no_var_cols(row_data, is_jet3)
+    } else if is_jet3 {
         crack_row_jet3(row_data)
     } else {
         crack_row_jet4(row_data)
     }
+}
+
+/// Row layout for a table with no variable-length columns (both Jet3 and
+/// Jet4/ACE):
+/// ```text
+/// [col_count: u8 (Jet3) / u16 (Jet4)]  ← row start
+/// [fixed data ...]
+/// [null_mask: ceil(col_count/8)]       ← row end
+/// ```
+///
+/// The byte preceding the null mask belongs to the last fixed column, not to
+/// a `var_col_count` field: reading it as a count yields an arbitrary value
+/// taken from real column data.
+fn crack_row_no_var_cols(row_data: &[u8], is_jet3: bool) -> Result<CrackedRow<'_>, FileError> {
+    let len = row_data.len();
+    let col_count_size = if is_jet3 { 1usize } else { 2usize };
+    if len < col_count_size {
+        return Err(FileError::InvalidRow {
+            page: 0,
+            row: 0,
+            reason: "row too short for column count",
+        });
+    }
+
+    let col_count = if is_jet3 {
+        row_data[0] as u16
+    } else {
+        u16::from_le_bytes([row_data[0], row_data[1]])
+    };
+    let null_mask_len = (col_count as usize).div_ceil(8);
+
+    let Some(null_mask_start) = len.checked_sub(null_mask_len) else {
+        return Err(FileError::InvalidRow {
+            page: 0,
+            row: 0,
+            reason: "row too short for null mask",
+        });
+    };
+    if null_mask_start < col_count_size {
+        return Err(FileError::InvalidRow {
+            page: 0,
+            row: 0,
+            reason: "row too short for null mask",
+        });
+    }
+
+    Ok(CrackedRow {
+        row_data,
+        col_count,
+        null_mask: &row_data[null_mask_start..],
+        var_col_count: 0,
+        var_offsets: Vec::new(),
+    })
 }
 
 /// Jet4/ACE row layout (reading from the end):
@@ -1803,6 +1872,60 @@ mod tests {
         // col_ptr(0) < offset_entries(6) → error
         let row = [0x01, 0x05, 0xFF];
         assert!(crack_row_jet3(&row).is_err());
+    }
+
+    // -- crack_row: tables with no variable-length columns ---------------------
+
+    #[test]
+    fn crack_row_jet3_without_var_cols_keeps_last_fixed_byte_out_of_the_count() {
+        // The shape of Northwind's "Order Details" (github.com/dominion525/
+        // jetdb/issues/12): col_count=5, 22 bytes of fixed data, 1 byte of
+        // null mask. The last fixed byte here is 0x3E, the high byte of a
+        // Single holding 0.15 — read as a var_col_count it claims 62
+        // variable columns, an offset table far larger than the whole row.
+        let mut row = vec![0x05];
+        row.extend(std::iter::repeat_n(0xAA, 21));
+        row.push(0x3E);
+        row.push(0xFF);
+        assert_eq!(row.len(), 24);
+
+        let cracked = crack_row(&row, true, false).unwrap();
+        assert_eq!(cracked.col_count, 5);
+        assert_eq!(cracked.var_col_count, 0);
+        assert!(cracked.var_offsets.is_empty());
+        assert_eq!(cracked.null_mask, &[0xFF]);
+
+        // The same bytes read as a table that does have variable columns:
+        // the trailing 0x3E is taken for a count and the row is rejected.
+        assert!(crack_row(&row, true, true).is_err());
+    }
+
+    #[test]
+    fn crack_row_jet4_without_var_cols_keeps_last_fixed_bytes_out_of_the_count() {
+        // col_count=1 (u16), 4 bytes of fixed data, 1 byte of null mask.
+        let mut row = vec![0x01, 0x00];
+        row.extend_from_slice(&[0x00, 0x00, 0x80, 0x3E]);
+        row.push(0xFF);
+
+        let cracked = crack_row(&row, false, false).unwrap();
+        assert_eq!(cracked.col_count, 1);
+        assert_eq!(cracked.var_col_count, 0);
+        assert!(cracked.var_offsets.is_empty());
+        assert_eq!(cracked.null_mask, &[0xFF]);
+
+        // Read as a table with variable columns, the last two fixed bytes
+        // become a count of 16000 and the offsets come from fixed data.
+        let wrong = crack_row(&row, false, true).unwrap();
+        assert_eq!(wrong.var_col_count, 0x3E80);
+    }
+
+    #[test]
+    fn crack_row_without_var_cols_rejects_row_shorter_than_null_mask() {
+        // col_count=17 → null mask is 3 bytes, leaving no room for the
+        // column count byte itself.
+        assert!(crack_row(&[0x11, 0xFF, 0xFF], true, false).is_err());
+        assert!(crack_row(&[], true, false).is_err());
+        assert!(crack_row(&[0x01], false, false).is_err());
     }
 
     // -- read_fixed_value additional types ------------------------------------
