@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/dominion525/jetdb/actions/workflows/ci.yml/badge.svg)](https://github.com/dominion525/jetdb/actions/workflows/ci.yml)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](LICENSE-MIT)
-[![MSRV: 1.85](https://img.shields.io/badge/MSRV-1.85-orange)](https://blog.rust-lang.org/2025/02/20/Rust-1.85.0.html)
+[![MSRV: 1.86](https://img.shields.io/badge/MSRV-1.86-orange)](https://blog.rust-lang.org/2025/04/03/Rust-1.86.0.html)
 [![Crates.io](https://img.shields.io/crates/v/jetdb)](https://crates.io/crates/jetdb)
 [![docs.rs](https://img.shields.io/docsrs/jetdb)](https://docs.rs/jetdb)
 

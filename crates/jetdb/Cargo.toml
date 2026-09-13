@@ -9,7 +9,7 @@ documentation = "https://docs.rs/jetdb"
 readme = "../../README.md"
 keywords = ["access", "mdb", "accdb", "jet", "database"]
 categories = ["database", "parser-implementations"]
-rust-version = "1.85"
+rust-version = "1.86"
 exclude = ["testdata/", "AGENTS*", "CLAUDE*", ".claude/"]
 
 [dependencies]
