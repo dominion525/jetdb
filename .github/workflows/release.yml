@@ -11,8 +11,29 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  version:
+    name: Version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check the tag against the crate versions
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          expected="${TAG#v}"
+          mismatch=0
+          for manifest in crates/jetdb/Cargo.toml crates/jetdb-cli/Cargo.toml; do
+            actual="$(sed -n 's/^version = "\(.*\)"$/\1/p' "$manifest" | head -1)"
+            if [ "$actual" != "$expected" ]; then
+              echo "::error file=$manifest::version is $actual, but the tag asks for $expected"
+              mismatch=1
+            fi
+          done
+          exit $mismatch
+
   test:
     name: Test (${{ matrix.os }})
+    needs: version
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
@@ -87,3 +108,31 @@ jobs:
             prerelease="--prerelease"
           fi
           gh release create "$tag" $prerelease --generate-notes artifacts/*
+
+  publish:
+    name: Publish
+    needs: release
+    runs-on: ubuntu-latest
+    # Trusted Publishing: the OIDC token minted here is exchanged for a
+    # short-lived crates.io token, so no registry token is stored in the
+    # repository. crates.io authorises it against a per-crate configuration
+    # naming this repository and workflow file.
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+
+      # jetdb-cli depends on jetdb by version, so jetdb has to reach the
+      # registry first.
+      - run: cargo publish -p jetdb
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+
+      - run: cargo publish -p jetdb-cli
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
