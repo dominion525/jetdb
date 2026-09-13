@@ -9,7 +9,7 @@ documentation = "https://docs.rs/jetdb"
 readme = "../../README.md"
 keywords = ["access", "mdb", "accdb", "jet", "database"]
 categories = ["database", "parser-implementations"]
-rust-version = "1.85"
+rust-version = "1.86"
 exclude = ["testdata/", "AGENTS*", "CLAUDE*", ".claude/"]
 
 [dependencies]
@@ -22,7 +22,7 @@ log = "0.4"
 ovba = "0.7"
 sha1 = "0.10"
 sha2 = "0.10"
-quick-xml = "0.41"
+quick-xml = "0.42"
 subtle = "2.6"
 zeroize = "1.8"
 encoding_rs = "0.8.35"

@@ -8,7 +8,7 @@ repository = "https://github.com/dominion525/jetdb"
 readme = "../../README.md"
 keywords = ["access", "mdb", "accdb", "jet", "cli"]
 categories = ["command-line-utilities", "database"]
-rust-version = "1.85"
+rust-version = "1.86"
 exclude = ["testdata/", "AGENTS*", "CLAUDE*", ".claude/"]
 
 [[bin]]
