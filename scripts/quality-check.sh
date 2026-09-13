@@ -37,7 +37,17 @@ has_cmd cargo-audit    && HAS_AUDIT=true
 # cargo-llvm-cov is invoked as `cargo llvm-cov`, but the binary is cargo-llvm-cov
 has_cmd rust-code-analysis-cli && HAS_RCA=true
 
-TOTAL=6
+# Wasm checks need wasmtime plus both Wasm targets installed through rustup.
+HAS_WASM=false
+if has_cmd wasmtime && has_cmd rustup; then
+    installed_targets=$(rustup target list --installed 2>/dev/null)
+    if echo "$installed_targets" | grep -qx wasm32-unknown-unknown \
+        && echo "$installed_targets" | grep -qx wasm32-wasip1; then
+        HAS_WASM=true
+    fi
+fi
+
+TOTAL=7
 STEP=0
 ERRORS=0
 
@@ -78,7 +88,29 @@ clippy_output=$(cargo clippy --all-targets -- -D warnings 2>&1) || {
 }
 printf " $(pass)\n"
 
-# --- 3. Audit ---
+# --- 3. Wasm ---
+# The browser target and WASI are separate builds, so both are checked: the
+# browser build must compile, and the library tests must pass on WASI, where
+# they can open the files under testdata/. On failure the whole output is shown.
+header "Wasm"
+if [ "$HAS_WASM" = true ]; then
+    wasm_output=$( {
+        cargo check --target wasm32-unknown-unknown -p jetdb \
+            && CARGO_TARGET_WASM32_WASIP1_RUNNER="wasmtime run --dir $PROJECT_DIR" \
+                cargo test --target wasm32-wasip1 -p jetdb
+    } 2>&1 ) && {
+        wasm_passed=$(echo "$wasm_output" | grep -oE '[0-9]+ passed' | grep -m1 -oE '[0-9]+')
+        printf " $(pass) (browser build ok, %s passed on WASI)\n" "${wasm_passed:-?}"
+    } || {
+        printf " $(fail)\n"
+        echo "$wasm_output"
+        ERRORS=$((ERRORS + 1))
+    }
+else
+    printf " $(skip) (needs wasmtime and the wasm32-unknown-unknown / wasm32-wasip1 targets)\n"
+fi
+
+# --- 4. Audit ---
 header "Audit"
 if [ "$HAS_AUDIT" = true ]; then
     audit_output=$(cargo audit 2>&1) && {
@@ -92,7 +124,7 @@ else
     printf " $(skip) (cargo-audit not installed)\n"
 fi
 
-# --- 4. Doc ---
+# --- 5. Doc ---
 header "Doc"
 doc_output=$(cargo doc --workspace 2>&1) && {
     printf " $(pass)\n"
@@ -102,7 +134,7 @@ doc_output=$(cargo doc --workspace 2>&1) && {
     ERRORS=$((ERRORS + 1))
 }
 
-# --- 5. Coverage ---
+# --- 6. Coverage ---
 header "Coverage"
 if [ "$HAS_LLVM_COV" = true ]; then
     # Run with test output suppressed; capture only the summary table
@@ -126,7 +158,7 @@ else
     printf " $(skip) (cargo-llvm-cov not installed)\n"
 fi
 
-# --- 6. Complexity ---
+# --- 7. Complexity ---
 header "Complexity"
 if [ "$HAS_RCA" = true ]; then
     rca_output=$(rust-code-analysis-cli -m -p crates/ -O json 2>/dev/null) || true

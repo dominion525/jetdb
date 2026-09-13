@@ -35,7 +35,33 @@ Installation (if not already included with rustup):
 rustup component add clippy
 ```
 
-### 3. cargo audit — Vulnerability Check
+### 3. Wasm — Browser Build and WASI Tests
+
+The library is also checked on WebAssembly. The browser target (`wasm32-unknown-unknown`) and WASI (`wasm32-wasip1`) are separate builds, and dependencies can compile different code on each, so each is checked on its own:
+
+- The browser target has no filesystem, so only its build is checked
+- The library tests run on WASI under wasmtime, where they can open the files under `testdata/`
+
+Run from the repository root:
+
+```bash
+cargo check --target wasm32-unknown-unknown -p jetdb
+CARGO_TARGET_WASM32_WASIP1_RUNNER="wasmtime run --dir $(pwd)" cargo test --target wasm32-wasip1 -p jetdb
+```
+
+Tests build test-data paths from the absolute path of the repository, so wasmtime is given that same directory.
+
+`std::env::temp_dir()` is not available on WASI and panics there. A test that needs a scratch file on disk writes it under `target/tmp/` instead.
+
+Installation:
+
+```bash
+rustup target add wasm32-unknown-unknown wasm32-wasip1
+```
+
+For wasmtime, see https://wasmtime.dev/ (on macOS, `brew install wasmtime`).
+
+### 4. cargo audit — Vulnerability Check
 
 Check dependency crates for known security vulnerabilities.
 
@@ -49,7 +75,7 @@ Installation:
 cargo install cargo-audit
 ```
 
-### 4. cargo doc — Documentation Build
+### 5. cargo doc — Documentation Build
 
 Generate API documentation for the entire workspace. Detects broken links and doc comment syntax errors.
 
@@ -59,7 +85,7 @@ cargo doc --workspace
 
 Generated documentation is output to `target/doc/jetdb/index.html`.
 
-### 5. rust-code-analysis-cli — Complexity Metrics
+### 6. rust-code-analysis-cli — Complexity Metrics
 
 Measure cyclomatic complexity, cognitive complexity, and other source code metrics.
 
@@ -79,7 +105,7 @@ cargo install rust-code-analysis-cli --locked
 >
 > This project's last release was January 2023 and maintenance has stalled.
 
-### 6. cargo-llvm-cov — Test Coverage
+### 7. cargo-llvm-cov — Test Coverage
 
 Measure test coverage using LLVM source-based code coverage.
 
@@ -115,7 +141,7 @@ cargo install cargo-llvm-cov
 scripts/quality-check.sh
 ```
 
-The script stops immediately on test or clippy failure. Other checks (audit, doc, coverage, complexity) report failures but continue to run.
+The script stops immediately on test or clippy failure. Other checks (wasm, audit, doc, coverage, complexity) report failures but continue to run. The wasm, audit, coverage and complexity checks are skipped when their tools are not installed.
 
 ## Execution Order
 
@@ -123,9 +149,10 @@ The quality check script runs checks in the following order:
 
 1. `cargo test` — Verify existing tests pass first
 2. `cargo clippy -- -D warnings` — Check code quality
-3. `cargo audit` — Check for security issues
-4. `cargo doc --workspace` — Verify documentation builds correctly
-5. `cargo llvm-cov --workspace` — Measure test coverage
-6. `rust-code-analysis-cli` — Measure code complexity
+3. Wasm — Verify the browser build compiles and the library tests pass on WASI
+4. `cargo audit` — Check for security issues
+5. `cargo doc --workspace` — Verify documentation builds correctly
+6. `cargo llvm-cov --workspace` — Measure test coverage
+7. `rust-code-analysis-cli` — Measure code complexity
 
 Tests and clippy are fatal — the script aborts if either fails. Coverage and complexity run last because they take the longest.
