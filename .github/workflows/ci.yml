@@ -57,6 +57,41 @@ jobs:
         shell: bash
       - run: cargo test
 
+  # The browser target and WASI are separate builds: dependencies can pick
+  # different code on each (web-time pulls in js-sys only for the browser), so
+  # passing tests on WASI does not show that the browser build compiles.
+  wasm-build:
+    name: Wasm build (wasm32-unknown-unknown)
+    needs: [clippy, audit, msrv]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --target wasm32-unknown-unknown -p jetdb
+
+  # The browser target has no filesystem, so the library tests, which open
+  # files under testdata/, run on WASI instead. Tests build test-data paths
+  # from the absolute workspace path, so wasmtime is given that same directory.
+  wasm-test:
+    name: Wasm test (wasm32-wasip1)
+    needs: [clippy, audit, msrv]
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TARGET_WASM32_WASIP1_RUNNER: wasmtime run --dir ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+      - uses: Swatinem/rust-cache@v2
+      - uses: bytecodealliance/actions/wasmtime/setup@v1
+      - name: Fetch test data
+        run: scripts/fetch-testdata.sh
+      - run: cargo test --target wasm32-wasip1 -p jetdb
+
   doc:
     name: Doc
     needs: test

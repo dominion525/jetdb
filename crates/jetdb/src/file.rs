@@ -1154,25 +1154,81 @@ mod tests {
 
     // -- PageReader::open error paths -----------------------------------------
 
+    /// A path for a scratch file under the workspace's `target/tmp/`.
+    ///
+    /// `std::env::temp_dir()` has no answer on WASI and panics there, so a
+    /// test that needs a real file on disk writes under the build output
+    /// directory instead, which every target able to run the tests can reach.
+    fn scratch_path(name: &str) -> std::path::PathBuf {
+        let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/tmp");
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.join(name)
+    }
+
+    /// Too short to reach the version byte at 0x14.
+    const EMPTY_DATABASE: &[u8] = b"";
+
+    /// Carries a Jet4 version byte at 0x14 but stops well short of one page.
+    fn truncated_jet4_database() -> Vec<u8> {
+        let mut data = vec![0u8; 0x15 + 1];
+        data[0x14] = 0x01;
+        data
+    }
+
+    /// The header check fails before the version byte can be read.
+    fn assert_short_of_header(err: FileError) {
+        assert!(
+            matches!(
+                err,
+                FileError::FileTooSmall {
+                    expected: 0x15,
+                    actual: 0
+                }
+            ),
+            "{err:?}"
+        );
+    }
+
+    /// The version byte is read, and the page-size check fails after it.
+    fn assert_short_of_a_page(err: FileError) {
+        let expected_page = JET4.page_size;
+        assert!(
+            matches!(err, FileError::FileTooSmall { expected, actual: 0x16 } if expected == expected_page),
+            "{err:?}"
+        );
+    }
+
     #[test]
     fn open_empty_file() {
-        let dir = std::env::temp_dir().join("jetdb_test_empty.mdb");
-        std::fs::write(&dir, b"").unwrap();
-        let err = PageReader::open(&dir).unwrap_err();
-        assert!(matches!(err, FileError::FileTooSmall { .. }));
-        std::fs::remove_file(&dir).ok();
+        let path = scratch_path("jetdb_test_empty.mdb");
+        std::fs::write(&path, EMPTY_DATABASE).unwrap();
+        assert_short_of_header(PageReader::open(&path).unwrap_err());
+        std::fs::remove_file(&path).ok();
     }
 
     #[test]
     fn open_too_small_file() {
-        // File has valid version byte at 0x14 but is smaller than page size
-        let mut data = vec![0u8; 0x15 + 1]; // just enough for version byte
-        data[0x14] = 0x01; // Jet4 version
-        let dir = std::env::temp_dir().join("jetdb_test_small.mdb");
-        std::fs::write(&dir, &data).unwrap();
-        let err = PageReader::open(&dir).unwrap_err();
-        assert!(matches!(err, FileError::FileTooSmall { .. }));
-        std::fs::remove_file(&dir).ok();
+        let path = scratch_path("jetdb_test_small.mdb");
+        std::fs::write(&path, truncated_jet4_database()).unwrap();
+        assert_short_of_a_page(PageReader::open(&path).unwrap_err());
+        std::fs::remove_file(&path).ok();
+    }
+
+    // The same two inputs through `open_reader`, which reaches the header
+    // checks without a filesystem and so also runs where files are unavailable.
+
+    #[test]
+    fn open_reader_empty_source() {
+        assert_short_of_header(
+            PageReader::open_reader(std::io::Cursor::new(EMPTY_DATABASE)).unwrap_err(),
+        );
+    }
+
+    #[test]
+    fn open_reader_source_smaller_than_a_page() {
+        assert_short_of_a_page(
+            PageReader::open_reader(std::io::Cursor::new(truncated_jet4_database())).unwrap_err(),
+        );
     }
 
     // -- decrypt_page symmetry test -------------------------------------------

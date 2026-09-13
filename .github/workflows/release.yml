@@ -47,9 +47,39 @@ jobs:
         shell: bash
       - run: cargo test
 
+  # Same two Wasm checks as CI; see ci.yml for why they are separate jobs.
+  wasm-build:
+    name: Wasm build (wasm32-unknown-unknown)
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --target wasm32-unknown-unknown -p jetdb
+
+  wasm-test:
+    name: Wasm test (wasm32-wasip1)
+    needs: version
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TARGET_WASM32_WASIP1_RUNNER: wasmtime run --dir ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+      - uses: Swatinem/rust-cache@v2
+      - uses: bytecodealliance/actions/wasmtime/setup@v1
+      - name: Fetch test data
+        run: scripts/fetch-testdata.sh
+      - run: cargo test --target wasm32-wasip1 -p jetdb
+
   build:
     name: Build (${{ matrix.target }})
-    needs: test
+    needs: [test, wasm-build, wasm-test]
     strategy:
       matrix:
         include:

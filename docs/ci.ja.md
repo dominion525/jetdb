@@ -35,7 +35,33 @@ cargo clippy -- -D warnings
 rustup component add clippy
 ```
 
-### 3. cargo audit — 脆弱性チェック
+### 3. Wasm — ブラウザ用ビルドと WASI でのテスト
+
+ライブラリは WebAssembly でも検証する。ブラウザ用（`wasm32-unknown-unknown`）と WASI 用（`wasm32-wasip1`）は別々のビルドで、依存クレートがそれぞれで異なるコードをコンパイルすることがあるため、両方を個別に確認する。
+
+- ブラウザ用にはファイルシステムが無いので、ビルドが通るかだけを確認する
+- ライブラリのテストは wasmtime 上の WASI で実行する。WASI では `testdata/` 配下のファイルを開ける
+
+リポジトリのルートで実行する:
+
+```bash
+cargo check --target wasm32-unknown-unknown -p jetdb
+CARGO_TARGET_WASM32_WASIP1_RUNNER="wasmtime run --dir $(pwd)" cargo test --target wasm32-wasip1 -p jetdb
+```
+
+テストはテストデータのパスをリポジトリの絶対パスから組み立てるので、wasmtime にも同じディレクトリを見せる。
+
+`std::env::temp_dir()` は WASI では使えず、パニックする。ディスク上の一時ファイルが必要なテストは `target/tmp/` に書き込む。
+
+インストール:
+
+```bash
+rustup target add wasm32-unknown-unknown wasm32-wasip1
+```
+
+wasmtime は https://wasmtime.dev/ を参照（macOS では `brew install wasmtime`）。
+
+### 4. cargo audit — 脆弱性チェック
 
 依存クレートに既知の脆弱性がないか検査する。
 
@@ -49,7 +75,7 @@ cargo audit
 cargo install cargo-audit
 ```
 
-### 4. cargo doc — ドキュメントビルド
+### 5. cargo doc — ドキュメントビルド
 
 ワークスペース全体の API ドキュメントを生成する。リンク切れや doc comment の構文エラーを検出できる。
 
@@ -59,7 +85,7 @@ cargo doc --workspace
 
 生成されたドキュメントは `target/doc/jetdb/index.html` に出力される。
 
-### 5. rust-code-analysis-cli — 複雑度メトリクス
+### 6. rust-code-analysis-cli — 複雑度メトリクス
 
 ソースコードの循環的複雑度・認知的複雑度などのメトリクスを計測する。
 
@@ -79,7 +105,7 @@ cargo install rust-code-analysis-cli --locked
 >
 > このプロジェクトは最終リリースが 2023年1月であり、メンテナンスが停滞している。
 
-### 6. cargo-llvm-cov — テストカバレッジ
+### 7. cargo-llvm-cov — テストカバレッジ
 
 LLVM ソースベースのコードカバレッジを使用してテストカバレッジを計測する。
 
@@ -115,7 +141,7 @@ cargo install cargo-llvm-cov
 scripts/quality-check.sh
 ```
 
-テストまたは clippy が失敗した場合はその場で中断する。その他のチェック（audit、doc、coverage、complexity）は失敗しても続行する。
+テストまたは clippy が失敗した場合はその場で中断する。その他のチェック（wasm、audit、doc、coverage、complexity）は失敗しても続行する。wasm、audit、coverage、complexity は、必要なツールがインストールされていなければスキップする。
 
 ## 実行順序
 
@@ -123,9 +149,10 @@ scripts/quality-check.sh
 
 1. `cargo test` — まず既存テストが通ることを確認
 2. `cargo clippy -- -D warnings` — コード品質のチェック
-3. `cargo audit` — セキュリティ上の問題がないか確認
-4. `cargo doc --workspace` — ドキュメントが正しく生成されるか確認
-5. `cargo llvm-cov --workspace` — テストカバレッジを計測
-6. `rust-code-analysis-cli` — コードの複雑度を計測
+3. Wasm — ブラウザ用ビルドが通り、WASI でライブラリのテストが通ることを確認
+4. `cargo audit` — セキュリティ上の問題がないか確認
+5. `cargo doc --workspace` — ドキュメントが正しく生成されるか確認
+6. `cargo llvm-cov --workspace` — テストカバレッジを計測
+7. `rust-code-analysis-cli` — コードの複雑度を計測
 
 テストと clippy は致命的 — いずれかが失敗するとスクリプトは中断する。カバレッジと複雑度は実行時間が長いため最後に実行する。

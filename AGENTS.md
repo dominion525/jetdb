@@ -59,6 +59,6 @@ Run the code quality check before submitting changes:
 scripts/quality-check.sh
 ```
 
-This script runs all checks defined in `docs/ci.md` in sequence (test → clippy → audit → doc → coverage → complexity). Always use this script instead of running checks manually or writing inline scripts.
+This script runs all checks defined in `docs/ci.md` in sequence (test → clippy → wasm → audit → doc → coverage → complexity). Always use this script instead of running checks manually or writing inline scripts.
 
 See `docs/ci.md` for details on individual tools and installation instructions.
