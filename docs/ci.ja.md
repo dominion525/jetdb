@@ -35,31 +35,37 @@ cargo clippy -- -D warnings
 rustup component add clippy
 ```
 
-### 3. Wasm — ブラウザ用ビルドと WASI でのテスト
+### 3. Wasm — WASI とブラウザ用のテスト
 
-ライブラリは WebAssembly でも検証する。ブラウザ用（`wasm32-unknown-unknown`）と WASI 用（`wasm32-wasip1`）は別々のビルドで、依存クレートがそれぞれで異なるコードをコンパイルすることがあるため、両方を個別に確認する。
+ライブラリは WebAssembly の 2 つのターゲットでもテストする。2 つは別々のビルドで、依存クレートがそれぞれで異なるコードをコンパイルすることがある（`cfb` → `web-time` はブラウザ用でだけ JavaScript を使う）ため、片方で通っても、もう片方は保証されない。
 
-- ブラウザ用にはファイルシステムが無いので、ビルドが通るかだけを確認する
-- ライブラリのテストは wasmtime 上の WASI で実行する。WASI では `testdata/` 配下のファイルを開ける
+- WASI（`wasm32-wasip1`）: ライブラリのテストをすべて wasmtime 上で実行する。WASI では `testdata/` 配下のファイルを開ける
+- ブラウザ用（`wasm32-unknown-unknown`）: ファイルシステムが無いので、`crates/jetdb/tests/wasm_browser.rs` がデータベースを埋め込み、`PageReader::open_reader` でメモリから開いて、Node.js 上で実行する。このテストのビルドには、ブラウザ用のライブラリのビルドも含まれる
 
-リポジトリのルートで実行する:
+リポジトリのルートで実行する。ブラウザ用テストはリポジトリに同梱していない `testdata/V1997/nwind.mdb` を埋め込むので、先にテストデータを取得する:
 
 ```bash
-cargo check --target wasm32-unknown-unknown -p jetdb
+scripts/fetch-testdata.sh
 CARGO_TARGET_WASM32_WASIP1_RUNNER="wasmtime run --dir $(pwd)" cargo test --target wasm32-wasip1 -p jetdb
+CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner cargo test --target wasm32-unknown-unknown -p jetdb --test wasm_browser
 ```
 
-テストはテストデータのパスをリポジトリの絶対パスから組み立てるので、wasmtime にも同じディレクトリを見せる。
-
-`std::env::temp_dir()` は WASI では使えず、パニックする。ディスク上の一時ファイルが必要なテストは `target/tmp/` に書き込む。
+WASI では、テストがテストデータのパスをリポジトリの絶対パスから組み立てるので、wasmtime にも同じディレクトリを見せる。`std::env::temp_dir()` は WASI では使えずパニックするので、ディスク上の一時ファイルが必要なテストは `target/tmp/` に書き込む。
 
 インストール:
 
 ```bash
 rustup target add wasm32-unknown-unknown wasm32-wasip1
+cargo install wasm-bindgen-cli --version <version> --locked
 ```
 
-wasmtime は https://wasmtime.dev/ を参照（macOS では `brew install wasmtime`）。
+`wasm-bindgen-test-runner`（`wasm-bindgen-cli` に含まれる）は、`Cargo.lock` の `wasm-bindgen` と同じ版である必要がある。版は次で確認できる:
+
+```bash
+cargo metadata --format-version 1 --filter-platform wasm32-unknown-unknown | jq -r '.packages[] | select(.name == "wasm-bindgen") | .version'
+```
+
+ブラウザ用テストには Node.js も必要。wasmtime は https://wasmtime.dev/ を参照（macOS では `brew install wasmtime`）。
 
 ### 4. cargo audit — 脆弱性チェック
 
@@ -149,7 +155,7 @@ scripts/quality-check.sh
 
 1. `cargo test` — まず既存テストが通ることを確認
 2. `cargo clippy -- -D warnings` — コード品質のチェック
-3. Wasm — ブラウザ用ビルドが通り、WASI でライブラリのテストが通ることを確認
+3. Wasm — WASI でライブラリのテストを、Node.js 上でブラウザ用テストを実行
 4. `cargo audit` — セキュリティ上の問題がないか確認
 5. `cargo doc --workspace` — ドキュメントが正しく生成されるか確認
 6. `cargo llvm-cov --workspace` — テストカバレッジを計測

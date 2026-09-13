@@ -35,31 +35,37 @@ Installation (if not already included with rustup):
 rustup component add clippy
 ```
 
-### 3. Wasm — Browser Build and WASI Tests
+### 3. Wasm — WASI and Browser Tests
 
-The library is also checked on WebAssembly. The browser target (`wasm32-unknown-unknown`) and WASI (`wasm32-wasip1`) are separate builds, and dependencies can compile different code on each, so each is checked on its own:
+The library is also tested on WebAssembly, on two targets. They are separate builds, and dependencies can compile different code on each (`cfb` → `web-time` uses JavaScript only on the browser target), so passing on one does not cover the other.
 
-- The browser target has no filesystem, so only its build is checked
-- The library tests run on WASI under wasmtime, where they can open the files under `testdata/`
+- WASI (`wasm32-wasip1`): the whole library test suite runs under wasmtime, where it can open the files under `testdata/`
+- Browser (`wasm32-unknown-unknown`): this target has no filesystem, so `crates/jetdb/tests/wasm_browser.rs` embeds its databases, opens them from memory through `PageReader::open_reader`, and runs on Node.js. Building these tests also builds the library for the browser
 
-Run from the repository root:
+Run from the repository root. The browser tests embed `testdata/V1997/nwind.mdb`, which is not stored in the repository, so fetch the test data first:
 
 ```bash
-cargo check --target wasm32-unknown-unknown -p jetdb
+scripts/fetch-testdata.sh
 CARGO_TARGET_WASM32_WASIP1_RUNNER="wasmtime run --dir $(pwd)" cargo test --target wasm32-wasip1 -p jetdb
+CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner cargo test --target wasm32-unknown-unknown -p jetdb --test wasm_browser
 ```
 
-Tests build test-data paths from the absolute path of the repository, so wasmtime is given that same directory.
-
-`std::env::temp_dir()` is not available on WASI and panics there. A test that needs a scratch file on disk writes it under `target/tmp/` instead.
+On WASI, tests build test-data paths from the absolute path of the repository, so wasmtime is given that same directory. `std::env::temp_dir()` is not available on WASI and panics there; a test that needs a scratch file on disk writes it under `target/tmp/` instead.
 
 Installation:
 
 ```bash
 rustup target add wasm32-unknown-unknown wasm32-wasip1
+cargo install wasm-bindgen-cli --version <version> --locked
 ```
 
-For wasmtime, see https://wasmtime.dev/ (on macOS, `brew install wasmtime`).
+`wasm-bindgen-test-runner` (installed by `wasm-bindgen-cli`) must be the same version as `wasm-bindgen` in `Cargo.lock`. Find that version with:
+
+```bash
+cargo metadata --format-version 1 --filter-platform wasm32-unknown-unknown | jq -r '.packages[] | select(.name == "wasm-bindgen") | .version'
+```
+
+The browser tests also need Node.js. For wasmtime, see https://wasmtime.dev/ (on macOS, `brew install wasmtime`).
 
 ### 4. cargo audit — Vulnerability Check
 
@@ -149,7 +155,7 @@ The quality check script runs checks in the following order:
 
 1. `cargo test` — Verify existing tests pass first
 2. `cargo clippy -- -D warnings` — Check code quality
-3. Wasm — Verify the browser build compiles and the library tests pass on WASI
+3. Wasm — Run the library tests on WASI and the browser tests on Node.js
 4. `cargo audit` — Check for security issues
 5. `cargo doc --workspace` — Verify documentation builds correctly
 6. `cargo llvm-cov --workspace` — Measure test coverage
