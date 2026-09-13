@@ -37,9 +37,10 @@ has_cmd cargo-audit    && HAS_AUDIT=true
 # cargo-llvm-cov is invoked as `cargo llvm-cov`, but the binary is cargo-llvm-cov
 has_cmd rust-code-analysis-cli && HAS_RCA=true
 
-# Wasm checks need wasmtime plus both Wasm targets installed through rustup.
+# Wasm checks need both Wasm targets installed through rustup, wasmtime for
+# WASI, and wasm-bindgen-test-runner plus Node.js for the browser target.
 HAS_WASM=false
-if has_cmd wasmtime && has_cmd rustup; then
+if has_cmd rustup && has_cmd wasmtime && has_cmd wasm-bindgen-test-runner && has_cmd node; then
     installed_targets=$(rustup target list --installed 2>/dev/null)
     if echo "$installed_targets" | grep -qx wasm32-unknown-unknown \
         && echo "$installed_targets" | grep -qx wasm32-wasip1; then
@@ -89,25 +90,33 @@ clippy_output=$(cargo clippy --all-targets -- -D warnings 2>&1) || {
 printf " $(pass)\n"
 
 # --- 3. Wasm ---
-# The browser target and WASI are separate builds, so both are checked: the
-# browser build must compile, and the library tests must pass on WASI, where
-# they can open the files under testdata/. On failure the whole output is shown.
+# The whole library test suite runs on WASI, where it can open the files under
+# testdata/. The browser target has no filesystem, so tests/wasm_browser.rs
+# embeds its databases and runs on Node.js; it embeds nwind.mdb, so the test data
+# is fetched first. On failure the whole output is shown.
 header "Wasm"
 if [ "$HAS_WASM" = true ]; then
     wasm_output=$( {
-        cargo check --target wasm32-unknown-unknown -p jetdb \
+        scripts/fetch-testdata.sh \
             && CARGO_TARGET_WASM32_WASIP1_RUNNER="wasmtime run --dir $PROJECT_DIR" \
-                cargo test --target wasm32-wasip1 -p jetdb
+                cargo test --target wasm32-wasip1 -p jetdb \
+            && echo "--- browser ---" \
+            && CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner \
+                cargo test --target wasm32-unknown-unknown -p jetdb --test wasm_browser
     } 2>&1 ) && {
-        wasm_passed=$(echo "$wasm_output" | grep -oE '[0-9]+ passed' | grep -m1 -oE '[0-9]+')
-        printf " $(pass) (browser build ok, %s passed on WASI)\n" "${wasm_passed:-?}"
+        wasi_output=${wasm_output%%--- browser ---*}
+        browser_output=${wasm_output##*--- browser ---}
+        wasi_passed=$(echo "$wasi_output" | grep -oE '[0-9]+ passed' | grep -m1 -oE '[0-9]+')
+        browser_passed=$(echo "$browser_output" | grep -oE '[0-9]+ passed' | grep -m1 -oE '[0-9]+')
+        printf " $(pass) (%s passed on WASI, %s passed in the browser target)\n" \
+            "${wasi_passed:-?}" "${browser_passed:-?}"
     } || {
         printf " $(fail)\n"
         echo "$wasm_output"
         ERRORS=$((ERRORS + 1))
     }
 else
-    printf " $(skip) (needs wasmtime and the wasm32-unknown-unknown / wasm32-wasip1 targets)\n"
+    printf " $(skip) (needs the wasm32-unknown-unknown / wasm32-wasip1 targets, wasmtime, wasm-bindgen-test-runner and node)\n"
 fi
 
 # --- 4. Audit ---
