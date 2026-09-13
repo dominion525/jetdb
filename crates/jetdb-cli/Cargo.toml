@@ -1,6 +1,6 @@
 [package]
 name = "jetdb-cli"
-version = "0.3.2"
+version = "0.3.3"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "CLI tool for reading Microsoft Access (.mdb/.accdb) files"
@@ -19,5 +19,5 @@ doc = false
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 env_logger = "0.11"
-jetdb = { version = "0.3.2", path = "../jetdb" }
+jetdb = { version = "0.3.3", path = "../jetdb" }
 log = "0.4"
