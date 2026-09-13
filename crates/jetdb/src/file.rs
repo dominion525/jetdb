@@ -3,6 +3,7 @@
 use std::fmt;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
+use std::panic::{RefUnwindSafe, UnwindSafe};
 use std::path::Path;
 
 use crate::crypto::{self, EncryptionParams};
@@ -284,12 +285,18 @@ enum EncryptionState {
 
 /// A random-access byte source that [`PageReader`] can read pages from.
 ///
-/// Implemented for anything that is [`Read`] + [`Seek`], so a database can be
+/// Implemented for anything that is [`Read`] + [`Seek`] and also [`Send`],
+/// [`Sync`], [`UnwindSafe`] and [`RefUnwindSafe`], so a database can be
 /// opened from a real file ([`open`](PageReader::open)) or from an in-memory
 /// buffer such as `std::io::Cursor<Vec<u8>>` via
 /// [`open_reader`](PageReader::open_reader).
-pub trait DataSource: Read + Seek {}
-impl<T: Read + Seek + ?Sized> DataSource for T {}
+///
+/// The extra bounds keep [`PageReader`], which holds its source behind this
+/// trait, as thread-safe and unwind-safe as it is when it holds a
+/// [`File`]. A source that cannot cross threads (one holding an `Rc` or a
+/// `RefCell`, for example) is rejected at compile time instead.
+pub trait DataSource: Read + Seek + Send + Sync + UnwindSafe + RefUnwindSafe {}
+impl<T: Read + Seek + Send + Sync + UnwindSafe + RefUnwindSafe + ?Sized> DataSource for T {}
 
 /// Page-level reader for Jet/ACE database files.
 ///
@@ -317,7 +324,7 @@ impl PageReader {
 
     /// Open a database from an in-memory or otherwise non-file byte source.
     ///
-    /// Equivalent to [`open`](Self::open), but for any `Read + Seek` source
+    /// Equivalent to [`open`](Self::open), but for any [`DataSource`]
     /// (e.g. `std::io::Cursor<Vec<u8>>`) rather than a filesystem path. Useful
     /// when the database bytes are already in memory, or on targets without a
     /// filesystem (such as `wasm32-unknown-unknown`).
@@ -325,7 +332,7 @@ impl PageReader {
     /// For password-protected .accdb files, this returns
     /// [`FileError::PasswordRequired`]. Use
     /// [`open_reader_with_password`](Self::open_reader_with_password) instead.
-    pub fn open_reader(source: impl Read + Seek + 'static) -> Result<Self, FileError> {
+    pub fn open_reader(source: impl DataSource + 'static) -> Result<Self, FileError> {
         Self::finish_open(Self::open_raw_from_reader(source)?)
     }
 
@@ -357,9 +364,9 @@ impl PageReader {
     /// with an optional password.
     ///
     /// Equivalent to [`open_with_password`](Self::open_with_password), but
-    /// for any `Read + Seek` source rather than a filesystem path.
+    /// for any [`DataSource`] rather than a filesystem path.
     pub fn open_reader_with_password(
-        source: impl Read + Seek + 'static,
+        source: impl DataSource + 'static,
         password: Option<&str>,
     ) -> Result<Self, FileError> {
         Self::finish_open_with_password(Self::open_raw_from_reader(source)?, password)
@@ -470,13 +477,13 @@ impl PageReader {
         Self::open_raw_from_source(Box::new(file), file_size)
     }
 
-    /// Internal: open a generic `Read + Seek` source and decrypt header
+    /// Internal: open a generic [`DataSource`] and decrypt header
     /// without checking for Agile Encryption.
     ///
     /// Unlike [`open_raw`](Self::open_raw), the source has no `metadata()` to
     /// report its length, so the length is discovered by seeking to the end
     /// (and back to the start, since parsing always begins at offset 0).
-    fn open_raw_from_reader(mut source: impl Read + Seek + 'static) -> Result<Self, FileError> {
+    fn open_raw_from_reader(mut source: impl DataSource + 'static) -> Result<Self, FileError> {
         let file_size = source.seek(SeekFrom::End(0))?;
         source.seek(SeekFrom::Start(0))?;
         Self::open_raw_from_source(Box::new(source), file_size)
@@ -933,6 +940,15 @@ mod tests {
 
     // -- open_reader (in-memory / non-file sources) ----------------------------
 
+    /// `PageReader` held a `File` up to 0.3.3 and had every auto trait a
+    /// `File` has. Holding the source behind `dyn DataSource` erases them
+    /// unless the trait carries them, so this fails to compile if any is lost.
+    #[test]
+    fn page_reader_keeps_the_auto_traits_it_had_with_a_file() {
+        fn assert_auto_traits<T: Send + Sync + Unpin + UnwindSafe + RefUnwindSafe>() {}
+        assert_auto_traits::<PageReader>();
+    }
+
     #[test]
     fn open_reader_from_cursor_matches_open_from_path() {
         let path = skip_if_missing!("V2003/testV2003.mdb");
@@ -945,7 +961,10 @@ mod tests {
         assert_eq!(from_reader.header().version, from_path.header().version);
         assert_eq!(from_reader.page_count(), from_path.page_count());
 
-        let page_from_path = from_path.read_page(0).expect("read page 0 from path").to_vec();
+        let page_from_path = from_path
+            .read_page(0)
+            .expect("read page 0 from path")
+            .to_vec();
         let page_from_reader = from_reader
             .read_page(0)
             .expect("read page 0 from reader")
