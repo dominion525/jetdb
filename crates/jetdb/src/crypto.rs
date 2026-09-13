@@ -177,8 +177,10 @@ fn get_attr(
             reason: format!("invalid XML attribute: {err}"),
         })?;
         if attr.key.as_ref() == name {
+            // The EncryptionInfo payload carries no XML declaration, so the
+            // specification has it read as XML 1.0.
             let val = attr
-                .unescape_value()
+                .normalized_value(quick_xml::XmlVersion::Implicit1_0)
                 .map_err(|err| FileError::UnsupportedEncryption {
                     reason: format!("invalid XML attribute value: {err}"),
                 })?;

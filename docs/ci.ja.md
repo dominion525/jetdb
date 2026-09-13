@@ -19,6 +19,8 @@ cargo test -p jetdb          # ライブラリのみ
 cargo test -p jetdb-cli      # CLI のみ
 ```
 
+一部のテストデータはリポジトリに同梱していない。`scripts/fetch-testdata.sh` を 1 回実行して取得する。未取得の間、該当テストはスキップされる。CI は `cargo test` の前にこのスクリプトを実行する。`testdata/SOURCES.md` を参照。
+
 ### 2. cargo clippy — リント
 
 Rust の静的解析ツール。警告をエラーとして扱い、コードの品質を保つ。

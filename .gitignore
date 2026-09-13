@@ -37,3 +37,6 @@ tasks/
 # Local Docker files for CI debugging
 Dockerfile.ci-test
 .dockerignore
+
+# Test data fetched by scripts/fetch-testdata.sh (not stored in this repository)
+/testdata/V1997/nwind.mdb

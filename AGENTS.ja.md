@@ -8,6 +8,7 @@ Jet3 (Access 97) から ACE17 (Access 2019) まで対応しています。
 ## ビルド・テストコマンド
 
 ```bash
+scripts/fetch-testdata.sh            # リポジトリ非同梱のテストデータを取得
 cargo build                          # 全 crate ビルド
 cargo test -p jetdb                  # ライブラリテストのみ
 cargo test -p jetdb-cli              # CLI テストのみ（ユニット＋統合）
@@ -37,6 +38,7 @@ cargo test -p jetdb -- vba::tests::vba_v2003  # テスト名指定
 ## テスト
 
 - テストデータ: `testdata/` 配下に実 .mdb/.accdb ファイルをバージョン別に格納 (V1997, V2000, V2003, V2007, V2010, V2019)
+- 一部のファイルはリポジトリに同梱せず `scripts/fetch-testdata.sh` で取得する（`testdata/SOURCES.md` 参照）。CI は `cargo test` の前に実行する
 - 全テストファイルで `skip_if_missing!` マクロを使い、テストデータ欠落時はスキップ
 - CLI 統合テストは `Command::new(env!("CARGO_BIN_EXE_jetdb"))` でバイナリを起動
 - ライブラリテストはモジュール内の `#[cfg(test)] mod tests`
