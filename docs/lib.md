@@ -234,6 +234,22 @@ fn main() -> Result<(), jetdb::FileError> {
 
 Available dialects are [`ddl::Sqlite`], [`ddl::Postgres`], [`ddl::Mysql`], and [`ddl::Access`].
 
+## Opening from Memory (WebAssembly)
+
+[`PageReader::open_reader`] opens a database from an in-memory source such as a `std::io::Cursor<Vec<u8>>` instead of a file path. This is how the library is used on WebAssembly, including the browser target `wasm32-unknown-unknown`, which has no filesystem. Password-protected files use [`PageReader::open_reader_with_password`].
+
+```rust,no_run
+use std::io::Cursor;
+use jetdb::{PageReader, table_names};
+
+fn list_tables(bytes: Vec<u8>) -> Result<Vec<String>, jetdb::FileError> {
+    let mut reader = PageReader::open_reader(Cursor::new(bytes))?;
+    table_names(&mut reader)
+}
+```
+
+The source must satisfy [`file::DataSource`] (`Read + Seek + Send + Sync + UnwindSafe + RefUnwindSafe`), so a reader holding an `Rc` or a `RefCell` is not accepted.
+
 # Error Handling
 
 All public functions return `Result<T,` [`FileError`]`>`.
