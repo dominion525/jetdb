@@ -21,6 +21,9 @@ jobs:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - name: Fetch test data
+        run: scripts/fetch-testdata.sh
+        shell: bash
       - run: cargo test
 
   build:
