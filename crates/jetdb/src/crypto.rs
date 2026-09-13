@@ -170,7 +170,7 @@ fn hash_bytes(algo: HashAlgorithm, data: &[u8]) -> Vec<u8> {
 /// Parse an attribute value from a quick-xml `BytesStart` element.
 fn get_attr(
     e: &quick_xml::events::BytesStart<'_>,
-    name: &[u8],
+    name: &str,
 ) -> Result<Option<String>, FileError> {
     for attr in e.attributes() {
         let attr = attr.map_err(|err| FileError::UnsupportedEncryption {
@@ -192,15 +192,11 @@ fn get_attr(
 
 fn require_attr(
     e: &quick_xml::events::BytesStart<'_>,
-    name: &[u8],
+    name: &str,
     tag_name: &str,
 ) -> Result<String, FileError> {
     get_attr(e, name)?.ok_or_else(|| FileError::UnsupportedEncryption {
-        reason: format!(
-            "missing {}.{} in EncryptionInfo",
-            tag_name,
-            String::from_utf8_lossy(name)
-        ),
+        reason: format!("missing {tag_name}.{name} in EncryptionInfo"),
     })
 }
 
@@ -247,10 +243,10 @@ struct EncryptedKeyAttrs {
 fn parse_key_data(e: &quick_xml::events::BytesStart<'_>) -> Result<KeyDataAttrs, FileError> {
     let tag = "keyData";
     Ok(KeyDataAttrs {
-        key_bits: parse_usize(&require_attr(e, b"keyBits", tag)?, tag, "keyBits")?,
-        block_size: parse_usize(&require_attr(e, b"blockSize", tag)?, tag, "blockSize")?,
-        hash_algorithm: HashAlgorithm::from_str(&require_attr(e, b"hashAlgorithm", tag)?)?,
-        salt_value: parse_base64(&require_attr(e, b"saltValue", tag)?, tag, "saltValue")?,
+        key_bits: parse_usize(&require_attr(e, "keyBits", tag)?, tag, "keyBits")?,
+        block_size: parse_usize(&require_attr(e, "blockSize", tag)?, tag, "blockSize")?,
+        hash_algorithm: HashAlgorithm::from_str(&require_attr(e, "hashAlgorithm", tag)?)?,
+        salt_value: parse_base64(&require_attr(e, "saltValue", tag)?, tag, "saltValue")?,
     })
 }
 
@@ -259,23 +255,23 @@ fn parse_encrypted_key(
 ) -> Result<EncryptedKeyAttrs, FileError> {
     let tag = "encryptedKey";
     Ok(EncryptedKeyAttrs {
-        spin_count: parse_u32(&require_attr(e, b"spinCount", tag)?, tag, "spinCount")?,
-        salt_value: parse_base64(&require_attr(e, b"saltValue", tag)?, tag, "saltValue")?,
-        hash_algorithm: HashAlgorithm::from_str(&require_attr(e, b"hashAlgorithm", tag)?)?,
-        key_bits: parse_usize(&require_attr(e, b"keyBits", tag)?, tag, "keyBits")?,
-        block_size: parse_usize(&require_attr(e, b"blockSize", tag)?, tag, "blockSize")?,
+        spin_count: parse_u32(&require_attr(e, "spinCount", tag)?, tag, "spinCount")?,
+        salt_value: parse_base64(&require_attr(e, "saltValue", tag)?, tag, "saltValue")?,
+        hash_algorithm: HashAlgorithm::from_str(&require_attr(e, "hashAlgorithm", tag)?)?,
+        key_bits: parse_usize(&require_attr(e, "keyBits", tag)?, tag, "keyBits")?,
+        block_size: parse_usize(&require_attr(e, "blockSize", tag)?, tag, "blockSize")?,
         encrypted_verifier_hash_input: parse_base64(
-            &require_attr(e, b"encryptedVerifierHashInput", tag)?,
+            &require_attr(e, "encryptedVerifierHashInput", tag)?,
             tag,
             "encryptedVerifierHashInput",
         )?,
         encrypted_verifier_hash_value: parse_base64(
-            &require_attr(e, b"encryptedVerifierHashValue", tag)?,
+            &require_attr(e, "encryptedVerifierHashValue", tag)?,
             tag,
             "encryptedVerifierHashValue",
         )?,
         encrypted_key_value: parse_base64(
-            &require_attr(e, b"encryptedKeyValue", tag)?,
+            &require_attr(e, "encryptedKeyValue", tag)?,
             tag,
             "encryptedKeyValue",
         )?,
@@ -384,10 +380,10 @@ fn parse_agile_encryption_info(xml_bytes: &[u8]) -> Result<AgileParams, FileErro
             Ok(quick_xml::events::Event::Start(ref e) | quick_xml::events::Event::Empty(ref e)) => {
                 let local = e.local_name();
                 match local.as_ref() {
-                    b"keyData" => {
+                    "keyData" => {
                         key_data = Some(parse_key_data(e)?);
                     }
-                    b"encryptedKey" => {
+                    "encryptedKey" => {
                         enc_key = Some(parse_encrypted_key(e)?);
                     }
                     _ => {}
