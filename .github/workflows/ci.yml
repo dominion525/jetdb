@@ -57,24 +57,9 @@ jobs:
         shell: bash
       - run: cargo test
 
-  # The browser target and WASI are separate builds: dependencies can pick
-  # different code on each (web-time pulls in js-sys only for the browser), so
-  # passing tests on WASI does not show that the browser build compiles.
-  wasm-build:
-    name: Wasm build (wasm32-unknown-unknown)
-    needs: [clippy, audit, msrv]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo check --target wasm32-unknown-unknown -p jetdb
-
-  # The browser target has no filesystem, so the library tests, which open
-  # files under testdata/, run on WASI instead. Tests build test-data paths
-  # from the absolute workspace path, so wasmtime is given that same directory.
+  # The library tests open files under testdata/, which WASI can do, so the
+  # whole suite runs there. Tests build test-data paths from the absolute
+  # workspace path, so wasmtime is given that same directory.
   wasm-test:
     name: Wasm test (wasm32-wasip1)
     needs: [clippy, audit, msrv]
@@ -91,6 +76,41 @@ jobs:
       - name: Fetch test data
         run: scripts/fetch-testdata.sh
       - run: cargo test --target wasm32-wasip1 -p jetdb
+
+  # The browser target and WASI are separate builds, and dependencies can
+  # compile different code on each (web-time pulls in js-sys only for the
+  # browser), so passing on WASI does not cover the browser. This job builds the
+  # library for the browser and runs tests/wasm_browser.rs on Node.js; those
+  # tests embed their databases and open them from memory, since the browser
+  # target has no filesystem. The test runner must be the same version as the
+  # wasm-bindgen in Cargo.lock, so the version is read from there.
+  wasm-browser-test:
+    name: Wasm test (wasm32-unknown-unknown)
+    needs: [clippy, audit, msrv]
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+      - name: Read the wasm-bindgen version from Cargo.lock
+        id: wasm-bindgen
+        run: |
+          version=$(cargo metadata --format-version 1 --filter-platform wasm32-unknown-unknown \
+            | jq -r '.packages[] | select(.name == "wasm-bindgen") | .version')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@${{ steps.wasm-bindgen.outputs.version }}
+      - name: Fetch test data
+        run: scripts/fetch-testdata.sh
+      - run: cargo test --target wasm32-unknown-unknown -p jetdb --test wasm_browser
 
   doc:
     name: Doc

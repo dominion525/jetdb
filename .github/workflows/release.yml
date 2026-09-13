@@ -47,19 +47,7 @@ jobs:
         shell: bash
       - run: cargo test
 
-  # Same two Wasm checks as CI; see ci.yml for why they are separate jobs.
-  wasm-build:
-    name: Wasm build (wasm32-unknown-unknown)
-    needs: version
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo check --target wasm32-unknown-unknown -p jetdb
-
+  # Same Wasm checks as CI; see ci.yml for what each covers.
   wasm-test:
     name: Wasm test (wasm32-wasip1)
     needs: version
@@ -77,9 +65,37 @@ jobs:
         run: scripts/fetch-testdata.sh
       - run: cargo test --target wasm32-wasip1 -p jetdb
 
+  wasm-browser-test:
+    name: Wasm test (wasm32-unknown-unknown)
+    needs: version
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+      - name: Read the wasm-bindgen version from Cargo.lock
+        id: wasm-bindgen
+        run: |
+          version=$(cargo metadata --format-version 1 --filter-platform wasm32-unknown-unknown \
+            | jq -r '.packages[] | select(.name == "wasm-bindgen") | .version')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@${{ steps.wasm-bindgen.outputs.version }}
+      - name: Fetch test data
+        run: scripts/fetch-testdata.sh
+      - run: cargo test --target wasm32-unknown-unknown -p jetdb --test wasm_browser
+
   build:
     name: Build (${{ matrix.target }})
-    needs: [test, wasm-build, wasm-test]
+    needs: [test, wasm-test, wasm-browser-test]
     strategy:
       matrix:
         include:
