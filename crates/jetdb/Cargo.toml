@@ -26,3 +26,9 @@ quick-xml = "0.41"
 subtle = "2.6"
 zeroize = "1.8"
 encoding_rs = "0.8.35"
+
+# Browser Wasm tests (tests/wasm_browser.rs), run with wasm-bindgen-test-runner.
+# wasm-bindgen-test pins an exact wasm-bindgen, and the runner binary must match
+# that same version: 0.3.58 pins wasm-bindgen 0.2.108, the version cfb pulls in.
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dev-dependencies]
+wasm-bindgen-test = "=0.3.58"
