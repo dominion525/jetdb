@@ -237,13 +237,12 @@ pub fn read_macro(reader: &mut PageReader, name: &str) -> Result<MacroDef, FileE
     };
 
     if scripts_dir_mapping(&entries).is_none() {
-        // Access 97: the grid is the LvExtra of the macro's MSysObjects row,
-        // with single-byte strings.
+        // Access 97: the grid is the LvExtra of the macro's MSysObjects row.
         let (_, extra) = msysobjects_rows(reader, MSYSOBJECTS_TYPE_MACRO)?
             .into_iter()
             .find(|(n, _)| n == name)
             .ok_or_else(not_found)?;
-        let grid = parse_macro_grid(&extra.unwrap_or_default(), GridStrings::Latin1)?;
+        let grid = parse_macro_grid(&extra.unwrap_or_default(), true)?;
         return Ok(MacroDef {
             source,
             statements: statements_from_grid(&grid),
@@ -259,12 +258,12 @@ pub fn read_macro(reader: &mut PageReader, name: &str) -> Result<MacroDef, FileE
             Ok(MacroDef {
                 source,
                 statements: statements_of(&root),
-                grid: parse_macro_grid(blob, GridStrings::Utf16).ok(),
+                grid: parse_macro_grid(blob, false).ok(),
                 xml,
             })
         }
         None => {
-            let grid = parse_macro_grid(blob, GridStrings::Utf16)?;
+            let grid = parse_macro_grid(blob, false)?;
             Ok(MacroDef {
                 source,
                 statements: statements_from_grid(&grid),
@@ -406,26 +405,22 @@ fn msysobjects_rows(
 // Internal: macro grid
 // ---------------------------------------------------------------------------
 
-/// How the strings in the rows of a macro grid are encoded.
-#[derive(Clone, Copy)]
-enum GridStrings {
-    /// UTF-16LE (Access 2000 and later).
-    Utf16,
-    /// Single-byte (Access 97).
-    Latin1,
-}
-
 /// Parses a macro grid.
 ///
 /// Layout, as observed in files from Access 97 through Microsoft 365:
 /// - bytes 0..4: [`MacroGrid::columns_shown`]; bytes 4..0x20: not interpreted
 /// - at 0x20: a 2-byte length `n`, `n` bytes of a UTF-16LE header string, and
 ///   2 zero bytes
+/// - row strings: single-byte in Access 97 databases (`single_byte_file`),
+///   whatever the header string (`22` or empty there). In later formats they
+///   are UTF-16LE after the header string `33` (or `23` in the designer's
+///   clipboard macro), and single-byte after an empty header string, which
+///   macros converted from Access 97 keep.
 /// - rows until the end, each: action number (u16), row number (u16), 4 field
 ///   offsets (u16: not interpreted, comment, condition, macro name), 10
 ///   argument offsets (u16), a 2-byte length `m`, `m` bytes of NUL-terminated
 ///   strings the offsets point into (0xFFFF for none), and 2 zero bytes
-fn parse_macro_grid(bytes: &[u8], strings: GridStrings) -> Result<MacroGrid, FileError> {
+fn parse_macro_grid(bytes: &[u8], single_byte_file: bool) -> Result<MacroGrid, FileError> {
     let invalid = |what: &str| FileError::InvalidMacroData {
         reason: format!("macro grid: {what}"),
     };
@@ -439,7 +434,9 @@ fn parse_macro_grid(bytes: &[u8], strings: GridStrings) -> Result<MacroGrid, Fil
         .get(0..4)
         .map(|s| u32::from_le_bytes([s[0], s[1], s[2], s[3]]))
         .ok_or_else(|| invalid("unexpected end of data"))?;
-    let mut pos = 0x22 + read_u16(0x20)? as usize + 2;
+    let header_len = read_u16(0x20)? as usize;
+    let single_byte = single_byte_file || header_len == 0;
+    let mut pos = 0x22 + header_len + 2;
 
     let mut rows = Vec::new();
     while pos < bytes.len() {
@@ -459,19 +456,16 @@ fn parse_macro_grid(bytes: &[u8], strings: GridStrings) -> Result<MacroGrid, Fil
             let rest = block
                 .get(offset as usize..)
                 .ok_or_else(|| invalid("string offset past the row"))?;
-            Ok(Some(match strings {
-                GridStrings::Utf16 => {
-                    let units: Vec<u16> = rest
-                        .chunks_exact(2)
-                        .map(|c| u16::from_le_bytes([c[0], c[1]]))
-                        .take_while(|&u| u != 0)
-                        .collect();
-                    String::from_utf16_lossy(&units)
-                }
-                GridStrings::Latin1 => {
-                    let end = rest.iter().position(|&b| b == 0).unwrap_or(rest.len());
-                    crate::encoding::decode_latin1(&rest[..end])
-                }
+            Ok(Some(if single_byte {
+                let end = rest.iter().position(|&b| b == 0).unwrap_or(rest.len());
+                crate::encoding::decode_latin1(&rest[..end])
+            } else {
+                let units: Vec<u16> = rest
+                    .chunks_exact(2)
+                    .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                    .take_while(|&u| u != 0)
+                    .collect();
+                String::from_utf16_lossy(&units)
             }))
         };
         rows.push(MacroGridRow {
@@ -1520,13 +1514,46 @@ mod tests {
         );
     }
 
+    /// A grid with the header string `header` (UTF-16LE) and one row: action
+    /// 33 with its first argument stored as `argument`.
+    fn grid_bytes(header: &str, argument: &[u8]) -> Vec<u8> {
+        let mut bytes = vec![0u8; 0x20];
+        let header: Vec<u8> = header.encode_utf16().flat_map(u16::to_le_bytes).collect();
+        bytes.extend_from_slice(&(header.len() as u16).to_le_bytes());
+        bytes.extend_from_slice(&header);
+        bytes.extend_from_slice(&[0, 0]);
+        bytes.extend_from_slice(&[33, 0, 1, 0]);
+        let mut offsets = [0xFFFFu16; 14];
+        offsets[4] = 0;
+        for o in offsets {
+            bytes.extend_from_slice(&o.to_le_bytes());
+        }
+        bytes.extend_from_slice(&(argument.len() as u16).to_le_bytes());
+        bytes.extend_from_slice(argument);
+        bytes.extend_from_slice(&[0, 0]);
+        bytes
+    }
+
+    #[test]
+    fn parse_macro_grid_string_encoding_follows_the_header() {
+        // UTF-16LE row strings after the header string "33".
+        let grid = parse_macro_grid(&grid_bytes("33", b"F\0(\0)\0\0\0"), false).unwrap();
+        assert_eq!(grid.rows[0].arguments[0].as_deref(), Some("F()"));
+        // In an Access 97 database, row strings are single-byte after any header.
+        let grid = parse_macro_grid(&grid_bytes("22", b"F()\xe9\0"), true).unwrap();
+        assert_eq!(grid.rows[0].arguments[0].as_deref(), Some("F()é"));
+        // Single-byte row strings after an empty header string.
+        let grid = parse_macro_grid(&grid_bytes("", b"F()\xe9\0"), false).unwrap();
+        assert_eq!(grid.rows[0].arguments[0].as_deref(), Some("F()é"));
+    }
+
     #[test]
     fn parse_macro_grid_truncated_row_is_an_error() {
         let mut bytes = vec![0u8; 0x20];
         bytes.extend_from_slice(&[0, 0, 0, 0]); // empty header string
         bytes.extend_from_slice(&[0x16, 0x00, 0x01, 0x00]); // action, row, then nothing
         assert!(matches!(
-            parse_macro_grid(&bytes, GridStrings::Utf16),
+            parse_macro_grid(&bytes, false),
             Err(FileError::InvalidMacroData { .. })
         ));
     }
