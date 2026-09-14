@@ -8,6 +8,7 @@ pub mod encoding;
 pub mod file;
 pub mod form;
 pub mod format;
+pub mod macro_action;
 pub mod macro_def;
 pub mod map;
 pub mod money;
@@ -37,6 +38,7 @@ pub use form::{
     BlobProperty, BlobValue, ControlInfo, ControlProperties, FormEntry, FormObjectType,
     FormProperties, FormStream, FormTypeInfo, StreamKind,
 };
+pub use macro_action::{macro_action, MacroAction, MACRO_ACTIONS};
 pub use macro_def::{
     list_macros, read_data_macros, read_embedded_macros, read_macro, MacroArgument, MacroBranch,
     MacroDef, MacroEntry, MacroGrid, MacroGridRow, MacroSource, MacroStatement, MacroXmlElement,
