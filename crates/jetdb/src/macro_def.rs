@@ -21,13 +21,21 @@
 //! element's `For` attribute names the control (absent for the form or report
 //! itself) and `Event` names the event. [`read_embedded_macros`] returns them.
 //!
+//! Data macros (Access 2010+) are not in `MSysAccessStorage`: a table's data
+//! macros are an XML document in the `LvExtra` column of the table's
+//! `MSysObjects` row, either a single `DataMacro` element or several wrapped in
+//! `DataMacros`. [`read_data_macros`] returns them.
+//!
 //! Elements this module knows become dedicated [`MacroStatement`] variants;
 //! any other element is kept as [`MacroStatement::Unknown`] with its name,
 //! attributes, text, and children, so nothing in the XML is dropped.
 
+use crate::data::{read_table_rows, Value};
 use crate::file::{FileError, PageReader};
 use crate::form::{self, FormObjectType, StreamKind};
+use crate::format::CATALOG_PAGE;
 use crate::storage;
+use crate::table::read_table_def;
 
 /// One named macro, as listed under `MSysAccessStorage`'s `Scripts` folder.
 ///
@@ -66,6 +74,14 @@ pub enum MacroSource {
         control: Option<String>,
         event: String,
     },
+    /// A data macro of a table.
+    Data {
+        table: String,
+        /// The table event (`Event` attribute), if any.
+        event: Option<String>,
+        /// The macro name (`Name` attribute), if any.
+        name: Option<String>,
+    },
 }
 
 /// One statement of a macro.
@@ -88,6 +104,15 @@ pub enum MacroStatement {
     /// A submacro (`SubMacro`).
     SubMacro {
         name: String,
+        statements: Vec<MacroStatement>,
+    },
+    /// A record block of a data macro, such as `ForEachRecord` or
+    /// `EditRecord`: an element whose children are an optional `Data` element
+    /// and a `Statements` element. `data` holds the `Data` element's children
+    /// as name and text pairs.
+    DataBlock {
+        kind: String,
+        data: Vec<(String, String)>,
         statements: Vec<MacroStatement>,
     },
     /// An element this module does not interpret, kept as-is.
@@ -202,6 +227,72 @@ pub fn read_embedded_macros(
         .collect()
 }
 
+/// `MSysObjects.Type` of a local table.
+const MSYSOBJECTS_TYPE_TABLE: i16 = 1;
+
+/// Read the data macros of the local table `table`, in document order.
+///
+/// Returns an empty list for a table without data macros, and
+/// [`FileError::TableNotFound`] if there is no such table. Each returned
+/// [`MacroDef::xml`] is the whole XML document stored for the table.
+pub fn read_data_macros(reader: &mut PageReader, table: &str) -> Result<Vec<MacroDef>, FileError> {
+    let tdef = read_table_def(reader, "MSysObjects", CATALOG_PAGE)?;
+    let column = |name: &str| {
+        tdef.columns
+            .iter()
+            .position(|c| c.name == name)
+            .ok_or_else(|| FileError::InvalidMacroData {
+                reason: format!("MSysObjects has no {name} column"),
+            })
+    };
+    let (name_idx, type_idx, extra_idx) = (column("Name")?, column("Type")?, column("LvExtra")?);
+    let rows = read_table_rows(reader, &tdef)?.rows;
+    let Some(row) = rows.iter().find(|row| {
+        row[name_idx] == Value::Text(table.to_string())
+            && row[type_idx] == Value::Int(MSYSOBJECTS_TYPE_TABLE)
+    }) else {
+        return Err(FileError::TableNotFound {
+            name: table.to_string(),
+        });
+    };
+    let Value::Binary(extra) = &row[extra_idx] else {
+        return Ok(Vec::new());
+    };
+
+    let mut macros = Vec::new();
+    for xml in extract_utf16_xml_documents(extra) {
+        macros.extend(data_macros_from_xml(table, xml)?);
+    }
+    Ok(macros)
+}
+
+/// The data macros in one XML document: the `DataMacro` children of a
+/// `DataMacros` element, or a single `DataMacro` element.
+fn data_macros_from_xml(table: &str, xml: String) -> Result<Vec<MacroDef>, FileError> {
+    let root = parse_xml_tree(&xml)?;
+    let elements: Vec<&MacroXmlElement> = match root.name.as_str() {
+        "DataMacros" => root
+            .children
+            .iter()
+            .filter(|c| c.name == "DataMacro")
+            .collect(),
+        "DataMacro" => vec![&root],
+        _ => Vec::new(),
+    };
+    Ok(elements
+        .into_iter()
+        .map(|element| MacroDef {
+            source: MacroSource::Data {
+                table: table.to_string(),
+                event: element.attribute("Event").map(str::to_string),
+                name: element.attribute("Name").map(str::to_string),
+            },
+            statements: statements_of(element),
+            xml: xml.clone(),
+        })
+        .collect())
+}
+
 // ---------------------------------------------------------------------------
 // Internal: locating a macro's Blob stream
 // ---------------------------------------------------------------------------
@@ -299,6 +390,31 @@ fn extract_axl_documents(blob: &[u8]) -> Vec<String> {
     documents
         .into_iter()
         .map(|d| d.trim_end_matches('\u{0}').to_string())
+        .collect()
+}
+
+/// "<?xml" encoded as UTF-16LE bytes.
+const XML_DECLARATION_START: &[u8] = &[b'<', 0, b'?', 0, b'x', 0, b'm', 0, b'l', 0];
+
+/// Extracts the UTF-16LE XML documents stored in `bytes` after a binary
+/// header, as in `MSysObjects.LvExtra`. Each document runs from a `<?xml`
+/// declaration to the last `>` before the next declaration or the end.
+fn extract_utf16_xml_documents(bytes: &[u8]) -> Vec<String> {
+    let mut starts = Vec::new();
+    let mut search_from = 0usize;
+    while let Some(rel) = find_bytes(&bytes[search_from..], XML_DECLARATION_START) {
+        starts.push(search_from + rel);
+        search_from += rel + XML_DECLARATION_START.len();
+    }
+    starts
+        .iter()
+        .enumerate()
+        .filter_map(|(i, &start)| {
+            let end = starts.get(i + 1).copied().unwrap_or(bytes.len());
+            let text = decode_utf16le_lossy(&bytes[start..end]);
+            let last = text.rfind('>')?;
+            Some(text[..=last].to_string())
+        })
         .collect()
 }
 
@@ -443,9 +559,42 @@ fn to_statement(element: &MacroXmlElement) -> MacroStatement {
             name: element.attribute("Name").unwrap_or("").to_string(),
             statements: statements_of(element),
         }),
-        _ => None,
+        _ => to_data_block(element),
     };
     converted.unwrap_or_else(|| MacroStatement::Unknown(element.clone()))
+}
+
+/// An element without attributes whose children are a `Statements` element
+/// and optionally a `Data` element whose own children are plain text
+/// elements; anything else is left to [`MacroStatement::Unknown`].
+fn to_data_block(element: &MacroXmlElement) -> Option<MacroStatement> {
+    if !element.attributes.is_empty()
+        || !element.text.is_empty()
+        || element.child("Statements").is_none()
+        || element
+            .children
+            .iter()
+            .any(|c| c.name != "Statements" && c.name != "Data")
+    {
+        return None;
+    }
+    let data = match element.child("Data") {
+        Some(d) if !d.attributes.is_empty() || !d.text.is_empty() => return None,
+        Some(d) => d
+            .children
+            .iter()
+            .map(|c| {
+                (c.attributes.is_empty() && c.children.is_empty())
+                    .then(|| (c.name.clone(), c.text.clone()))
+            })
+            .collect::<Option<Vec<_>>>()?,
+        None => Vec::new(),
+    };
+    Some(MacroStatement::DataBlock {
+        kind: element.name.clone(),
+        data,
+        statements: statements_of(element),
+    })
 }
 
 /// An `Action` whose children are all `Argument`s; anything else is left to
@@ -680,6 +829,60 @@ mod tests {
         );
     }
 
+    #[test]
+    fn data_macros_wrapped_in_data_macros_element() {
+        let xml = r#"<?xml version="1.0"?><DataMacros xmlns="ns"><DataMacro Event="AfterInsert"><Statements><Action Name="A"/></Statements></DataMacro><DataMacro Name="dmNamed"><Statements><Action Name="B"/></Statements></DataMacro></DataMacros>"#;
+        let macros = data_macros_from_xml("T", xml.to_string()).unwrap();
+        let sources: Vec<&MacroSource> = macros.iter().map(|m| &m.source).collect();
+        assert_eq!(
+            sources,
+            [
+                &MacroSource::Data {
+                    table: "T".to_string(),
+                    event: Some("AfterInsert".to_string()),
+                    name: None
+                },
+                &MacroSource::Data {
+                    table: "T".to_string(),
+                    event: None,
+                    name: Some("dmNamed".to_string())
+                },
+            ]
+        );
+        assert_eq!(macros[0].statements, [action("A", &[])]);
+        assert_eq!(macros[1].statements, [action("B", &[])]);
+        assert!(macros.iter().all(|m| m.xml == xml));
+    }
+
+    #[test]
+    fn data_blocks() {
+        let xml = r#"<DataMacro Event="AfterUpdate" xmlns="ns"><Statements><ForEachRecord><Data><Reference>tblLog</Reference><WhereCondition>[ID]=1</WhereCondition></Data><Statements><EditRecord><Data/><Statements><Action Name="SetField"><Argument Name="Field">Note</Argument></Action></Statements></EditRecord></Statements></ForEachRecord></Statements></DataMacro>"#;
+        assert_eq!(
+            statements(xml),
+            [MacroStatement::DataBlock {
+                kind: "ForEachRecord".to_string(),
+                data: vec![
+                    ("Reference".to_string(), "tblLog".to_string()),
+                    ("WhereCondition".to_string(), "[ID]=1".to_string()),
+                ],
+                statements: vec![MacroStatement::DataBlock {
+                    kind: "EditRecord".to_string(),
+                    data: Vec::new(),
+                    statements: vec![action("SetField", &[("Field", "Note")])],
+                }],
+            }]
+        );
+    }
+
+    #[test]
+    fn extract_utf16_xml_documents_skips_the_header() {
+        let mut bytes = vec![0x01, 0x02, 0x03, 0x04];
+        let xml = "<?xml version=\"1.0\"?><DataMacro/>";
+        bytes.extend(xml.encode_utf16().flat_map(|u| u.to_le_bytes()));
+        bytes.extend_from_slice(&[0, 0]);
+        assert_eq!(extract_utf16_xml_documents(&bytes), [xml]);
+    }
+
     // -- Real files ---------------------------------------------------------
     //
     // macroTestV2010.accdb and its Access 2002-2003 copy macroTestV2003.mdb
@@ -877,6 +1080,60 @@ mod tests {
         assert!(matches!(
             read_embedded_macros(&mut reader, "NoSuchForm"),
             Err(FileError::FormNotFound { .. })
+        ));
+    }
+
+    #[test]
+    fn read_data_macros_real_files() {
+        // tblItems has one BeforeChange data macro in all three copies.
+        for file in [
+            "V2010/macroTestV2010.accdb",
+            "V2003/macroTestV2003.mdb",
+            "V2000/macroTestV2000.mdb",
+        ] {
+            let path = skip_if_missing!(file);
+            let mut reader = PageReader::open(&path).unwrap();
+            let macros = read_data_macros(&mut reader, "tblItems").unwrap();
+            assert_eq!(macros.len(), 1, "{file}");
+            assert_eq!(
+                macros[0].source,
+                MacroSource::Data {
+                    table: "tblItems".to_string(),
+                    event: Some("BeforeChange".to_string()),
+                    name: None
+                },
+                "{file}"
+            );
+            assert_eq!(
+                macros[0].statements,
+                [MacroStatement::Conditional {
+                    branches: vec![MacroBranch {
+                        condition: Some("[Qty]<0".to_string()),
+                        statements: vec![action(
+                            "RaiseError",
+                            &[("Number", "1"), ("Description", " negative qty")]
+                        )],
+                    }]
+                }],
+                "{file}"
+            );
+        }
+    }
+
+    #[test]
+    fn read_data_macros_table_without_macros() {
+        let path = skip_if_missing!("V2010/testV2010.accdb");
+        let mut reader = PageReader::open(&path).unwrap();
+        assert_eq!(read_data_macros(&mut reader, "Table1").unwrap(), []);
+    }
+
+    #[test]
+    fn read_data_macros_not_found() {
+        let path = skip_if_missing!("V2010/macroTestV2010.accdb");
+        let mut reader = PageReader::open(&path).unwrap();
+        assert!(matches!(
+            read_data_macros(&mut reader, "NoSuchTable"),
+            Err(FileError::TableNotFound { name }) if name == "NoSuchTable"
         ));
     }
 }
