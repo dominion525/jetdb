@@ -59,6 +59,40 @@ pub fn numeric_to_string(bytes: &[u8; 17], scale: u8) -> String {
     }
 }
 
+/// Convert a 16-byte OLE Automation `DECIMAL` structure to a string.
+///
+/// Layout: `bytes[0..2]` = reserved (the `VT_DECIMAL` variant-type tag,
+/// `0x0E 0x00`, unused here), `bytes[2]` = scale, `bytes[3]` = sign
+/// (`0x00` positive / non-zero negative), `bytes[4..8]` = high 32 bits of a
+/// 96-bit unsigned mantissa (little-endian), `bytes[8..16]` = low 64 bits
+/// (little-endian).
+///
+/// Access "Calculated" fields with a Decimal result type cache their value
+/// in this format because, unlike an ordinary stored Decimal column, a
+/// calculated result's scale isn't fixed by the column definition (it
+/// depends on the expression), so it has to be self-describing.
+pub fn decimal_variant_to_string(bytes: &[u8; 16]) -> String {
+    let scale = bytes[2];
+    let negative = bytes[3] != 0;
+    let hi = u32::from_le_bytes(bytes[4..8].try_into().unwrap()) as u128;
+    let lo = u64::from_le_bytes(bytes[8..16].try_into().unwrap()) as u128;
+    let value = (hi << 64) | lo;
+
+    let s = if scale == 0 {
+        value.to_string()
+    } else {
+        let divisor = 10u128.pow(scale as u32);
+        let integer = value / divisor;
+        let decimal = value % divisor;
+        format!("{integer}.{decimal:0>width$}", width = scale as usize)
+    };
+    if negative && value != 0 {
+        format!("-{s}")
+    } else {
+        s
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -207,5 +241,73 @@ mod tests {
         bytes[0] = 0x00;
         bytes[13] = 0x64; // 100 in LE group form
         assert_eq!(numeric_to_string(&bytes, 0), "100");
+    }
+
+    // -- decimal_variant_to_string ---------------------------------------------
+    //
+    // Byte sequences captured verbatim from a real Access 2019 (.accdb),
+    // using calculated-field expressions of the shape `[BaseDecimalField]/2`,
+    // where the base field was tested at (precision, scale) of (7,2) and
+    // (18,3).
+
+    #[test]
+    fn decimal_variant_zero() {
+        let bytes = [
+            0x0e, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ];
+        assert_eq!(decimal_variant_to_string(&bytes), "0.00");
+    }
+
+    #[test]
+    fn decimal_variant_clean_division_scale_unchanged() {
+        // 2.46 / 2 = 1.23, scale stays 2
+        let bytes = [
+            0x0e, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x7b, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ];
+        assert_eq!(decimal_variant_to_string(&bytes), "1.23");
+    }
+
+    #[test]
+    fn decimal_variant_scale_bump_positive() {
+        // 1.23 / 2 = 0.615, scale bumps from 2 to 3
+        let bytes = [
+            0x0e, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x67, 0x02, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ];
+        assert_eq!(decimal_variant_to_string(&bytes), "0.615");
+    }
+
+    #[test]
+    fn decimal_variant_scale_bump_negative() {
+        // -1.23 / 2 = -0.615 -- same magnitude as the positive case, sign
+        // byte isolates the sign encoding.
+        let bytes = [
+            0x0e, 0x00, 0x03, 0x80, 0x00, 0x00, 0x00, 0x00, 0x67, 0x02, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ];
+        assert_eq!(decimal_variant_to_string(&bytes), "-0.615");
+    }
+
+    #[test]
+    fn decimal_variant_deeper_scale_bump() {
+        // 100.001 / 2 = 50.0005, scale bumps from 3 to 4
+        let bytes = [
+            0x0e, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x25, 0xa1, 0x07, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ];
+        assert_eq!(decimal_variant_to_string(&bytes), "50.0005");
+    }
+
+    #[test]
+    fn decimal_variant_large_magnitude() {
+        // 999999999999999.999 / 2 = 499999999999999.9995 -- mantissa
+        // exceeds 32 bits, exercising the high/low split.
+        let bytes = [
+            0x0e, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0xfb, 0xff, 0xf3, 0x44, 0x82, 0x91,
+            0x63, 0x45,
+        ];
+        assert_eq!(decimal_variant_to_string(&bytes), "499999999999999.9995");
     }
 }

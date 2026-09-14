@@ -669,6 +669,7 @@ mod tests {
             is_fixed: false,
             precision,
             scale,
+            is_calculated: false,
         }
     }
 
