@@ -40,3 +40,4 @@ Dockerfile.ci-test
 
 # Test data fetched by scripts/fetch-testdata.sh (not stored in this repository)
 /testdata/V1997/nwind.mdb
+/testdata/saveastext/

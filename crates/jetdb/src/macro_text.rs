@@ -176,6 +176,65 @@ mod tests {
         assert_eq!(compared, 87 + 56 + 1);
     }
 
+    /// Compares each macro of `database` with the SaveAsText file of the same
+    /// name in `macros_dir`, decoded with `encoding`. The files were written by
+    /// a tool that removes `PublishOption =1` lines, so that line is left out
+    /// of the comparison, and line endings are compared as `\n`.
+    fn compare_with_saveastext_files(
+        database: &str,
+        macros_dir: &str,
+        encoding: &'static encoding_rs::Encoding,
+    ) {
+        use crate::file::PageReader;
+        use crate::macro_def::read_macro;
+
+        let base = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata");
+        if !base.join(database).exists() {
+            eprintln!("SKIP: test data not found: {database}");
+            return;
+        }
+        let normalize = |text: &str| {
+            text.trim_start_matches('\u{feff}')
+                .lines()
+                .filter(|line| *line != "PublishOption =1")
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        let mut reader = PageReader::open(base.join(database)).unwrap();
+        let mut compared = 0;
+        for entry in std::fs::read_dir(base.join(macros_dir)).unwrap() {
+            let path = entry.unwrap().path();
+            let name = path.file_stem().unwrap().to_str().unwrap().to_string();
+            let bytes = std::fs::read(&path).unwrap();
+            let (expected, _, _) = encoding.decode(&bytes);
+            let grid = read_macro(&mut reader, &name).unwrap().grid.unwrap();
+            assert_eq!(
+                normalize(&grid.to_text()),
+                normalize(&expected),
+                "{database}: {name}"
+            );
+            compared += 1;
+        }
+        assert!(compared > 0, "{macros_dir}");
+    }
+
+    #[test]
+    fn matches_saveastext_files_of_public_databases() {
+        // Fetched by scripts/fetch-testdata.sh. Sports.accdb has macros
+        // converted from Access 97 (`Version =0`), macro names, conditions,
+        // escapes, and DoMenuItem; the Strings.mdb files are in Windows-1251.
+        compare_with_saveastext_files(
+            "saveastext/SportsAdmin/Sports.accdb",
+            "saveastext/SportsAdmin/macros",
+            encoding_rs::UTF_8,
+        );
+        compare_with_saveastext_files(
+            "saveastext/Strings/Strings.mdb",
+            "saveastext/Strings/macros",
+            encoding_rs::WINDOWS_1251,
+        );
+    }
+
     #[test]
     fn arguments_in_text_slot_order() {
         // DoMenuItem, as in a macro converted from Access 97.

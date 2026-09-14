@@ -178,10 +178,19 @@ These files were created by the jetdb project using Microsoft Access for Microso
 
 These files are downloaded by `scripts/fetch-testdata.sh` and are listed in `.gitignore`. Tests that use them are guarded by `skip_if_missing!`, so they are skipped until the script has been run. CI runs the script before `cargo test`.
 
-They are kept out of the repository because their licensing is not stated anywhere. The upstream repository has no LICENSE file, and its README says only "Test files for MDB Tools found on the Internet." The file itself is the Northwind sample database that Microsoft distributed with Access 97, in its German localization: it circulates widely and is treated as freely available, but no explicit grant accompanies it. mdbtools keeps its own test data in a separate repository and downloads it at test time for the same reason.
+`V1997/nwind.mdb` is kept out of the repository because its licensing is not stated anywhere. The upstream repository has no LICENSE file, and its README says only "Test files for MDB Tools found on the Internet." The file itself is the Northwind sample database that Microsoft distributed with Access 97, in its German localization: it circulates widely and is treated as freely available, but no explicit grant accompanies it. mdbtools keeps its own test data in a separate repository and downloads it at test time for the same reason.
 
 Each entry is pinned to an immutable commit hash and verified against a SHA-256 digest.
 
 | File | Source | Purpose |
 |------|--------|---------|
 | V1997/nwind.mdb | https://github.com/mdbtools/mdbtestdata `data/nwind.mdb` @ `156fc65` | Jet3 table with only fixed-length columns (`Order Details`), where rows carry no variable-column trailer |
+
+The files under `saveastext/` are published under the MIT License. They are fetched rather than copied so that each stays with its copyright and license notice in its upstream repository (`License.txt` of ruddj/SportsAdmin, `LICENSE` of iKaRus-VLZ/Strings). Each database comes with the text files its project exported from it in the `Application.SaveAsText` format, and tests compare the macro text jetdb writes with those files.
+
+| File | Source | Purpose |
+|------|--------|---------|
+| saveastext/SportsAdmin/Sports.accdb | https://github.com/ruddj/SportsAdmin `Sports.accdb` @ `a5b9086` | Macros with macro names, conditions, escaped quotes, and macros converted from Access 97 |
+| saveastext/SportsAdmin/macros/*.bas | https://github.com/ruddj/SportsAdmin `Source/macros/` @ `a5b9086` | SaveAsText output of the 24 macros of Sports.accdb |
+| saveastext/Strings/Strings.mdb | https://github.com/iKaRus-VLZ/Strings `Strings.mdb` @ `9bf2b11` | Macros with Russian comments in a Jet4 `.mdb` |
+| saveastext/Strings/macros/*.accmac | https://github.com/iKaRus-VLZ/Strings `Macro/` @ `9bf2b11` | SaveAsText output of the 10 macros of Strings.mdb, in Windows-1251 |
