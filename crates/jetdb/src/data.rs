@@ -2935,4 +2935,98 @@ mod tests {
         assert_eq!(result.get("fullnamefnln"), Some(&ColumnType::Text));
         assert_eq!(result.get("employeeid"), None);
     }
+
+    /// Calculated columns of Table1 in calcFieldTestV2010.accdb. Expected
+    /// values are taken from Jackcess (`CalcFieldTest.testReadCalcFields`),
+    /// which reads the same file.
+    #[test]
+    fn calculated_field_values_match_jackcess() {
+        let path = skip_if_missing!("V2010/calcFieldTestV2010.accdb");
+        let mut reader = PageReader::open(&path).unwrap();
+        let catalog = crate::catalog::read_catalog(&mut reader).unwrap();
+        let entry = catalog
+            .iter()
+            .find(|e| e.name == "Table1")
+            .expect("Table1 entry in catalog");
+        let table =
+            crate::table::read_table_def(&mut reader, &entry.name, entry.table_page).unwrap();
+        let result = read_table_rows(&mut reader, &table).unwrap();
+        assert_eq!(result.rows.len(), 4);
+
+        let text = |s: &str| Value::Text(s.to_string());
+        let money = |s: &str| Value::Money(s.to_string());
+        let numeric = |s: &str| Value::Numeric(s.to_string());
+        let expected: [Vec<(&str, Value)>; 4] = [
+            vec![
+                ("LastFirst", text("Wayne, Bruce")),
+                ("LastFirstLen", Value::Long(12)),
+                ("MonthlySalary", money("83333.3333")),
+                ("IsRich", Value::Bool(true)),
+                ("AllNames", text("Wayne, Bruce=Wayne, Bruce")),
+                ("WeeklySalary", numeric("19230.7692307692")),
+                ("SalaryTest", money("1000000.0000")),
+                ("BoolTest", Value::Bool(true)),
+                ("DecimalTest", numeric("50.325000")),
+                ("FloatTest", Value::Float(2583.2092)),
+                ("BigNumTest", numeric("56505085819.424791296572280180")),
+            ],
+            vec![
+                ("LastFirst", text("Simpson, Bart")),
+                ("LastFirstLen", Value::Long(13)),
+                ("MonthlySalary", money("-0.0833")),
+                ("IsRich", Value::Bool(false)),
+                ("AllNames", text("Simpson, Bart=Simpson, Bart")),
+                ("WeeklySalary", numeric("-0.0192307692307692")),
+                ("SalaryTest", money("-1.0000")),
+                ("BoolTest", Value::Bool(true)),
+                ("DecimalTest", numeric("-36.222200")),
+                ("FloatTest", Value::Float(0.0035889593)),
+                ("BigNumTest", numeric("-0.0784734499180612994241100748")),
+            ],
+            vec![
+                ("LastFirst", text("Doe, John")),
+                ("LastFirstLen", Value::Long(9)),
+                ("MonthlySalary", money("0.0000")),
+                ("IsRich", Value::Bool(false)),
+                ("AllNames", text("Doe, John=Doe, John")),
+                ("WeeklySalary", numeric("0")),
+                ("SalaryTest", money("0.0000")),
+                ("BoolTest", Value::Bool(true)),
+                ("DecimalTest", numeric("0.012300")),
+                ("FloatTest", Value::Float(0.0)),
+                ("BigNumTest", numeric("0.00000000")),
+            ],
+            vec![
+                ("LastFirst", text("User, Test")),
+                ("LastFirstLen", Value::Long(10)),
+                ("MonthlySalary", money("8.3333")),
+                ("IsRich", Value::Bool(false)),
+                ("AllNames", text("User, Test=User, Test")),
+                ("WeeklySalary", numeric("1.92307692307692")),
+                ("SalaryTest", money("100.0000")),
+                ("BoolTest", Value::Bool(true)),
+                ("DecimalTest", numeric("102030405060.654321")),
+                ("FloatTest", Value::Float(1.27413e-10)),
+                ("BigNumTest", numeric("0.0000002787019289824216980830")),
+            ],
+        ];
+
+        let mut mismatches = Vec::new();
+        for (row_idx, (row, expected_row)) in result.rows.iter().zip(&expected).enumerate() {
+            for (name, expected_value) in expected_row {
+                let col_idx = table
+                    .columns
+                    .iter()
+                    .position(|c| c.name == *name)
+                    .unwrap_or_else(|| panic!("column {name} not found"));
+                if row[col_idx] != *expected_value {
+                    mismatches.push(format!(
+                        "row {row_idx} {name}: got {:?}, expected {expected_value:?}",
+                        row[col_idx]
+                    ));
+                }
+            }
+        }
+        assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
+    }
 }
