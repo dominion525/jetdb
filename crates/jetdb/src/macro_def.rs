@@ -15,11 +15,18 @@
 //! immediately preceding each marker and reassembles the XML, which
 //! [`read_macro`] turns into a [`MacroDef`].
 //!
+//! Embedded macros (set on a form, report, or control event) are stored the
+//! same way inside the form's or report's own `Blob` stream, one XML document
+//! per macro, each starting with its own `<?xml` declaration. The document
+//! element's `For` attribute names the control (absent for the form or report
+//! itself) and `Event` names the event. [`read_embedded_macros`] returns them.
+//!
 //! Elements this module knows become dedicated [`MacroStatement`] variants;
 //! any other element is kept as [`MacroStatement::Unknown`] with its name,
 //! attributes, text, and children, so nothing in the XML is dropped.
 
 use crate::file::{FileError, PageReader};
+use crate::form::{self, FormObjectType, StreamKind};
 use crate::storage;
 
 /// One named macro, as listed under `MSysAccessStorage`'s `Scripts` folder.
@@ -50,6 +57,15 @@ pub struct MacroDef {
 pub enum MacroSource {
     /// A named macro object.
     Named { name: String },
+    /// A macro embedded in a form or report event.
+    Embedded {
+        object_kind: FormObjectType,
+        object_name: String,
+        /// The control the event belongs to, or `None` for the form or
+        /// report itself.
+        control: Option<String>,
+        event: String,
+    },
 }
 
 /// One statement of a macro.
@@ -159,6 +175,33 @@ pub fn read_macro(reader: &mut PageReader, name: &str) -> Result<MacroDef, FileE
     })
 }
 
+/// Read the embedded macros of the form or report `object_name`, in the order
+/// they appear in its `Blob` stream.
+///
+/// Returns [`FileError::FormNotFound`] if there is no such form or report.
+pub fn read_embedded_macros(
+    reader: &mut PageReader,
+    object_name: &str,
+) -> Result<Vec<MacroDef>, FileError> {
+    let stream = form::read_form_stream(reader, object_name, StreamKind::Blob)?;
+    extract_axl_documents(&stream.data)
+        .into_iter()
+        .map(|xml| {
+            let root = parse_xml_tree(&xml)?;
+            Ok(MacroDef {
+                source: MacroSource::Embedded {
+                    object_kind: stream.object_type,
+                    object_name: object_name.to_string(),
+                    control: root.attribute("For").map(str::to_string),
+                    event: root.attribute("Event").unwrap_or("").to_string(),
+                },
+                statements: statements_of(&root),
+                xml,
+            })
+        })
+        .collect()
+}
+
 // ---------------------------------------------------------------------------
 // Internal: locating a macro's Blob stream
 // ---------------------------------------------------------------------------
@@ -211,6 +254,13 @@ const AXL_MARKER: &[u8] = &[b'_', 0, b'A', 0, b'X', 0, b'L', 0, b':', 0];
 /// Reassembles the `UserInterfaceMacro` XML document mirrored inside a
 /// macro's Blob stream, or `None` if the Blob has no `_AXL:`-marked chunks
 /// (pre-2010 macros predate this mirror).
+fn extract_axl_xml(blob: &[u8]) -> Option<String> {
+    extract_axl_documents(blob).into_iter().next()
+}
+
+/// Reassembles every XML document mirrored inside a Blob stream, in order. A
+/// chunk whose text starts with `<?xml` begins a new document, so a form's
+/// Blob with several embedded macros yields one document per macro.
 ///
 /// Verified against 5 real macros (334-5317 XML chars, from
 /// `MS NorthwindDev.accdb`/`MS NorthwindStarter.accdb`'s `AutoExec`,
@@ -223,10 +273,9 @@ const AXL_MARKER: &[u8] = &[b'_', 0, b'A', 0, b'X', 0, b'L', 0, b':', 0];
 /// the last, but this reads `L` directly rather than assuming a fixed size --
 /// distance-to-next-marker undercounts when a chunk ends short of 253 chars,
 /// leaking header bytes from the next chunk into the decoded text.
-fn extract_axl_xml(blob: &[u8]) -> Option<String> {
-    let mut xml = String::new();
+fn extract_axl_documents(blob: &[u8]) -> Vec<String> {
+    let mut documents: Vec<String> = Vec::new();
     let mut search_from = 0usize;
-    let mut found_any = false;
 
     while let Some(rel) = find_bytes(&blob[search_from..], AXL_MARKER) {
         let pos = search_from + rel;
@@ -239,15 +288,18 @@ fn extract_axl_xml(blob: &[u8]) -> Option<String> {
         }
         let chunk_end = pos + declared_len - 2;
         let chunk_text = decode_utf16le_lossy(&blob[pos..chunk_end]);
-        xml.push_str(chunk_text.strip_prefix("_AXL:").unwrap_or(&chunk_text));
-        found_any = true;
+        let chunk = chunk_text.strip_prefix("_AXL:").unwrap_or(&chunk_text);
+        match documents.last_mut() {
+            Some(document) if !chunk.starts_with("<?xml") => document.push_str(chunk),
+            _ => documents.push(chunk.to_string()),
+        }
         search_from = chunk_end;
     }
 
-    if !found_any {
-        return None;
-    }
-    Some(xml.trim_end_matches('\u{0}').to_string())
+    documents
+        .into_iter()
+        .map(|d| d.trim_end_matches('\u{0}').to_string())
+        .collect()
 }
 
 fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
@@ -491,6 +543,22 @@ mod tests {
         // distance-to-next-marker had (verified against real macro data).
         let blob = build_blob(&["short", "second chunk"]);
         assert_eq!(extract_axl_xml(&blob).as_deref(), Some("shortsecond chunk"));
+    }
+
+    #[test]
+    fn extract_axl_documents_splits_at_xml_declarations() {
+        let blob = build_blob(&[
+            "<?xml version=\"1.0\"?><a>",
+            "1</a>",
+            "<?xml version=\"1.0\"?><b/>",
+        ]);
+        assert_eq!(
+            extract_axl_documents(&blob),
+            [
+                "<?xml version=\"1.0\"?><a>1</a>",
+                "<?xml version=\"1.0\"?><b/>"
+            ]
+        );
     }
 
     // -- XML -> statements ------------------------------------------------------
@@ -753,6 +821,62 @@ mod tests {
         assert!(matches!(
             read_macro(&mut reader, "NoSuchMacro"),
             Err(FileError::MacroNotFound { name }) if name == "NoSuchMacro"
+        ));
+    }
+
+    #[test]
+    fn read_embedded_macros_real_files() {
+        // The form tblItems has a BeforeUpdate macro on the form itself and an
+        // OnClick macro on the button btnHello.
+        for file in MACRO_TEST_FILES {
+            let path = skip_if_missing!(file);
+            let mut reader = PageReader::open(&path).unwrap();
+            let macros = read_embedded_macros(&mut reader, "tblItems").unwrap();
+            let embedded = |control: Option<&str>, event: &str| MacroSource::Embedded {
+                object_kind: FormObjectType::Form,
+                object_name: "tblItems".to_string(),
+                control: control.map(str::to_string),
+                event: event.to_string(),
+            };
+            assert_eq!(macros.len(), 2, "{file}");
+            assert_eq!(macros[0].source, embedded(None, "BeforeUpdate"), "{file}");
+            assert_eq!(
+                macros[0].statements,
+                [MacroStatement::Conditional {
+                    branches: vec![MacroBranch {
+                        condition: Some("[Qty]<0".to_string()),
+                        statements: vec![action("Beep", &[])],
+                    }]
+                }],
+                "{file}"
+            );
+            assert_eq!(
+                macros[1].source,
+                embedded(Some("btnHello"), "OnClick"),
+                "{file}"
+            );
+            assert_eq!(
+                macros[1].statements,
+                [action("MessageBox", &[("Message", "button clicked")])],
+                "{file}"
+            );
+        }
+    }
+
+    #[test]
+    fn read_embedded_macros_form_without_macros() {
+        let path = skip_if_missing!("vbaV2007.accdb");
+        let mut reader = PageReader::open(&path).unwrap();
+        assert_eq!(read_embedded_macros(&mut reader, "Form1").unwrap(), []);
+    }
+
+    #[test]
+    fn read_embedded_macros_not_found() {
+        let path = skip_if_missing!("V2010/macroTestV2010.accdb");
+        let mut reader = PageReader::open(&path).unwrap();
+        assert!(matches!(
+            read_embedded_macros(&mut reader, "NoSuchForm"),
+            Err(FileError::FormNotFound { .. })
         ));
     }
 }
