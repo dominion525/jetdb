@@ -208,12 +208,12 @@ fn parse_xml_tree(xml: &str) -> Result<XNode, FileError> {
     loop {
         match reader.read_event() {
             Ok(Event::Start(e)) => {
-                let name = String::from_utf8_lossy(e.name().as_ref()).into_owned();
+                let name = e.name().as_ref().to_string();
                 let attrs = read_attrs(&e)?;
                 stack.push(XNode { name, attrs, children: Vec::new(), text: String::new() });
             }
             Ok(Event::Empty(e)) => {
-                let name = String::from_utf8_lossy(e.name().as_ref()).into_owned();
+                let name = e.name().as_ref().to_string();
                 let attrs = read_attrs(&e)?;
                 let node = XNode { name, attrs, children: Vec::new(), text: String::new() };
                 match stack.last_mut() {
@@ -222,11 +222,29 @@ fn parse_xml_tree(xml: &str) -> Result<XNode, FileError> {
                 }
             }
             Ok(Event::Text(t)) => {
-                let text = t.unescape().map_err(|e| FileError::InvalidMacroData {
-                    reason: format!("invalid macro XML text: {e}"),
-                })?;
+                let text = t.xml_content(quick_xml::XmlVersion::Explicit1_0);
                 if let Some(top) = stack.last_mut() {
                     top.text.push_str(&text);
+                }
+            }
+            // Entity and character references (`&lt;`, `&#60;`) arrive as
+            // separate events rather than inside the surrounding text.
+            Ok(Event::GeneralRef(r)) => {
+                let resolved = match r.resolve_char_ref() {
+                    Ok(Some(ch)) => ch.to_string(),
+                    Ok(None) => quick_xml::escape::resolve_xml_entity(&r)
+                        .ok_or_else(|| FileError::InvalidMacroData {
+                            reason: format!("unknown entity in macro XML: &{};", &*r),
+                        })?
+                        .to_string(),
+                    Err(e) => {
+                        return Err(FileError::InvalidMacroData {
+                            reason: format!("invalid character reference in macro XML: {e}"),
+                        })
+                    }
+                };
+                if let Some(top) = stack.last_mut() {
+                    top.text.push_str(&resolved);
                 }
             }
             Ok(Event::End(_)) => {
@@ -257,9 +275,9 @@ fn read_attrs(e: &quick_xml::events::BytesStart<'_>) -> Result<Vec<(String, Stri
         let attr = attr.map_err(|e| FileError::InvalidMacroData {
             reason: format!("invalid macro XML attribute: {e}"),
         })?;
-        let key = String::from_utf8_lossy(attr.key.as_ref()).into_owned();
+        let key = attr.key.as_ref().to_string();
         let val = attr
-            .unescape_value()
+            .normalized_value(quick_xml::XmlVersion::Explicit1_0)
             .map_err(|e| FileError::InvalidMacroData {
                 reason: format!("invalid macro XML attribute value: {e}"),
             })?
@@ -450,6 +468,13 @@ mod tests {
         let xml = r#"<UserInterfaceMacro Event="OnUnload" xmlns="ns"><Statements><Comment>hello</Comment><Action Name="StopMacro"/></Statements></UserInterfaceMacro>"#;
         let text = format_macro_xml(xml).unwrap();
         assert_eq!(text, "' Event: OnUnload\n' hello\nStopMacro\n");
+    }
+
+    #[test]
+    fn format_macro_xml_resolves_references_in_conditions() {
+        let xml = r#"<UserInterfaceMacro xmlns="ns"><Statements><ConditionalBlock><If><Condition>[MacroError]&lt;&gt;0 And [x]&#62;1</Condition><Statements><Action Name="X"/></Statements></If></ConditionalBlock></Statements></UserInterfaceMacro>"#;
+        let text = format_macro_xml(xml).unwrap();
+        assert_eq!(text, "If [MacroError]<>0 And [x]>1\n    X\nEnd If\n");
     }
 
     #[test]
