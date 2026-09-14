@@ -147,6 +147,16 @@ Encryption-related test files. Some files have been renamed for clarity about th
 | db2007-enc.accdb | db2007-enc.accdb |
 | db2013-enc.accdb | db2013-enc.accdb |
 
+## Created independently: macro test databases
+
+These files were created by the jetdb project using Microsoft Access for Microsoft 365 MSO (Version 2604 Build 16.0.19929.20090, 64-bit). The `.accdb` was saved in the Access 2007-2016 format (ACE14), and the two `.mdb` files are copies of it saved in the Access 2002-2003 and Access 2000 formats.
+
+| File | Purpose |
+|------|---------|
+| V2010/macroTestV2010.accdb | Named macros, embedded macros on a form, and a data macro on a table |
+| V2003/macroTestV2003.mdb | The same macros in the Access 2002-2003 format |
+| V2000/macroTestV2000.mdb | The same macros in the Access 2000 format |
+
 ## Created independently
 
 These files were created by the jetdb project using Microsoft Access for Microsoft 365 MSO (Version 2602 Build 16.0.19725.20014, 64-bit).
@@ -160,14 +170,6 @@ These files were created by the jetdb project using Microsoft Access for Microso
 | enc_vbaV2003.mdb | Password-protected VBA (Access 2003 format, Jet encryption) |
 | enc_vbaV2007.accdb | Password-protected VBA (Access 2007 format, Agile encryption) |
 | overflow_enc_vbaV2003.mdb | Password-protected VBA with overflow pages (Access 2003 format, Jet encryption) |
-
-These files were also created by the jetdb project using Microsoft Access for Microsoft 365 MSO (Version 2604 Build 16.0.19929.20090, 64-bit). The `.accdb` was saved in the Access 2007-2016 format (ACE14), and the two `.mdb` files are copies of it saved in the Access 2002-2003 and Access 2000 formats.
-
-| File | Purpose |
-|------|---------|
-| V2010/macroTestV2010.accdb | Named macros, embedded macros on a form, and a data macro on a table |
-| V2003/macroTestV2003.mdb | The same macros in the Access 2002-2003 format |
-| V2000/macroTestV2000.mdb | The same macros in the Access 2000 format |
 
 ## Fetched, not stored in this repository
 
