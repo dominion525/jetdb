@@ -34,6 +34,7 @@ use crate::data::{read_table_rows, Value};
 use crate::file::{FileError, PageReader};
 use crate::form::{self, FormObjectType, StreamKind};
 use crate::format::CATALOG_PAGE;
+use crate::macro_action::macro_action;
 use crate::storage;
 use crate::table::read_table_def;
 
@@ -55,6 +56,15 @@ pub struct MacroDef {
     /// Where the macro comes from.
     pub source: MacroSource,
     /// The macro's statements in document order.
+    ///
+    /// For a macro stored without XML they are read from the grid: a row's
+    /// comment becomes a [`MacroStatement::Comment`], its action a
+    /// [`MacroStatement::Action`] named with [`macro_action`] and its argument
+    /// names, a row with a macro name starts a [`MacroStatement::SubMacro`],
+    /// and a condition starts a [`MacroStatement::Conditional`] that the
+    /// following `...` rows continue. An action whose number is not in that
+    /// table is named by its number, and so is an argument beyond its
+    /// argument names.
     pub statements: Vec<MacroStatement>,
     /// The XML definition the statements were read from, or empty for a macro
     /// stored without XML.
@@ -213,8 +223,8 @@ pub fn list_macros(reader: &mut PageReader) -> Result<Vec<MacroEntry>, FileError
 /// Read the named macro `name`.
 ///
 /// A macro stored without XML (saved before Access 2010) is returned with an
-/// empty [`MacroDef::xml`] and [`MacroDef::statements`], and its content in
-/// [`MacroDef::grid`].
+/// empty [`MacroDef::xml`], its content in [`MacroDef::grid`], and statements
+/// read from the grid (see [`MacroDef::statements`]).
 ///
 /// Returns [`FileError::MacroNotFound`] if there is no such macro.
 pub fn read_macro(reader: &mut PageReader, name: &str) -> Result<MacroDef, FileError> {
@@ -233,14 +243,12 @@ pub fn read_macro(reader: &mut PageReader, name: &str) -> Result<MacroDef, FileE
             .into_iter()
             .find(|(n, _)| n == name)
             .ok_or_else(not_found)?;
+        let grid = parse_macro_grid(&extra.unwrap_or_default(), GridStrings::Latin1)?;
         return Ok(MacroDef {
             source,
-            statements: Vec::new(),
+            statements: statements_from_grid(&grid),
             xml: String::new(),
-            grid: Some(parse_macro_grid(
-                &extra.unwrap_or_default(),
-                GridStrings::Latin1,
-            )?),
+            grid: Some(grid),
         });
     }
 
@@ -255,12 +263,15 @@ pub fn read_macro(reader: &mut PageReader, name: &str) -> Result<MacroDef, FileE
                 xml,
             })
         }
-        None => Ok(MacroDef {
-            source,
-            statements: Vec::new(),
-            xml: String::new(),
-            grid: Some(parse_macro_grid(blob, GridStrings::Utf16)?),
-        }),
+        None => {
+            let grid = parse_macro_grid(blob, GridStrings::Utf16)?;
+            Ok(MacroDef {
+                source,
+                statements: statements_from_grid(&grid),
+                xml: String::new(),
+                grid: Some(grid),
+            })
+        }
     }
 }
 
@@ -485,6 +496,87 @@ fn parse_macro_grid(bytes: &[u8], strings: GridStrings) -> Result<MacroGrid, Fil
 // ---------------------------------------------------------------------------
 // Internal: locating a macro's Blob stream
 // ---------------------------------------------------------------------------
+
+/// The condition that continues the condition of the rows above it.
+const CONTINUED_CONDITION: &str = "...";
+
+/// The statements of a macro stored without XML, read from its grid rows.
+fn statements_from_grid(grid: &MacroGrid) -> Vec<MacroStatement> {
+    let mut top = Vec::new();
+    // The submacro being read, and the open condition within it.
+    let mut submacro: Option<(String, Vec<MacroStatement>)> = None;
+    let mut branch: Option<MacroBranch> = None;
+
+    for row in &grid.rows {
+        if let Some(name) = &row.macro_name {
+            finish_submacro(&mut top, &mut submacro, &mut branch);
+            submacro = Some((name.clone(), Vec::new()));
+        }
+        let continues = row.condition.as_deref() == Some(CONTINUED_CONDITION) && branch.is_some();
+        if !continues {
+            let enclosing = submacro.as_mut().map_or(&mut top, |(_, s)| s);
+            close_branch(enclosing, &mut branch);
+            branch = row.condition.as_ref().map(|condition| MacroBranch {
+                condition: Some(condition.clone()),
+                statements: Vec::new(),
+            });
+        }
+        let statements = match &mut branch {
+            Some(b) => &mut b.statements,
+            None => submacro.as_mut().map_or(&mut top, |(_, s)| s),
+        };
+        if let Some(comment) = &row.comment {
+            statements.push(MacroStatement::Comment(comment.clone()));
+        }
+        if row.action_code != 0 {
+            statements.push(grid_action(row));
+        }
+    }
+    finish_submacro(&mut top, &mut submacro, &mut branch);
+    top
+}
+
+fn close_branch(statements: &mut Vec<MacroStatement>, branch: &mut Option<MacroBranch>) {
+    if let Some(b) = branch.take() {
+        statements.push(MacroStatement::Conditional { branches: vec![b] });
+    }
+}
+
+fn finish_submacro(
+    top: &mut Vec<MacroStatement>,
+    submacro: &mut Option<(String, Vec<MacroStatement>)>,
+    branch: &mut Option<MacroBranch>,
+) {
+    match submacro.take() {
+        Some((name, mut statements)) => {
+            close_branch(&mut statements, branch);
+            top.push(MacroStatement::SubMacro { name, statements });
+        }
+        None => close_branch(top, branch),
+    }
+}
+
+/// The action of a grid row with its non-empty arguments.
+fn grid_action(row: &MacroGridRow) -> MacroStatement {
+    let action = macro_action(row.action_code);
+    let argument_names = action.map_or(&[][..], |a| a.arguments);
+    MacroStatement::Action {
+        name: action.map_or_else(|| row.action_code.to_string(), |a| a.name.to_string()),
+        arguments: row
+            .arguments
+            .iter()
+            .enumerate()
+            .filter_map(|(i, value)| {
+                Some(MacroArgument {
+                    name: argument_names
+                        .get(i)
+                        .map_or_else(|| i.to_string(), |n| n.to_string()),
+                    value: value.clone()?,
+                })
+            })
+            .collect(),
+    }
+}
 
 fn scripts_dir_mapping(entries: &[storage::StorageEntry]) -> Option<Vec<(String, String)>> {
     let root_id = storage::find_root_id(entries);
@@ -1351,6 +1443,84 @@ mod tests {
     }
 
     #[test]
+    fn statements_from_grid_rows() {
+        let grid = MacroGrid {
+            columns_shown: 3,
+            rows: vec![
+                grid_row(1, 22, None, Some("[x]=1"), None, &[Some("one")]),
+                grid_row(2, 4, None, Some("..."), None, &[]),
+                // A new condition closes the open one.
+                grid_row(3, 4, None, Some("[x]=2"), None, &[]),
+                // A row without a condition closes it too.
+                grid_row(4, 0, None, None, Some("note"), &[]),
+                // `...` without an open condition is a condition of its own.
+                grid_row(5, 4, None, Some("..."), None, &[]),
+                grid_row(6, 999, Some("Sub"), None, None, &[None, Some("b")]),
+                grid_row(7, 3, None, None, None, &[None, None, None, Some("extra")]),
+            ],
+        };
+        let branch =
+            |condition: &str, statements: Vec<MacroStatement>| MacroStatement::Conditional {
+                branches: vec![MacroBranch {
+                    condition: Some(condition.to_string()),
+                    statements,
+                }],
+            };
+        assert_eq!(
+            statements_from_grid(&grid),
+            [
+                branch(
+                    "[x]=1",
+                    vec![
+                        action("MessageBox", &[("Message", "one")]),
+                        action("Beep", &[])
+                    ]
+                ),
+                branch("[x]=2", vec![action("Beep", &[])]),
+                MacroStatement::Comment("note".to_string()),
+                branch("...", vec![action("Beep", &[])]),
+                MacroStatement::SubMacro {
+                    name: "Sub".to_string(),
+                    statements: vec![
+                        action("999", &[("1", "b")]),
+                        action("ApplyFilter", &[("3", "extra")]),
+                    ],
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn read_macro_without_xml_in_storage() {
+        // One-row macros loaded from `Action ="..."` text have a grid and no XML.
+        let path = skip_if_missing!("V2010/macroGeneratedTestV2010.accdb");
+        let mut reader = PageReader::open(&path).unwrap();
+        let def = read_macro(&mut reader, "old_MsgBox").unwrap();
+        assert_eq!(def.xml, "");
+        assert_eq!(def.statements, [action("MessageBox", &[])]);
+        // Loaded with the arguments 1 to 10.
+        let def = read_macro(&mut reader, "oldarg_SendObject").unwrap();
+        assert_eq!(
+            def.statements,
+            [action(
+                "EMailDatabaseObject",
+                &[
+                    ("ObjectType", "1"),
+                    ("ObjectName", "2"),
+                    ("OutputFormat", "3"),
+                    ("To", "4"),
+                    ("Cc", "5"),
+                    ("Bcc", "6"),
+                    ("Subject", "7"),
+                    ("MessageText", "8"),
+                    ("EditMessage", "9"),
+                    ("TemplateFile", "10"),
+                ]
+            )]
+        );
+    }
+
+    #[test]
     fn parse_macro_grid_truncated_row_is_an_error() {
         let mut bytes = vec![0u8; 0x20];
         bytes.extend_from_slice(&[0, 0, 0, 0]); // empty header string
@@ -1475,7 +1645,46 @@ mod tests {
 
         let def = read_macro(&mut reader, "Customers").unwrap();
         assert_eq!(def.xml, "");
-        assert_eq!(def.statements, []);
+        let comment = |text: &str| MacroStatement::Comment(text.to_string());
+        assert_eq!(
+            def.statements,
+            [
+                comment("Attached to the Customers form."),
+                comment("Attached to the BeforeUpdate event of the CustomerID field."),
+                MacroStatement::SubMacro {
+                    name: "ValidateID".to_string(),
+                    statements: vec![
+                        MacroStatement::Conditional {
+                            branches: vec![MacroBranch {
+                                condition: Some("DLookUp(\"[CustomerID]\",\"[Customers]\",\"[CustomerID] = Form.[CustomerID] \") Is Not Null".to_string()),
+                                statements: vec![
+                                    comment("If the value of CustomerID is not unique, display a message."),
+                                    action(
+                                        "MessageBox",
+                                        &[
+                                            ("Message", "The Customer ID you entered already exists. Enter a unique ID."),
+                                            ("Beep", "-1"),
+                                            ("Type", "4"),
+                                            ("Title", "Duplicate Customer ID"),
+                                        ]
+                                    ),
+                                    comment("Return to the CustomerID control."),
+                                    action("CancelEvent", &[]),
+                                ],
+                            }],
+                        },
+                        comment("Attached to the AfterUpdate event of the form."),
+                    ],
+                },
+                MacroStatement::SubMacro {
+                    name: "Update Country List".to_string(),
+                    statements: vec![
+                        comment("Requery the Country control."),
+                        action("Requery", &[("ControlName", "Country")]),
+                    ],
+                },
+            ]
+        );
         let grid = def.grid.unwrap();
         assert_eq!(grid.columns_shown, 3);
         assert_eq!(
