@@ -10,6 +10,7 @@ pub mod form;
 pub mod format;
 pub mod macro_action;
 pub mod macro_def;
+mod macro_text;
 pub mod map;
 pub mod money;
 pub mod prop;

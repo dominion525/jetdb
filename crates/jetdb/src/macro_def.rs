@@ -86,6 +86,10 @@ pub struct MacroGrid {
     /// The first four bytes of the grid, which differ with the columns shown
     /// in the macro designer (0, 1, or 3 in the files examined).
     pub columns_shown: u32,
+    /// The header string: `33` in grids with UTF-16LE row strings (`23` in the
+    /// macro designer's clipboard macro), and `22` or empty in grids written
+    /// by Access 97.
+    pub header: String,
     pub rows: Vec<MacroGridRow>,
 }
 
@@ -435,6 +439,13 @@ fn parse_macro_grid(bytes: &[u8], single_byte_file: bool) -> Result<MacroGrid, F
         .map(|s| u32::from_le_bytes([s[0], s[1], s[2], s[3]]))
         .ok_or_else(|| invalid("unexpected end of data"))?;
     let header_len = read_u16(0x20)? as usize;
+    let header_units: Vec<u16> = bytes
+        .get(0x22..0x22 + header_len)
+        .ok_or_else(|| invalid("header string past the end of data"))?
+        .chunks_exact(2)
+        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .collect();
+    let header = String::from_utf16_lossy(&header_units);
     let single_byte = single_byte_file || header_len == 0;
     let mut pos = 0x22 + header_len + 2;
 
@@ -483,6 +494,7 @@ fn parse_macro_grid(bytes: &[u8], single_byte_file: bool) -> Result<MacroGrid, F
     }
     Ok(MacroGrid {
         columns_shown,
+        header,
         rows,
     })
 }
@@ -1440,6 +1452,7 @@ mod tests {
     fn statements_from_grid_rows() {
         let grid = MacroGrid {
             columns_shown: 3,
+            header: String::new(),
             rows: vec![
                 grid_row(1, 22, None, Some("[x]=1"), None, &[Some("one")]),
                 grid_row(2, 4, None, Some("..."), None, &[]),

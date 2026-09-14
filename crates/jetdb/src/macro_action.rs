@@ -12,7 +12,8 @@
 //! The number of arguments of each action is the largest number of
 //! `Argument` rows Access accepted for it. Argument names follow the
 //! argument tables of the macro action reference, written without spaces as
-//! in macro XML (`Macro Name` is `MacroName`).
+//! in macro XML (`Macro Name` is `MacroName`). `DoMenuItem`, which Access for
+//! Microsoft 365 no longer accepts, is from macros converted from Access 97.
 //!
 //! Actions that only data macros use (for example `SetField`) have no number,
 //! since data macros are stored only as XML.
@@ -28,6 +29,10 @@ pub struct MacroAction {
     pub text_name: &'static str,
     /// The argument names in grid slot order.
     pub arguments: &'static [&'static str],
+    /// The grid slots `Application.SaveAsText` writes as `Argument` lines, in
+    /// order, for an action whose text arguments are not the grid slots in
+    /// order; `None` for every other action.
+    pub text_slots: Option<&'static [usize]>,
 }
 
 /// Returns the action with the given macro grid number.
@@ -46,6 +51,7 @@ const fn action(
         name,
         text_name,
         arguments,
+        text_slots: None,
     }
 }
 
@@ -82,6 +88,17 @@ pub static MACRO_ACTIONS: &[MacroAction] = &[
             "SourceObjectName",
         ],
     ),
+    // An Access 97 action that later versions no longer accept. Its number and
+    // text are from macros converted from Access 97 and their SaveAsText output:
+    // the grid holds seven slots, and the text writes slot 6 and then slots 0
+    // to 3. The argument names are not known.
+    MacroAction {
+        code: 8,
+        name: "DoMenuItem",
+        text_name: "DoMenuItem",
+        arguments: &[],
+        text_slots: Some(&[6, 0, 1, 2, 3]),
+    },
     action(9, "Echo", "Echo", &["EchoOn", "StatusBarText"]),
     action(11, "FindNextRecord", "FindNext", &[]),
     action(
