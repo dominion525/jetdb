@@ -259,9 +259,10 @@ pub static JET4: JetFormat = JetFormat {
     coldef_var_col_index_pos: 7,
     coldef_fixed_data_pos: 21,
     data_column_count_pos: 0,
-    // Verified against real Decimal-column bytes (see
-    // `testdata/SOURCES.md`): offset 11 holds precision, offset 12 holds
-    // scale -- the two names below were swapped prior to this fix.
+    // Offset 11 holds precision and offset 12 holds scale, as in Jackcess
+    // (`JetFormat.Jet4Format`). Checked against real data by
+    // `data::tests::numeric_scale_and_precision_not_swapped`
+    // (`V2007/fixedNumericTestV2007.accdb`).
     coldef_scale_pos: 12,
     coldef_precision_pos: 11,
 };
