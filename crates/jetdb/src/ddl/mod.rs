@@ -1611,4 +1611,13 @@ mod tests {
         let ddl = create_table_ddl(&path, "t4renamedPKmulticol");
         assert!(ddl.contains("PRIMARY KEY ([ID1], [ID2])"), "got:\n{ddl}");
     }
+
+    #[test]
+    fn find_primary_key_ignores_complex_column_indexes() {
+        // Table1's attachment and multi-value columns each have a hidden
+        // UNIQUE + REQUIRED index listed before the primary key.
+        let path = skip_if_missing!("V2007/complexDataTestV2007.accdb");
+        let ddl = create_table_ddl(&path, "Table1");
+        assert!(ddl.contains("PRIMARY KEY ([id])"), "got:\n{ddl}");
+    }
 }
