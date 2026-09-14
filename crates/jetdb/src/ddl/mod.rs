@@ -45,7 +45,9 @@ pub trait DdlDialect {
 /// column gets its own hidden UNIQUE + REQUIRED index) -- see
 /// `format::index_type`'s doc comment.
 fn find_primary_key(tdef: &TableDef) -> Option<&IndexDef> {
-    tdef.indexes.iter().find(|idx| idx.index_type == index_type::PRIMARY)
+    tdef.indexes
+        .iter()
+        .find(|idx| idx.index_type == index_type::PRIMARY)
 }
 
 /// Check if a column is auto-increment.
@@ -1547,7 +1549,9 @@ mod tests {
 
     fn test_data_path(relative: &str) -> Option<std::path::PathBuf> {
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
-        let path = std::path::PathBuf::from(manifest_dir).join("../../testdata").join(relative);
+        let path = std::path::PathBuf::from(manifest_dir)
+            .join("../../testdata")
+            .join(relative);
         if path.exists() {
             Some(path)
         } else {
@@ -1574,7 +1578,8 @@ mod tests {
             .iter()
             .find(|e| e.name == table_name && e.object_type == crate::format::ObjectType::Table)
             .unwrap_or_else(|| panic!("table '{table_name}' not found"));
-        let tdef = crate::table::read_table_def(&mut reader, &entry.name, entry.table_page).unwrap();
+        let tdef =
+            crate::table::read_table_def(&mut reader, &entry.name, entry.table_page).unwrap();
         generate_create_table(&Access, &tdef, &[])
     }
 
