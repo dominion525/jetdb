@@ -39,7 +39,7 @@ pub use form::{
 };
 pub use macro_def::{
     list_macros, read_data_macros, read_embedded_macros, read_macro, MacroArgument, MacroBranch,
-    MacroDef, MacroEntry, MacroSource, MacroStatement, MacroXmlElement,
+    MacroDef, MacroEntry, MacroGrid, MacroGridRow, MacroSource, MacroStatement, MacroXmlElement,
 };
 pub use prop::{read_object_properties, ObjectProperties, PropMapType, Property, PropertyMap};
 pub use query::{query_to_sql, read_queries, QueryDef, QueryType};

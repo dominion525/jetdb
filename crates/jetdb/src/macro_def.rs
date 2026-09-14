@@ -56,8 +56,41 @@ pub struct MacroDef {
     pub source: MacroSource,
     /// The macro's statements in document order.
     pub statements: Vec<MacroStatement>,
-    /// The XML definition the statements were read from.
+    /// The XML definition the statements were read from, or empty for a macro
+    /// stored without XML.
     pub xml: String,
+    /// The macro grid of a named macro (see [`MacroGrid`]), or `None` for
+    /// embedded and data macros.
+    pub grid: Option<MacroGrid>,
+}
+
+/// The rows of a named macro as stored in its binary grid.
+///
+/// Every named macro has this grid, including macros saved before Access 2010
+/// that have no XML. It is the classic macro sheet: each row has an optional
+/// macro name, condition, comment, and an action with up to ten arguments.
+/// Macros written by newer Access versions store `If` blocks as conditions and
+/// internal `SetLocalVar` rows here, and their XML as `_AXL:` comment rows.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroGrid {
+    /// The first four bytes of the grid, which differ with the columns shown
+    /// in the macro designer (0, 1, or 3 in the files examined).
+    pub columns_shown: u32,
+    pub rows: Vec<MacroGridRow>,
+}
+
+/// One row of a [`MacroGrid`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroGridRow {
+    /// The row number in the macro sheet. Empty rows are not stored.
+    pub row: u16,
+    pub macro_name: Option<String>,
+    pub condition: Option<String>,
+    pub comment: Option<String>,
+    /// The action number, or 0 for a row without an action.
+    pub action_code: u16,
+    /// The ten argument slots, `None` where an argument is empty.
+    pub arguments: Vec<Option<String>>,
 }
 
 /// Where a [`MacroDef`] comes from.
@@ -160,44 +193,75 @@ impl MacroXmlElement {
 }
 
 /// List every named macro in the database.
+///
+/// Access 97 databases have no `Scripts` folder; their macros are the
+/// macro rows of `MSysObjects`.
 pub fn list_macros(reader: &mut PageReader) -> Result<Vec<MacroEntry>, FileError> {
     let entries = storage::read_storage_entries(reader)?;
-    if entries.is_empty() {
-        return Ok(Vec::new());
+    if let Some(mapping) = scripts_dir_mapping(&entries) {
+        return Ok(mapping
+            .into_iter()
+            .map(|(name, _storage_num)| MacroEntry { name })
+            .collect());
     }
-    let Some(mapping) = scripts_dir_mapping(&entries) else {
-        return Ok(Vec::new());
-    };
-    Ok(mapping
+    Ok(msysobjects_rows(reader, MSYSOBJECTS_TYPE_MACRO)?
         .into_iter()
-        .map(|(name, _storage_num)| MacroEntry { name })
+        .map(|(name, _extra)| MacroEntry { name })
         .collect())
 }
 
 /// Read the named macro `name`.
 ///
-/// Returns [`FileError::MacroNotFound`] if there is no such macro, and
-/// [`FileError::InvalidMacroData`] if its Blob has no XML definition.
+/// A macro stored without XML (saved before Access 2010) is returned with an
+/// empty [`MacroDef::xml`] and [`MacroDef::statements`], and its content in
+/// [`MacroDef::grid`].
+///
+/// Returns [`FileError::MacroNotFound`] if there is no such macro.
 pub fn read_macro(reader: &mut PageReader, name: &str) -> Result<MacroDef, FileError> {
     let entries = storage::read_storage_entries(reader)?;
-    let Some(blob) = find_macro_blob(&entries, name)? else {
-        return Err(FileError::MacroNotFound {
-            name: name.to_string(),
-        });
+    let source = MacroSource::Named {
+        name: name.to_string(),
     };
-    let Some(xml) = extract_axl_xml(blob) else {
-        return Err(FileError::InvalidMacroData {
-            reason: format!("macro {name} has no XML definition"),
-        });
+    let not_found = || FileError::MacroNotFound {
+        name: name.to_string(),
     };
-    let root = parse_xml_tree(&xml)?;
-    Ok(MacroDef {
-        source: MacroSource::Named {
-            name: name.to_string(),
-        },
-        statements: statements_of(&root),
-        xml,
-    })
+
+    if scripts_dir_mapping(&entries).is_none() {
+        // Access 97: the grid is the LvExtra of the macro's MSysObjects row,
+        // with single-byte strings.
+        let (_, extra) = msysobjects_rows(reader, MSYSOBJECTS_TYPE_MACRO)?
+            .into_iter()
+            .find(|(n, _)| n == name)
+            .ok_or_else(not_found)?;
+        return Ok(MacroDef {
+            source,
+            statements: Vec::new(),
+            xml: String::new(),
+            grid: Some(parse_macro_grid(
+                &extra.unwrap_or_default(),
+                GridStrings::Latin1,
+            )?),
+        });
+    }
+
+    let blob = find_macro_blob(&entries, name)?.ok_or_else(not_found)?;
+    match extract_axl_xml(blob) {
+        Some(xml) => {
+            let root = parse_xml_tree(&xml)?;
+            Ok(MacroDef {
+                source,
+                statements: statements_of(&root),
+                grid: parse_macro_grid(blob, GridStrings::Utf16).ok(),
+                xml,
+            })
+        }
+        None => Ok(MacroDef {
+            source,
+            statements: Vec::new(),
+            xml: String::new(),
+            grid: Some(parse_macro_grid(blob, GridStrings::Utf16)?),
+        }),
+    }
 }
 
 /// Read the embedded macros of the form or report `object_name`, in the order
@@ -233,6 +297,7 @@ pub fn read_embedded_macros(
                 },
                 statements: statements_of(&root),
                 xml,
+                grid: None,
             })
         })
         .collect()
@@ -240,6 +305,8 @@ pub fn read_embedded_macros(
 
 /// `MSysObjects.Type` of a local table.
 const MSYSOBJECTS_TYPE_TABLE: i16 = 1;
+/// `MSysObjects.Type` of a macro.
+const MSYSOBJECTS_TYPE_MACRO: i16 = -32766;
 
 /// Read the data macros of the local table `table`, in document order.
 ///
@@ -247,31 +314,18 @@ const MSYSOBJECTS_TYPE_TABLE: i16 = 1;
 /// [`FileError::TableNotFound`] if there is no such table. Each returned
 /// [`MacroDef::xml`] is the whole XML document stored for the table.
 pub fn read_data_macros(reader: &mut PageReader, table: &str) -> Result<Vec<MacroDef>, FileError> {
-    let tdef = read_table_def(reader, "MSysObjects", CATALOG_PAGE)?;
-    let column = |name: &str| {
-        tdef.columns
-            .iter()
-            .position(|c| c.name == name)
-            .ok_or_else(|| FileError::InvalidMacroData {
-                reason: format!("MSysObjects has no {name} column"),
-            })
-    };
-    let (name_idx, type_idx, extra_idx) = (column("Name")?, column("Type")?, column("LvExtra")?);
-    let rows = read_table_rows(reader, &tdef)?.rows;
-    let Some(row) = rows.iter().find(|row| {
-        row[name_idx] == Value::Text(table.to_string())
-            && row[type_idx] == Value::Int(MSYSOBJECTS_TYPE_TABLE)
-    }) else {
-        return Err(FileError::TableNotFound {
+    let (_, extra) = msysobjects_rows(reader, MSYSOBJECTS_TYPE_TABLE)?
+        .into_iter()
+        .find(|(name, _)| name == table)
+        .ok_or_else(|| FileError::TableNotFound {
             name: table.to_string(),
-        });
-    };
-    let Value::Binary(extra) = &row[extra_idx] else {
+        })?;
+    let Some(extra) = extra else {
         return Ok(Vec::new());
     };
 
     let mut macros = Vec::new();
-    for xml in extract_utf16_xml_documents(extra) {
+    for xml in extract_utf16_xml_documents(&extra) {
         macros.extend(data_macros_from_xml(table, xml)?);
     }
     Ok(macros)
@@ -300,8 +354,132 @@ fn data_macros_from_xml(table: &str, xml: String) -> Result<Vec<MacroDef>, FileE
             },
             statements: statements_of(element),
             xml: xml.clone(),
+            grid: None,
         })
         .collect())
+}
+
+/// The name and `LvExtra` of every `MSysObjects` row of type `object_type`.
+fn msysobjects_rows(
+    reader: &mut PageReader,
+    object_type: i16,
+) -> Result<Vec<(String, Option<Vec<u8>>)>, FileError> {
+    let tdef = read_table_def(reader, "MSysObjects", CATALOG_PAGE)?;
+    let column = |name: &str| {
+        tdef.columns
+            .iter()
+            .position(|c| c.name == name)
+            .ok_or_else(|| FileError::InvalidMacroData {
+                reason: format!("MSysObjects has no {name} column"),
+            })
+    };
+    let (name_idx, type_idx, extra_idx) = (column("Name")?, column("Type")?, column("LvExtra")?);
+    Ok(read_table_rows(reader, &tdef)?
+        .rows
+        .into_iter()
+        .filter(|row| row[type_idx] == Value::Int(object_type))
+        .filter_map(|row| {
+            let Value::Text(name) = &row[name_idx] else {
+                return None;
+            };
+            let extra = match &row[extra_idx] {
+                Value::Binary(b) => Some(b.clone()),
+                _ => None,
+            };
+            Some((name.clone(), extra))
+        })
+        .collect())
+}
+
+// ---------------------------------------------------------------------------
+// Internal: macro grid
+// ---------------------------------------------------------------------------
+
+/// How the strings in the rows of a macro grid are encoded.
+#[derive(Clone, Copy)]
+enum GridStrings {
+    /// UTF-16LE (Access 2000 and later).
+    Utf16,
+    /// Single-byte (Access 97).
+    Latin1,
+}
+
+/// Parses a macro grid.
+///
+/// Layout, as observed in files from Access 97 through Microsoft 365:
+/// - bytes 0..4: [`MacroGrid::columns_shown`]; bytes 4..0x20: not interpreted
+/// - at 0x20: a 2-byte length `n`, `n` bytes of a UTF-16LE header string, and
+///   2 zero bytes
+/// - rows until the end, each: action number (u16), row number (u16), 4 field
+///   offsets (u16: not interpreted, comment, condition, macro name), 10
+///   argument offsets (u16), a 2-byte length `m`, `m` bytes of NUL-terminated
+///   strings the offsets point into (0xFFFF for none), and 2 zero bytes
+fn parse_macro_grid(bytes: &[u8], strings: GridStrings) -> Result<MacroGrid, FileError> {
+    let invalid = |what: &str| FileError::InvalidMacroData {
+        reason: format!("macro grid: {what}"),
+    };
+    let read_u16 = |offset: usize| {
+        bytes
+            .get(offset..offset + 2)
+            .map(|s| u16::from_le_bytes([s[0], s[1]]))
+            .ok_or_else(|| invalid("unexpected end of data"))
+    };
+    let columns_shown = bytes
+        .get(0..4)
+        .map(|s| u32::from_le_bytes([s[0], s[1], s[2], s[3]]))
+        .ok_or_else(|| invalid("unexpected end of data"))?;
+    let mut pos = 0x22 + read_u16(0x20)? as usize + 2;
+
+    let mut rows = Vec::new();
+    while pos < bytes.len() {
+        let action_code = read_u16(pos)?;
+        let row = read_u16(pos + 2)?;
+        let offsets = (0..14)
+            .map(|k| read_u16(pos + 4 + 2 * k))
+            .collect::<Result<Vec<u16>, FileError>>()?;
+        let len = read_u16(pos + 32)? as usize;
+        let block = bytes
+            .get(pos + 34..pos + 34 + len)
+            .ok_or_else(|| invalid("row strings past the end of data"))?;
+        let string = |offset: u16| -> Result<Option<String>, FileError> {
+            if offset == 0xFFFF {
+                return Ok(None);
+            }
+            let rest = block
+                .get(offset as usize..)
+                .ok_or_else(|| invalid("string offset past the row"))?;
+            Ok(Some(match strings {
+                GridStrings::Utf16 => {
+                    let units: Vec<u16> = rest
+                        .chunks_exact(2)
+                        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                        .take_while(|&u| u != 0)
+                        .collect();
+                    String::from_utf16_lossy(&units)
+                }
+                GridStrings::Latin1 => {
+                    let end = rest.iter().position(|&b| b == 0).unwrap_or(rest.len());
+                    crate::encoding::decode_latin1(&rest[..end])
+                }
+            }))
+        };
+        rows.push(MacroGridRow {
+            row,
+            comment: string(offsets[1])?,
+            condition: string(offsets[2])?,
+            macro_name: string(offsets[3])?,
+            action_code,
+            arguments: offsets[4..]
+                .iter()
+                .map(|&o| string(o))
+                .collect::<Result<Vec<_>, FileError>>()?,
+        });
+        pos += 34 + len + 2;
+    }
+    Ok(MacroGrid {
+        columns_shown,
+        rows,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -1147,5 +1325,198 @@ mod tests {
             read_data_macros(&mut reader, "NoSuchTable"),
             Err(FileError::TableNotFound { name }) if name == "NoSuchTable"
         ));
+    }
+
+    // -- Macro grid -------------------------------------------------------------
+
+    fn grid_row(
+        row: u16,
+        action_code: u16,
+        macro_name: Option<&str>,
+        condition: Option<&str>,
+        comment: Option<&str>,
+        arguments: &[Option<&str>],
+    ) -> MacroGridRow {
+        let mut args: Vec<Option<String>> =
+            arguments.iter().map(|a| a.map(str::to_string)).collect();
+        args.resize(10, None);
+        MacroGridRow {
+            row,
+            macro_name: macro_name.map(str::to_string),
+            condition: condition.map(str::to_string),
+            comment: comment.map(str::to_string),
+            action_code,
+            arguments: args,
+        }
+    }
+
+    #[test]
+    fn parse_macro_grid_truncated_row_is_an_error() {
+        let mut bytes = vec![0u8; 0x20];
+        bytes.extend_from_slice(&[0, 0, 0, 0]); // empty header string
+        bytes.extend_from_slice(&[0x16, 0x00, 0x01, 0x00]); // action, row, then nothing
+        assert!(matches!(
+            parse_macro_grid(&bytes, GridStrings::Utf16),
+            Err(FileError::InvalidMacroData { .. })
+        ));
+    }
+
+    #[test]
+    fn read_macro_grid_real_files() {
+        for file in MACRO_TEST_FILES {
+            let path = skip_if_missing!(file);
+            let mut reader = PageReader::open(&path).unwrap();
+
+            let grid = read_macro(&mut reader, "mcrSimple").unwrap().grid.unwrap();
+            assert_eq!(grid.columns_shown, 0, "{file}");
+            assert_eq!(
+                grid.rows[..3],
+                [
+                    grid_row(
+                        1,
+                        0x17,
+                        None,
+                        None,
+                        None,
+                        &[
+                            Some("frmEmbedded"),
+                            Some("0"),
+                            None,
+                            None,
+                            Some("-1"),
+                            Some("0")
+                        ]
+                    ),
+                    grid_row(
+                        2,
+                        0x16,
+                        None,
+                        None,
+                        None,
+                        &[Some("Hello"), Some("0"), Some("4"), Some("Title")]
+                    ),
+                    grid_row(
+                        3,
+                        0x16,
+                        None,
+                        None,
+                        None,
+                        &[Some("Default"), Some("-1"), Some("0")]
+                    ),
+                ],
+                "{file}"
+            );
+            // The XML follows as comment rows.
+            assert!(grid.rows[3..].iter().all(|r| r.action_code == 0
+                && r.comment.as_deref().is_some_and(|c| c.starts_with("_AXL:"))));
+
+            // An If block is stored as conditions on internal SetLocalVar rows.
+            let grid = read_macro(&mut reader, "mcrConditions")
+                .unwrap()
+                .grid
+                .unwrap();
+            assert_eq!(
+                grid.rows[0],
+                grid_row(1, 0, None, None, Some("first comment"), &[]),
+                "{file}"
+            );
+            assert_eq!(
+                grid.rows[1],
+                grid_row(
+                    2,
+                    0x52,
+                    None,
+                    None,
+                    None,
+                    &[Some("__*L0_"), Some("[TempVars]![x]=1")]
+                ),
+                "{file}"
+            );
+            assert_eq!(
+                grid.rows[3],
+                grid_row(
+                    4,
+                    0x16,
+                    None,
+                    Some("[LocalVars]![__*L0C_]"),
+                    None,
+                    &[Some("one"), Some("-1"), Some("0")]
+                ),
+                "{file}"
+            );
+        }
+    }
+
+    #[test]
+    fn access_97_macros() {
+        // nwind.mdb is fetched by scripts/fetch-testdata.sh. Its macros have no
+        // XML; the grid is the LvExtra of each MSysObjects macro row.
+        let path = skip_if_missing!("V1997/nwind.mdb");
+        let mut reader = PageReader::open(&path).unwrap();
+
+        let mut names: Vec<String> = list_macros(&mut reader)
+            .unwrap()
+            .into_iter()
+            .map(|m| m.name)
+            .collect();
+        names.sort();
+        assert_eq!(
+            names,
+            [
+                "Customer Labels Dialog",
+                "Customer Phone List",
+                "Customers",
+                "Employees (page break)",
+                "Sales Totals by Amount",
+                "Sample Autokeys",
+                "Suppliers"
+            ]
+        );
+
+        let def = read_macro(&mut reader, "Customers").unwrap();
+        assert_eq!(def.xml, "");
+        assert_eq!(def.statements, []);
+        let grid = def.grid.unwrap();
+        assert_eq!(grid.columns_shown, 3);
+        assert_eq!(
+            grid.rows,
+            [
+                grid_row(1, 0, None, None, Some("Attached to the Customers form."), &[]),
+                grid_row(3, 0, None, None, Some("Attached to the BeforeUpdate event of the CustomerID field."), &[]),
+                grid_row(
+                    4,
+                    0x16,
+                    Some("ValidateID"),
+                    Some("DLookUp(\"[CustomerID]\",\"[Customers]\",\"[CustomerID] = Form.[CustomerID] \") Is Not Null"),
+                    Some("If the value of CustomerID is not unique, display a message."),
+                    &[
+                        Some("The Customer ID you entered already exists. Enter a unique ID."),
+                        Some("-1"),
+                        Some("4"),
+                        Some("Duplicate Customer ID"),
+                    ],
+                ),
+                grid_row(5, 0x05, None, Some("..."), Some("Return to the CustomerID control."), &[]),
+                grid_row(7, 0, None, None, Some("Attached to the AfterUpdate event of the form."), &[]),
+                grid_row(8, 0x1C, Some("Update Country List"), None, Some("Requery the Country control."), &[Some("Country")]),
+            ]
+        );
+
+        let grid = read_macro(&mut reader, "Sample Autokeys")
+            .unwrap()
+            .grid
+            .unwrap();
+        assert_eq!(grid.columns_shown, 1);
+        assert_eq!(
+            grid.rows[1],
+            grid_row(
+                2,
+                0x22,
+                Some("^p"),
+                None,
+                Some("Run the Customer Phone List.Print macro when Ctrl+P is pressed."),
+                &[Some("Customer Phone List.Print")],
+            )
+        );
     }
 }
