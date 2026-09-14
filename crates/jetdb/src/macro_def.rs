@@ -12,22 +12,12 @@
 //! with a literal `_AXL:` marker -- this is also what `Application.SaveAsText`
 //! reproduces as repeated `Comment ="_AXL:..."` blocks in its exported text.
 //! `extract_axl_xml` locates those chunks by the 2-byte length field
-//! immediately preceding each marker and reassembles the XML; `format_macro_xml`
-//! renders it as indented, diff-friendly text approximating the classic
-//! macro-grid look.
+//! immediately preceding each marker and reassembles the XML, which
+//! [`read_macro`] turns into a [`MacroDef`].
 //!
-//! This does NOT reproduce `SaveAsText`'s literal legacy
-//! `Condition=`/`Action=`/`Argument=` grid: that format is driven by an
-//! internal numeric action-code table that isn't publicly documented and
-//! can't be reconstructed from the XML mirror alone (arguments left at their
-//! default value aren't serialized into the XML at all, so the argument
-//! *count* wouldn't match). Rendering from the XML instead means every
-//! action/argument is self-describing by name, and the same renderer handles
-//! any action type without needing that table.
-//!
-//! Pre-2010 (.mdb, Jet3/Jet4) macros predate this XML mirror entirely --
-//! `read_macro_text` returns an empty string for those, the same convention
-//! `access.rs` already uses for a form/report with no code-behind module.
+//! Elements this module knows become dedicated [`MacroStatement`] variants;
+//! any other element is kept as [`MacroStatement::Unknown`] with its name,
+//! attributes, text, and children, so nothing in the XML is dropped.
 
 use crate::file::{FileError, PageReader};
 use crate::storage;
@@ -42,6 +32,90 @@ use crate::storage;
 #[derive(Debug, Clone)]
 pub struct MacroEntry {
     pub name: String,
+}
+
+/// A macro read from its XML definition.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroDef {
+    /// Where the macro comes from.
+    pub source: MacroSource,
+    /// The macro's statements in document order.
+    pub statements: Vec<MacroStatement>,
+    /// The XML definition the statements were read from.
+    pub xml: String,
+}
+
+/// Where a [`MacroDef`] comes from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MacroSource {
+    /// A named macro object.
+    Named { name: String },
+}
+
+/// One statement of a macro.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MacroStatement {
+    /// An action and its arguments, in document order.
+    Action {
+        name: String,
+        arguments: Vec<MacroArgument>,
+    },
+    /// A comment line.
+    Comment(String),
+    /// An `If` / `ElseIf` / `Else` block. The `Else` branch has no condition.
+    Conditional { branches: Vec<MacroBranch> },
+    /// A group of statements (`StatementGroup`).
+    Group {
+        description: String,
+        statements: Vec<MacroStatement>,
+    },
+    /// A submacro (`SubMacro`).
+    SubMacro {
+        name: String,
+        statements: Vec<MacroStatement>,
+    },
+    /// An element this module does not interpret, kept as-is.
+    Unknown(MacroXmlElement),
+}
+
+/// An argument of a [`MacroStatement::Action`]. The value is the XML text as
+/// stored, including any leading or trailing whitespace.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroArgument {
+    pub name: String,
+    pub value: String,
+}
+
+/// One branch of a [`MacroStatement::Conditional`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroBranch {
+    /// The branch condition, or `None` for `Else`.
+    pub condition: Option<String>,
+    pub statements: Vec<MacroStatement>,
+}
+
+/// A macro XML element kept without interpretation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroXmlElement {
+    pub name: String,
+    pub attributes: Vec<(String, String)>,
+    /// The element's text. Whitespace-only text between child elements is
+    /// not kept.
+    pub text: String,
+    pub children: Vec<MacroXmlElement>,
+}
+
+impl MacroXmlElement {
+    fn attribute(&self, name: &str) -> Option<&str> {
+        self.attributes
+            .iter()
+            .find(|(k, _)| k == name)
+            .map(|(_, v)| v.as_str())
+    }
+
+    fn child(&self, name: &str) -> Option<&MacroXmlElement> {
+        self.children.iter().find(|c| c.name == name)
+    }
 }
 
 /// List every named macro in the database.
@@ -59,18 +133,30 @@ pub fn list_macros(reader: &mut PageReader) -> Result<Vec<MacroEntry>, FileError
         .collect())
 }
 
-/// Rendered text for macro `name`'s logic (see module docs for the format),
-/// or an empty string if the macro doesn't exist or has no embedded XML
-/// mirror (pre-2010 `.mdb` format).
-pub fn read_macro_text(reader: &mut PageReader, name: &str) -> Result<String, FileError> {
+/// Read the named macro `name`.
+///
+/// Returns [`FileError::MacroNotFound`] if there is no such macro, and
+/// [`FileError::InvalidMacroData`] if its Blob has no XML definition.
+pub fn read_macro(reader: &mut PageReader, name: &str) -> Result<MacroDef, FileError> {
     let entries = storage::read_storage_entries(reader)?;
     let Some(blob) = find_macro_blob(&entries, name)? else {
-        return Ok(String::new());
+        return Err(FileError::MacroNotFound {
+            name: name.to_string(),
+        });
     };
     let Some(xml) = extract_axl_xml(blob) else {
-        return Ok(String::new());
+        return Err(FileError::InvalidMacroData {
+            reason: format!("macro {name} has no XML definition"),
+        });
     };
-    format_macro_xml(&xml)
+    let root = parse_xml_tree(&xml)?;
+    Ok(MacroDef {
+        source: MacroSource::Named {
+            name: name.to_string(),
+        },
+        statements: statements_of(&root),
+        xml,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -177,78 +263,41 @@ fn decode_utf16le_lossy(bytes: &[u8]) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// Internal: XML -> readable text
+// Internal: XML -> element tree -> statements
 // ---------------------------------------------------------------------------
 
-/// A minimal in-memory XML tree node -- the macro XML schema is small and
-/// flat enough that a full DOM-style tree isn't needed, but recursive
-/// rendering (an `If`/`ElseIf`/`Else` group needing to close with one shared
-/// `End If` after all of its siblings) is much simpler over a tree than over
-/// raw `quick_xml` events directly.
-struct XNode {
-    name: String,
-    attrs: Vec<(String, String)>,
-    children: Vec<XNode>,
-    text: String,
-}
-
-impl XNode {
-    fn attr(&self, name: &str) -> Option<&str> {
-        self.attrs
-            .iter()
-            .find(|(k, _)| k == name)
-            .map(|(_, v)| v.as_str())
-    }
-
-    fn child_text(&self, name: &str) -> &str {
-        self.children
-            .iter()
-            .find(|c| c.name == name)
-            .map(|c| c.text.as_str())
-            .unwrap_or("")
-    }
-}
-
-fn parse_xml_tree(xml: &str) -> Result<XNode, FileError> {
+/// Parses `xml` into an element tree and returns its document element.
+fn parse_xml_tree(xml: &str) -> Result<MacroXmlElement, FileError> {
     use quick_xml::events::Event;
     use quick_xml::Reader;
 
     let mut reader = Reader::from_str(xml);
-    reader.config_mut().trim_text(true);
-
-    let mut root = XNode {
+    let mut root = MacroXmlElement {
         name: String::new(),
-        attrs: Vec::new(),
-        children: Vec::new(),
+        attributes: Vec::new(),
         text: String::new(),
+        children: Vec::new(),
     };
-    let mut stack: Vec<XNode> = Vec::new();
+    let mut stack: Vec<MacroXmlElement> = Vec::new();
 
     loop {
         match reader.read_event() {
             Ok(Event::Start(e)) => {
-                let name = e.name().as_ref().to_string();
-                let attrs = read_attrs(&e)?;
-                stack.push(XNode {
-                    name,
-                    attrs,
-                    children: Vec::new(),
+                stack.push(MacroXmlElement {
+                    name: e.name().as_ref().to_string(),
+                    attributes: read_attrs(&e)?,
                     text: String::new(),
+                    children: Vec::new(),
                 });
             }
             Ok(Event::Empty(e)) => {
-                let name = e.name().as_ref().to_string();
-                let attrs = read_attrs(&e)?;
-                let node = XNode {
-                    name,
-                    attrs,
-                    children: Vec::new(),
+                let element = MacroXmlElement {
+                    name: e.name().as_ref().to_string(),
+                    attributes: read_attrs(&e)?,
                     text: String::new(),
+                    children: Vec::new(),
                 };
-                match stack.last_mut() {
-                    Some(parent) => parent.children.push(node),
-                    None => root.children.push(node),
-                }
+                stack.last_mut().unwrap_or(&mut root).children.push(element);
             }
             Ok(Event::Text(t)) => {
                 let text = t.xml_content(quick_xml::XmlVersion::Explicit1_0);
@@ -277,11 +326,12 @@ fn parse_xml_tree(xml: &str) -> Result<XNode, FileError> {
                 }
             }
             Ok(Event::End(_)) => {
-                if let Some(node) = stack.pop() {
-                    match stack.last_mut() {
-                        Some(parent) => parent.children.push(node),
-                        None => root.children.push(node),
+                if let Some(mut element) = stack.pop() {
+                    // Indentation between child elements is not content.
+                    if !element.children.is_empty() && element.text.trim().is_empty() {
+                        element.text.clear();
                     }
+                    stack.last_mut().unwrap_or(&mut root).children.push(element);
                 }
             }
             Ok(Event::Eof) => break,
@@ -294,7 +344,6 @@ fn parse_xml_tree(xml: &str) -> Result<XNode, FileError> {
         }
     }
 
-    // The document element (UserInterfaceMacro) is `root`'s only child.
     root.children
         .pop()
         .ok_or_else(|| FileError::InvalidMacroData {
@@ -320,119 +369,75 @@ fn read_attrs(e: &quick_xml::events::BytesStart<'_>) -> Result<Vec<(String, Stri
     Ok(out)
 }
 
-fn format_macro_xml(xml: &str) -> Result<String, FileError> {
-    let root = parse_xml_tree(xml)?;
-    let mut out = String::new();
-    if let Some(event) = root.attr("Event") {
-        out.push_str(&format!("' Event: {event}\n"));
-    }
-    render_children(&root, 0, &mut out);
-    Ok(out)
+/// The statements inside `element`'s `Statements` child, or none if it has
+/// no such child.
+fn statements_of(element: &MacroXmlElement) -> Vec<MacroStatement> {
+    element
+        .child("Statements")
+        .map(|s| s.children.iter().map(to_statement).collect())
+        .unwrap_or_default()
 }
 
-const INDENT: &str = "    ";
-
-fn pad(indent: usize) -> String {
-    INDENT.repeat(indent)
+fn to_statement(element: &MacroXmlElement) -> MacroStatement {
+    let converted = match element.name.as_str() {
+        "Action" => to_action(element),
+        "Comment" => Some(MacroStatement::Comment(element.text.clone())),
+        "ConditionalBlock" => to_conditional(element),
+        "StatementGroup" => Some(MacroStatement::Group {
+            description: element.attribute("Description").unwrap_or("").to_string(),
+            statements: statements_of(element),
+        }),
+        "SubMacro" => Some(MacroStatement::SubMacro {
+            name: element.attribute("Name").unwrap_or("").to_string(),
+            statements: statements_of(element),
+        }),
+        _ => None,
+    };
+    converted.unwrap_or_else(|| MacroStatement::Unknown(element.clone()))
 }
 
-/// Renders every child of `node` in document order at the given indent
-/// level. Used both for the document root and for any node whose own
-/// children should appear without an extra wrapping header (`Statements`).
-fn render_children(node: &XNode, indent: usize, out: &mut String) {
-    for child in &node.children {
-        render_node(child, indent, out);
-    }
+/// An `Action` whose children are all `Argument`s; anything else is left to
+/// [`MacroStatement::Unknown`] so no child is dropped.
+fn to_action(element: &MacroXmlElement) -> Option<MacroStatement> {
+    let arguments = element
+        .children
+        .iter()
+        .map(|c| {
+            (c.name == "Argument").then(|| MacroArgument {
+                name: c.attribute("Name").unwrap_or("").to_string(),
+                value: c.text.clone(),
+            })
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some(MacroStatement::Action {
+        name: element.attribute("Name").unwrap_or("").to_string(),
+        arguments,
+    })
 }
 
-fn render_node(node: &XNode, indent: usize, out: &mut String) {
-    match node.name.as_str() {
-        "Statements" => render_children(node, indent, out),
-        "Comment" => {
-            if !node.text.trim().is_empty() {
-                out.push_str(&format!("{}' {}\n", pad(indent), node.text));
-            }
-        }
-        "Action" => render_action(node, indent, out),
-        "ConditionalBlock" => render_conditional_block(node, indent, out),
-        "StatementGroup" => {
-            let label = node.attr("Description").unwrap_or("");
-            out.push_str(&format!("{}Group \"{label}\"\n", pad(indent)));
-            if let Some(stmts) = node.children.iter().find(|c| c.name == "Statements") {
-                render_children(stmts, indent + 1, out);
-            }
-            out.push_str(&format!("{}End Group\n", pad(indent)));
-        }
-        "SubMacro" => {
-            let label = node.attr("Name").unwrap_or("");
-            out.push_str(&format!("{}Sub {label}\n", pad(indent)));
-            if let Some(stmts) = node.children.iter().find(|c| c.name == "Statements") {
-                render_children(stmts, indent + 1, out);
-            }
-            out.push_str(&format!("{}End Sub\n", pad(indent)));
-        }
-        // Unrecognized element: still surface it (name + attributes) and
-        // recurse into its children, rather than silently dropping data for
-        // a macro XML schema variant this renderer hasn't been taught yet.
-        other => {
-            let attr_text: String = node
-                .attrs
-                .iter()
-                .map(|(k, v)| format!(" {k}=\"{v}\""))
-                .collect();
-            out.push_str(&format!("{}<{other}{attr_text}>\n", pad(indent)));
-            render_children(node, indent + 1, out);
-        }
-    }
-}
-
-fn render_action(node: &XNode, indent: usize, out: &mut String) {
-    let name = node.attr("Name").unwrap_or("");
-    out.push_str(&format!("{}{name}\n", pad(indent)));
-    for arg in node.children.iter().filter(|c| c.name == "Argument") {
-        let arg_name = arg.attr("Name").unwrap_or("");
-        out.push_str(&format!(
-            "{}{arg_name} =\"{}\"\n",
-            pad(indent + 1),
-            quote_escape(&arg.text)
-        ));
-    }
-}
-
-/// A `ConditionalBlock` wraps one `If`, zero or more `ElseIf`, and an
-/// optional `Else` -- rendered as a single `If`/`ElseIf`/`Else`/`End If`
-/// group sharing one closing line, not one per branch.
-fn render_conditional_block(node: &XNode, indent: usize, out: &mut String) {
-    for branch in &node.children {
-        match branch.name.as_str() {
-            "If" => render_branch(branch, "If", indent, out),
-            "ElseIf" => render_branch(branch, "ElseIf", indent, out),
-            "Else" => {
-                out.push_str(&format!("{}Else\n", pad(indent)));
-                if let Some(stmts) = branch.children.iter().find(|c| c.name == "Statements") {
-                    render_children(stmts, indent + 1, out);
-                }
-            }
-            _ => render_node(branch, indent, out),
-        }
-    }
-    out.push_str(&format!("{}End If\n", pad(indent)));
-}
-
-fn render_branch(node: &XNode, keyword: &str, indent: usize, out: &mut String) {
-    let condition = node.child_text("Condition");
-    out.push_str(&format!("{}{keyword} {condition}\n", pad(indent)));
-    if let Some(stmts) = node.children.iter().find(|c| c.name == "Statements") {
-        render_children(stmts, indent + 1, out);
-    }
-}
-
-/// Escapes embedded backslashes/double-quotes so an argument's raw
-/// (already XML-unescaped) value stays unambiguous inside this renderer's
-/// own `Name ="value"` quoting -- the same convention a real
-/// `Application.SaveAsText` export uses for its `Argument ="..."` lines.
-fn quote_escape(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('"', "\\\"")
+/// A `ConditionalBlock` made of `If` / `ElseIf` / `Else` children; anything
+/// else is left to [`MacroStatement::Unknown`].
+fn to_conditional(element: &MacroXmlElement) -> Option<MacroStatement> {
+    let branches = element
+        .children
+        .iter()
+        .map(|c| match c.name.as_str() {
+            "If" | "ElseIf" => Some(MacroBranch {
+                condition: Some(
+                    c.child("Condition")
+                        .map(|x| x.text.clone())
+                        .unwrap_or_default(),
+                ),
+                statements: statements_of(c),
+            }),
+            "Else" => Some(MacroBranch {
+                condition: None,
+                statements: statements_of(c),
+            }),
+            _ => None,
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some(MacroStatement::Conditional { branches })
 }
 
 #[cfg(test)]
@@ -488,68 +493,122 @@ mod tests {
         assert_eq!(extract_axl_xml(&blob).as_deref(), Some("shortsecond chunk"));
     }
 
-    #[test]
-    fn format_macro_xml_action_with_arguments() {
-        let xml = r#"<UserInterfaceMacro xmlns="ns"><Statements><Action Name="OpenForm"><Argument Name="FormName">frmStartup</Argument></Action></Statements></UserInterfaceMacro>"#;
-        let text = format_macro_xml(xml).unwrap();
-        assert_eq!(text, "OpenForm\n    FormName =\"frmStartup\"\n");
+    // -- XML -> statements ------------------------------------------------------
+
+    fn statements(xml: &str) -> Vec<MacroStatement> {
+        statements_of(&parse_xml_tree(xml).unwrap())
+    }
+
+    fn action(name: &str, arguments: &[(&str, &str)]) -> MacroStatement {
+        MacroStatement::Action {
+            name: name.to_string(),
+            arguments: arguments
+                .iter()
+                .map(|(n, v)| MacroArgument {
+                    name: n.to_string(),
+                    value: v.to_string(),
+                })
+                .collect(),
+        }
     }
 
     #[test]
-    fn format_macro_xml_conditional_block_if_elseif_else() {
+    fn action_with_arguments() {
+        let xml = r#"<UserInterfaceMacro xmlns="ns"><Statements><Action Name="OpenForm"><Argument Name="FormName">frmStartup</Argument></Action><Action Name="Beep"/></Statements></UserInterfaceMacro>"#;
+        assert_eq!(
+            statements(xml),
+            [
+                action("OpenForm", &[("FormName", "frmStartup")]),
+                action("Beep", &[])
+            ]
+        );
+    }
+
+    #[test]
+    fn conditional_block_if_elseif_else() {
         let xml = r#"<UserInterfaceMacro xmlns="ns"><Statements><ConditionalBlock><If><Condition>A</Condition><Statements><Action Name="X"/></Statements></If><ElseIf><Condition>B</Condition><Statements><Action Name="Y"/></Statements></ElseIf><Else><Statements><Action Name="Z"/></Statements></Else></ConditionalBlock></Statements></UserInterfaceMacro>"#;
-        let text = format_macro_xml(xml).unwrap();
-        assert_eq!(text, "If A\n    X\nElseIf B\n    Y\nElse\n    Z\nEnd If\n");
-    }
-
-    #[test]
-    fn format_macro_xml_comment_and_event_attribute() {
-        let xml = r#"<UserInterfaceMacro Event="OnUnload" xmlns="ns"><Statements><Comment>hello</Comment><Action Name="StopMacro"/></Statements></UserInterfaceMacro>"#;
-        let text = format_macro_xml(xml).unwrap();
-        assert_eq!(text, "' Event: OnUnload\n' hello\nStopMacro\n");
-    }
-
-    #[test]
-    fn format_macro_xml_resolves_references_in_conditions() {
-        let xml = r#"<UserInterfaceMacro xmlns="ns"><Statements><ConditionalBlock><If><Condition>[MacroError]&lt;&gt;0 And [x]&#62;1</Condition><Statements><Action Name="X"/></Statements></If></ConditionalBlock></Statements></UserInterfaceMacro>"#;
-        let text = format_macro_xml(xml).unwrap();
-        assert_eq!(text, "If [MacroError]<>0 And [x]>1\n    X\nEnd If\n");
-    }
-
-    #[test]
-    fn format_macro_xml_statement_group() {
-        let xml = r#"<UserInterfaceMacro xmlns="ns"><Statements><StatementGroup Description="Foo"><Statements><Action Name="X"/></Statements></StatementGroup></Statements></UserInterfaceMacro>"#;
-        let text = format_macro_xml(xml).unwrap();
-        assert_eq!(text, "Group \"Foo\"\n    X\nEnd Group\n");
-    }
-
-    #[test]
-    fn format_macro_xml_escapes_quotes_and_backslashes_in_argument_values() {
-        let xml = r#"<UserInterfaceMacro xmlns="ns"><Statements><Action Name="SetValue"><Argument Name="Expression">say "hi" \ bye</Argument></Action></Statements></UserInterfaceMacro>"#;
-        let text = format_macro_xml(xml).unwrap();
+        let branch = |condition: Option<&str>, name: &str| MacroBranch {
+            condition: condition.map(str::to_string),
+            statements: vec![action(name, &[])],
+        };
         assert_eq!(
-            text,
-            "SetValue\n    Expression =\"say \\\"hi\\\" \\\\ bye\"\n"
+            statements(xml),
+            [MacroStatement::Conditional {
+                branches: vec![
+                    branch(Some("A"), "X"),
+                    branch(Some("B"), "Y"),
+                    branch(None, "Z")
+                ]
+            }]
         );
     }
 
     #[test]
-    fn format_macro_xml_real_autoexec_dev_matches_known_actions() {
-        // Reconstructed from MS NorthwindDev.accdb's AutoExec macro Blob
-        // (see module docs) -- both actions and both conditions round-trip.
-        let xml = concat!(
-            r#"<?xml version="1.0" encoding="UTF-16" standalone="no"?>"#,
-            r#"<UserInterfaceMacro MinimumClientDesignVersion="14.0.0000.0000" xmlns="http://schemas.microsoft.com/office/accessservices/2009/11/application">"#,
-            r#"<Statements><ConditionalBlock><If><Condition>Not [CurrentProject].[IsTrusted]</Condition>"#,
-            r#"<Statements><Action Name="OpenForm"><Argument Name="FormName">frmStartup</Argument></Action></Statements></If>"#,
-            r#"</ConditionalBlock><ConditionalBlock><If><Condition>[CurrentProject].[IsTrusted]</Condition>"#,
-            r#"<Statements><Action Name="RunCode"><Argument Name="FunctionName">Startup()</Argument></Action></Statements></If>"#,
-            r#"</ConditionalBlock></Statements></UserInterfaceMacro>"#,
-        );
-        let text = format_macro_xml(xml).unwrap();
+    fn references_in_conditions_are_resolved() {
+        let xml = r#"<UserInterfaceMacro xmlns="ns"><Statements><ConditionalBlock><If><Condition>[MacroError]&lt;&gt;0 And [x]&#62;1</Condition><Statements/></If></ConditionalBlock></Statements></UserInterfaceMacro>"#;
+        let MacroStatement::Conditional { branches } = &statements(xml)[0] else {
+            panic!("expected a conditional block");
+        };
         assert_eq!(
-            text,
-            "If Not [CurrentProject].[IsTrusted]\n    OpenForm\n        FormName =\"frmStartup\"\nEnd If\nIf [CurrentProject].[IsTrusted]\n    RunCode\n        FunctionName =\"Startup()\"\nEnd If\n"
+            branches[0].condition.as_deref(),
+            Some("[MacroError]<>0 And [x]>1")
+        );
+    }
+
+    #[test]
+    fn comment_group_and_submacro() {
+        // Element names as written by Access in published SaveAsText exports.
+        let xml = r#"<UserInterfaceMacro xmlns="ns"><Statements><Comment>hello</Comment><StatementGroup Description="Group A"><Statements><Action Name="X"/></Statements></StatementGroup><SubMacro Name="SubOne"><Statements><Action Name="Y"/></Statements></SubMacro></Statements></UserInterfaceMacro>"#;
+        assert_eq!(
+            statements(xml),
+            [
+                MacroStatement::Comment("hello".to_string()),
+                MacroStatement::Group {
+                    description: "Group A".to_string(),
+                    statements: vec![action("X", &[])]
+                },
+                MacroStatement::SubMacro {
+                    name: "SubOne".to_string(),
+                    statements: vec![action("Y", &[])]
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn unknown_elements_are_kept() {
+        let xml = r#"<UserInterfaceMacro xmlns="ns"><Statements><Mystery Kind="k"><Part>p</Part></Mystery></Statements></UserInterfaceMacro>"#;
+        assert_eq!(
+            statements(xml),
+            [MacroStatement::Unknown(MacroXmlElement {
+                name: "Mystery".to_string(),
+                attributes: vec![("Kind".to_string(), "k".to_string())],
+                text: String::new(),
+                children: vec![MacroXmlElement {
+                    name: "Part".to_string(),
+                    attributes: Vec::new(),
+                    text: "p".to_string(),
+                    children: Vec::new(),
+                }],
+            })]
+        );
+    }
+
+    #[test]
+    fn action_with_a_non_argument_child_is_kept_unknown() {
+        let xml = r#"<UserInterfaceMacro xmlns="ns"><Statements><Action Name="X"><Other/></Action></Statements></UserInterfaceMacro>"#;
+        assert!(matches!(
+            &statements(xml)[0],
+            MacroStatement::Unknown(e) if e.name == "Action"
+        ));
+    }
+
+    #[test]
+    fn argument_values_keep_whitespace_and_indentation_is_ignored() {
+        let xml = "<UserInterfaceMacro xmlns=\"ns\">\n  <Statements>\n    <Action Name=\"X\">\n      <Argument Name=\"Description\"> negative qty</Argument>\n    </Action>\n  </Statements>\n</UserInterfaceMacro>";
+        assert_eq!(
+            statements(xml),
+            [action("X", &[("Description", " negative qty")])]
         );
     }
 
@@ -585,25 +644,60 @@ mod tests {
 
     const MACRO_TEST_FILES: [&str; 2] = ["V2010/macroTestV2010.accdb", "V2003/macroTestV2003.mdb"];
 
-    fn expected_macro_texts() -> Vec<(&'static str, String)> {
+    fn expected_macro_statements() -> Vec<(&'static str, Vec<MacroStatement>)> {
+        let message = |text: &str| action("MessageBox", &[("Message", text)]);
         vec![
             (
                 "mcrSimple",
-                "OpenForm\n    FormName =\"frmEmbedded\"\nMessageBox\n    Message =\"Hello\"\n    Beep =\"No\"\n    Type =\"Information\"\n    Title =\"Title\"\nMessageBox\n    Message =\"Default\"\n".to_string(),
+                vec![
+                    action("OpenForm", &[("FormName", "frmEmbedded")]),
+                    action(
+                        "MessageBox",
+                        &[
+                            ("Message", "Hello"),
+                            ("Beep", "No"),
+                            ("Type", "Information"),
+                            ("Title", "Title"),
+                        ],
+                    ),
+                    message("Default"),
+                ],
             ),
             (
                 "mcrConditions",
-                "' first comment\nIf [TempVars]![x]=1\n    MessageBox\n        Message =\"one\"\nElseIf [TempVars]![x]<10\n    MessageBox\n        Message =\"small\"\nElse\n    MessageBox\n        Message =\"other\"\nEnd If\nStopMacro\n".to_string(),
+                vec![
+                    MacroStatement::Comment("first comment".to_string()),
+                    MacroStatement::Conditional {
+                        branches: vec![
+                            MacroBranch {
+                                condition: Some("[TempVars]![x]=1".to_string()),
+                                statements: vec![message("one")],
+                            },
+                            MacroBranch {
+                                condition: Some("[TempVars]![x]<10".to_string()),
+                                statements: vec![message("small")],
+                            },
+                            MacroBranch {
+                                condition: None,
+                                statements: vec![message("other")],
+                            },
+                        ],
+                    },
+                    action("StopMacro", &[]),
+                ],
             ),
             (
                 "mcrLongText",
-                // Access stores at most 255 characters of the 300-character message.
-                format!(
-                    "MessageBox\n    Message =\"{}\"\nMessageBox\n    Message =\"日本語のメッセージ\"\n    Title =\"確認\"\n",
-                    &"0123456789".repeat(26)[..255]
-                ),
+                vec![
+                    // Access stores at most 255 characters of the 300-character message.
+                    message(&"0123456789".repeat(26)[..255]),
+                    action(
+                        "MessageBox",
+                        &[("Message", "日本語のメッセージ"), ("Title", "確認")],
+                    ),
+                ],
             ),
-            ("AutoExec", "MessageBox\n    Message =\"autoexec\"\n".to_string()),
+            ("AutoExec", vec![message("autoexec")]),
         ]
     }
 
@@ -633,14 +727,32 @@ mod tests {
     }
 
     #[test]
-    fn read_macro_text_real_files() {
+    fn read_macro_real_files() {
         for file in MACRO_TEST_FILES {
             let path = skip_if_missing!(file);
             let mut reader = PageReader::open(&path).unwrap();
-            for (name, expected) in expected_macro_texts() {
-                let text = read_macro_text(&mut reader, name).unwrap();
-                assert_eq!(text, expected, "{file}: {name}");
+            for (name, expected) in expected_macro_statements() {
+                let def = read_macro(&mut reader, name).unwrap();
+                assert_eq!(
+                    def.source,
+                    MacroSource::Named {
+                        name: name.to_string()
+                    },
+                    "{file}: {name}"
+                );
+                assert_eq!(def.statements, expected, "{file}: {name}");
+                assert!(def.xml.contains("<UserInterfaceMacro"), "{file}: {name}");
             }
         }
+    }
+
+    #[test]
+    fn read_macro_not_found() {
+        let path = skip_if_missing!("V2010/macroTestV2010.accdb");
+        let mut reader = PageReader::open(&path).unwrap();
+        assert!(matches!(
+            read_macro(&mut reader, "NoSuchMacro"),
+            Err(FileError::MacroNotFound { name }) if name == "NoSuchMacro"
+        ));
     }
 }

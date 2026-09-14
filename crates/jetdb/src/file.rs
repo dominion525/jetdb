@@ -53,6 +53,9 @@ pub enum FileError {
     FormNotFound {
         name: String,
     },
+    MacroNotFound {
+        name: String,
+    },
     InvalidVbaProject {
         reason: String,
     },
@@ -99,6 +102,7 @@ impl fmt::Display for FileError {
             Self::QueryNotFound { name } => write!(f, "query not found: {name}"),
             Self::ModuleNotFound { name } => write!(f, "VBA module not found: {name}"),
             Self::FormNotFound { name } => write!(f, "form/report not found: {name}"),
+            Self::MacroNotFound { name } => write!(f, "macro not found: {name}"),
             Self::InvalidVbaProject { reason } => write!(f, "invalid VBA project: {reason}"),
             Self::InvalidFormData { reason } => write!(f, "invalid form data: {reason}"),
             Self::InvalidMacroData { reason } => write!(f, "invalid macro data: {reason}"),
@@ -1089,6 +1093,10 @@ mod tests {
         let e = FileError::ModuleNotFound { name: "M1".into() };
         assert!(e.to_string().contains("M1"));
         assert!(e.to_string().contains("VBA module not found"));
+
+        let e = FileError::MacroNotFound { name: "Mc1".into() };
+        assert!(e.to_string().contains("Mc1"));
+        assert!(e.to_string().contains("macro not found"));
 
         let e = FileError::InvalidVbaProject {
             reason: "corrupt".into(),
