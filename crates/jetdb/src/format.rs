@@ -552,8 +552,31 @@ pub mod index_flags {
 }
 
 /// Index type (section \[6\] index_type field in TDEF).
+///
+/// Verified against `V2007/primaryKeyTestV2007.accdb` (4 tables covering a default-named PK,
+/// a renamed PK, a renamed multi-column PK, and a PK coexisting with other
+/// Unique/IgnoreNulls-flagged indexes): `PRIMARY` is set if and only if the
+/// index is the one Access's Table Designer marks with its `Primary`
+/// property (see the `Index.Primary` VBA property) -- independent of the
+/// index's name (which the user can freely rename, unlike what a
+/// `name == "PrimaryKey"` check would assume) and independent of the
+/// `UNIQUE`/`REQUIRED`/`IGNORE_NULLS` flags (an ordinary index can carry any
+/// combination of those without being the primary key -- notably, every
+/// Attachment/multivalue ("ComplexType") column gets its own hidden
+/// UNIQUE + REQUIRED index, which is `ORDINARY`, not `PRIMARY`).
 pub mod index_type {
-    /// Normal index or PRIMARY KEY.
+    /// An ordinary index -- not the primary key, not a foreign key
+    /// reference. Can independently carry any combination of the
+    /// `UNIQUE`/`REQUIRED`/`IGNORE_NULLS` flags.
+    pub const ORDINARY: u8 = 0x00;
+    /// The primary key index (Access's `Index.Primary` property).
+    pub const PRIMARY: u8 = 0x01;
+    /// Former name of `PRIMARY`. It keeps its original value, so existing
+    /// comparisons against it still match the same indexes.
+    #[deprecated(
+        since = "0.4.0",
+        note = "0x01 identifies the primary key index; use `PRIMARY`, or `ORDINARY` (0x00) for other indexes"
+    )]
     pub const NORMAL: u8 = 0x01;
     /// Foreign key reference (no physical B-tree index).
     pub const FOREIGN_KEY: u8 = 0x02;
