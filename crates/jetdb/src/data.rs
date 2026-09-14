@@ -498,6 +498,15 @@ fn read_column_value(
     if !col.is_fixed {
         if let Some(&result_type) = calculated.get(&col.name.to_ascii_lowercase()) {
             if let Some(var_data) = extract_var_data(cracked, col) {
+                // A calculated Memo is stored as a long value like any other
+                // Memo, so resolve the inline or separate-page data first;
+                // the envelope is inside the resolved bytes.
+                if result_type == ColumnType::Memo {
+                    return match read_lval_data(var_data, Some(reader)) {
+                        Some(data) => read_calculated_value(&data, result_type, is_jet3),
+                        None => Value::Null,
+                    };
+                }
                 return read_calculated_value(var_data, result_type, is_jet3);
             }
         }
@@ -799,13 +808,11 @@ fn calculated_result_types(props: &crate::prop::ObjectProperties) -> HashMap<Str
 /// read the bytes.
 ///
 /// The cached value is always delivered through the variable-length
-/// storage mechanism (`var_data`), wrapped in an envelope: reserved bytes,
-/// then a 4-byte little-endian byte length, then that many bytes holding
-/// the value. Reserved-section shape depends on `result_type`: 16 zero
-/// bytes for every type except Memo, which uses a distinct 28-byte shape
-/// (4-byte tag + 24 zero bytes) -- both verified byte-for-byte against a
-/// real Access 2019 database with a calculated column of every Result Type
-/// available in the Access UI.
+/// storage mechanism (`var_data`), wrapped in an envelope: 16 reserved zero
+/// bytes, then a 4-byte little-endian byte length, then that many bytes
+/// holding the value. For a Memo result the variable-length data is a long
+/// value reference, so the caller resolves it with [`read_lval_data`] first
+/// and passes the resolved bytes, which carry the same envelope.
 ///
 /// Most types' payload uses the *same* encoding a normal fixed/variable
 /// column of that type uses elsewhere in this module. Numeric/Decimal is
@@ -816,8 +823,7 @@ fn calculated_result_types(props: &crate::prop::ObjectProperties) -> HashMap<Str
 /// so its payload is self-describing instead -- see
 /// [`crate::money::decimal_variant_to_string`]'s doc comment.
 fn read_calculated_value(var_data: &[u8], result_type: ColumnType, is_jet3: bool) -> Value {
-    let reserved_len = if result_type == ColumnType::Memo { 28 } else { 16 };
-    let Some(payload) = extract_calculated_payload(var_data, reserved_len) else {
+    let Some(payload) = extract_calculated_payload(var_data, 16) else {
         return Value::Null;
     };
 
@@ -909,10 +915,7 @@ fn extract_calculated_payload(data: &[u8], reserved_len: usize) -> Option<&[u8]>
     if data.len() < header_len {
         return None;
     }
-    // Only validated for the 16-byte shape (all zero in every sample seen);
-    // Memo's 28-byte reserved section starts with a non-zero 4-byte tag
-    // whose exact meaning isn't confirmed, so it's trusted structurally
-    // (length + resulting slice fitting the buffer) rather than by content.
+    // The 16-byte reserved section is all zero in every sample seen.
     if reserved_len == 16 && data[..16] != [0u8; 16] {
         return None;
     }
@@ -2775,15 +2778,17 @@ mod tests {
 
     #[test]
     fn read_calculated_value_memo() {
-        // Memo's envelope is 28 (not 16) reserved bytes, then a length,
-        // then raw UTF-16LE (no FF FE marker) -- "s1 longs1 long".
+        // An inline long value (12-byte header: length with flags, then 8
+        // more bytes) holding the usual 16 reserved bytes, a length, then raw
+        // UTF-16LE (no FF FE marker) -- "s1 longs1 long".
         let mut data = vec![0x33, 0x00, 0x00, 0x80];
         data.extend_from_slice(&[0u8; 24]);
         let text = "s1 longs1 long";
         let payload: Vec<u8> = text.encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
         data.extend_from_slice(&(payload.len() as u32).to_le_bytes());
         data.extend_from_slice(&payload);
-        assert_eq!(read_calculated_value(&data, ColumnType::Memo, false), Value::Text(text.to_string()));
+        let resolved = read_lval_data(&data, None).expect("inline long value");
+        assert_eq!(read_calculated_value(&resolved, ColumnType::Memo, false), Value::Text(text.to_string()));
     }
 
     #[test]
