@@ -1894,7 +1894,13 @@ mod tests {
             ..bool_col.clone()
         };
         assert_eq!(
-            read_column_value(&cracked, &bool_col_false, false, &mut reader, &HashMap::new()),
+            read_column_value(
+                &cracked,
+                &bool_col_false,
+                false,
+                &mut reader,
+                &HashMap::new()
+            ),
             Value::Bool(false)
         );
     }
@@ -2760,7 +2766,10 @@ mod tests {
         data.extend_from_slice(&3u32.to_le_bytes());
         data.extend_from_slice(&[1, 2, 3]);
         data.extend_from_slice(&[9, 9, 9]); // trailing padding, ignored
-        assert_eq!(extract_calculated_payload(&data, 16), Some(&[1u8, 2, 3][..]));
+        assert_eq!(
+            extract_calculated_payload(&data, 16),
+            Some(&[1u8, 2, 3][..])
+        );
     }
 
     #[test]
@@ -2799,7 +2808,8 @@ mod tests {
         // "Nancy Freehafer" -- same envelope shape as the Northwind fix,
         // reusing this module's `encoding::decode_text`.
         let payload = [
-            0xFF, 0xFE, 0x4E, 0x61, 0x6E, 0x63, 0x79, 0x20, 0x46, 0x72, 0x65, 0x65, 0x68, 0x61, 0x66, 0x65, 0x72,
+            0xFF, 0xFE, 0x4E, 0x61, 0x6E, 0x63, 0x79, 0x20, 0x46, 0x72, 0x65, 0x65, 0x68, 0x61,
+            0x66, 0x65, 0x72,
         ];
         let data = calc_envelope(&payload);
         assert_eq!(
@@ -2820,7 +2830,10 @@ mod tests {
         data.extend_from_slice(&(payload.len() as u32).to_le_bytes());
         data.extend_from_slice(&payload);
         let resolved = read_lval_data(&data, None).expect("inline long value");
-        assert_eq!(read_calculated_value(&resolved, ColumnType::Memo, false), Value::Text(text.to_string()));
+        assert_eq!(
+            read_calculated_value(&resolved, ColumnType::Memo, false),
+            Value::Text(text.to_string())
+        );
     }
 
     #[test]
@@ -2829,7 +2842,10 @@ mod tests {
         // stored as a plain 2-byte Int16 (not the 8-byte Double the
         // column's declared `col_type` would suggest).
         let data = calc_envelope(&(-16384i16).to_le_bytes());
-        assert_eq!(read_calculated_value(&data, ColumnType::Int, false), Value::Int(-16384));
+        assert_eq!(
+            read_calculated_value(&data, ColumnType::Int, false),
+            Value::Int(-16384)
+        );
     }
 
     #[test]
@@ -2837,14 +2853,20 @@ mod tests {
         // `[Number Integer]/2` where Number Integer = 32767 -> 16383.5,
         // banker's-rounded to 16384 (nearest even) by Access before caching.
         let data = calc_envelope(&16384i16.to_le_bytes());
-        assert_eq!(read_calculated_value(&data, ColumnType::Int, false), Value::Int(16384));
+        assert_eq!(
+            read_calculated_value(&data, ColumnType::Int, false),
+            Value::Int(16384)
+        );
     }
 
     #[test]
     fn read_calculated_value_long() {
         // `[Number Long Integer]/2` where Number Long Integer = -2147483648.
         let data = calc_envelope(&(-1073741824i32).to_le_bytes());
-        assert_eq!(read_calculated_value(&data, ColumnType::Long, false), Value::Long(-1073741824));
+        assert_eq!(
+            read_calculated_value(&data, ColumnType::Long, false),
+            Value::Long(-1073741824)
+        );
     }
 
     #[test]
@@ -2852,14 +2874,20 @@ mod tests {
         // `[Large Number]/2` where Large Number = i64::MIN + 1 ->
         // -4611686018427387903.5, banker's-rounded to the even neighbor.
         let data = calc_envelope(&(-4611686018427387904i64).to_le_bytes());
-        assert_eq!(read_calculated_value(&data, ColumnType::BigInt, false), Value::BigInt(-4611686018427387904));
+        assert_eq!(
+            read_calculated_value(&data, ColumnType::BigInt, false),
+            Value::BigInt(-4611686018427387904)
+        );
     }
 
     #[test]
     fn read_calculated_value_double() {
         // `[Number Double]/2`, a full 8-byte (untrimmed) f64 payload.
         let data = calc_envelope(&(-5.985e307f64).to_le_bytes());
-        assert_eq!(read_calculated_value(&data, ColumnType::Double, false), Value::Double(-5.985e307));
+        assert_eq!(
+            read_calculated_value(&data, ColumnType::Double, false),
+            Value::Double(-5.985e307)
+        );
     }
 
     #[test]
@@ -2879,15 +2907,24 @@ mod tests {
     fn read_calculated_value_timestamp() {
         // `[Date/Time]` passthrough of 0100-01-01 (days since 1899-12-30).
         let data = calc_envelope(&(-657434.0f64).to_le_bytes());
-        assert_eq!(read_calculated_value(&data, ColumnType::Timestamp, false), Value::Timestamp(-657434.0));
+        assert_eq!(
+            read_calculated_value(&data, ColumnType::Timestamp, false),
+            Value::Timestamp(-657434.0)
+        );
     }
 
     #[test]
     fn read_calculated_value_boolean() {
         let data_true = calc_envelope(&[0xFF]);
-        assert_eq!(read_calculated_value(&data_true, ColumnType::Boolean, false), Value::Bool(true));
+        assert_eq!(
+            read_calculated_value(&data_true, ColumnType::Boolean, false),
+            Value::Bool(true)
+        );
         let data_false = calc_envelope(&[0x00]);
-        assert_eq!(read_calculated_value(&data_false, ColumnType::Boolean, false), Value::Bool(false));
+        assert_eq!(
+            read_calculated_value(&data_false, ColumnType::Boolean, false),
+            Value::Bool(false)
+        );
     }
 
     #[test]
@@ -2908,7 +2945,10 @@ mod tests {
         // A payload too short for any known type falls back to a clean
         // `Null`, never a guess.
         let data = calc_envelope(&[1, 2, 3, 4]);
-        assert_eq!(read_calculated_value(&data, ColumnType::Guid, false), Value::Null);
+        assert_eq!(
+            read_calculated_value(&data, ColumnType::Guid, false),
+            Value::Null
+        );
     }
 
     #[test]
@@ -2916,7 +2956,8 @@ mod tests {
         // `[Number Replication ID]` passthrough -- same raw 16-byte layout
         // as the ordinary fixed-column Guid format.
         let payload = [
-            0x67, 0x45, 0x3e, 0x12, 0x9b, 0xe8, 0xd3, 0x12, 0xa4, 0x56, 0x42, 0x66, 0x14, 0x17, 0x40, 0x00,
+            0x67, 0x45, 0x3e, 0x12, 0x9b, 0xe8, 0xd3, 0x12, 0xa4, 0x56, 0x42, 0x66, 0x14, 0x17,
+            0x40, 0x00,
         ];
         let data = calc_envelope(&payload);
         assert_eq!(
@@ -2930,7 +2971,8 @@ mod tests {
         // `[Number Decimal 7x2]/2` = 1.23 / 2 = 0.615 -- OLE Automation
         // DECIMAL structure, see `money::decimal_variant_to_string`.
         let payload = [
-            0x0e, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x67, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x0e, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x67, 0x02, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
         ];
         let data = calc_envelope(&payload);
         assert_eq!(
@@ -2941,7 +2983,7 @@ mod tests {
 
     #[test]
     fn calculated_result_types_requires_expression_property() {
-        use crate::prop::{ObjectProperties, Property, PropMapType, PropertyMap};
+        use crate::prop::{ObjectProperties, PropMapType, Property, PropertyMap};
 
         let props = ObjectProperties {
             object_name: "Employees".to_string(),
@@ -2951,8 +2993,16 @@ mod tests {
                     map_type: PropMapType::Column,
                     name: "FullNameFNLN".to_string(),
                     properties: vec![
-                        Property { name: "Expression".to_string(), value: Value::Text("x".to_string()), ddl: false },
-                        Property { name: "ResultType".to_string(), value: Value::Byte(10), ddl: false },
+                        Property {
+                            name: "Expression".to_string(),
+                            value: Value::Text("x".to_string()),
+                            ddl: false,
+                        },
+                        Property {
+                            name: "ResultType".to_string(),
+                            value: Value::Byte(10),
+                            ddl: false,
+                        },
                     ],
                 },
                 // Not calculated: no Expression property at all.
