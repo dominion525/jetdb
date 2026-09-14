@@ -543,15 +543,23 @@ $ jetdb macro embedded database.accdb frmEmbedded
 #### macro data — テーブルのデータマクロの表示
 
 ```
-jetdb macro data <FILE> <TABLE>
+jetdb macro data [OPTIONS] <FILE> <TABLE>
 ```
 
-テーブルのデータマクロの XML を表示する。データマクロを持たないテーブルでは何も出力しない。
+テーブルのデータマクロを `Application.SaveAsText` が書き出すテキストで表示する。1 つの `DataMacros` の XML 文書で、テーブルイベントを AfterInsert、AfterUpdate、AfterDelete、BeforeChange、BeforeDelete の順に並べ、その後に名前付きデータマクロを並べる。データマクロを持たないテーブルでは何も出力しない。
+
+##### オプション
+
+- `--xml` — テキストの代わりに、保存されている各データマクロの XML を 1 つずつ、それぞれの後に改行を付けて表示
 
 ##### 出力例
 
 ```
-$ jetdb macro data database.accdb tblNamed
+$ jetdb macro data database.accdb tblItems
+<?xml version="1.0" encoding="UTF-16" standalone="no"?>
+<DataMacros xmlns="..."><DataMacro Event="AfterInsert">...</DataMacro><DataMacro Event="BeforeChange">...</DataMacro></DataMacros>
+
+$ jetdb macro data --xml database.accdb tblNamed
 <?xml version="1.0" encoding="UTF-16" standalone="no"?>
 <DataMacro Name="dmLog" ...><Parameters><Parameter Name="msg"/></Parameters><Statements>...</Statements></DataMacro>
 ```

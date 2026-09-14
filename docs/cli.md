@@ -544,15 +544,23 @@ $ jetdb macro embedded database.accdb frmEmbedded
 #### macro data — Show the data macros of a table
 
 ```
-jetdb macro data <FILE> <TABLE>
+jetdb macro data [OPTIONS] <FILE> <TABLE>
 ```
 
-Show the XML of each data macro of the table. If the table has no data macros, produces no output.
+Show the data macros of the table as the text `Application.SaveAsText` writes: one `DataMacros` XML document, with the table events in the order AfterInsert, AfterUpdate, AfterDelete, BeforeChange, BeforeDelete, followed by the named data macros. If the table has no data macros, produces no output.
+
+##### Options
+
+- `--xml` — Show each data macro's XML as stored instead, each followed by a newline
 
 ##### Output examples
 
 ```
-$ jetdb macro data database.accdb tblNamed
+$ jetdb macro data database.accdb tblItems
+<?xml version="1.0" encoding="UTF-16" standalone="no"?>
+<DataMacros xmlns="..."><DataMacro Event="AfterInsert">...</DataMacro><DataMacro Event="BeforeChange">...</DataMacro></DataMacros>
+
+$ jetdb macro data --xml database.accdb tblNamed
 <?xml version="1.0" encoding="UTF-16" standalone="no"?>
 <DataMacro Name="dmLog" ...><Parameters><Parameter Name="msg"/></Parameters><Statements>...</Statements></DataMacro>
 ```

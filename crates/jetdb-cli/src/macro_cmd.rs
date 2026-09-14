@@ -2,7 +2,10 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Args, Subcommand};
-use jetdb::{list_macros, read_data_macros, read_embedded_macros, read_macro, PageReader};
+use jetdb::{
+    data_macros_to_text, list_macros, read_data_macros, read_embedded_macros, read_macro,
+    PageReader,
+};
 
 // ---------------------------------------------------------------------------
 // CLI definition
@@ -22,7 +25,7 @@ pub enum MacroCommands {
     Show(MacroShowArgs),
     /// Show the embedded macros of a form or report as XML
     Embedded(MacroEmbeddedArgs),
-    /// Show the data macros of a table as XML
+    /// Show the data macros of a table as SaveAsText text or XML
     Data(MacroDataArgs),
 }
 
@@ -69,6 +72,10 @@ pub struct MacroDataArgs {
 
     /// Table name
     pub table: String,
+
+    /// Print each data macro's XML instead of SaveAsText text
+    #[arg(long = "xml")]
+    pub xml: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -144,8 +151,13 @@ fn run_embedded(args: &MacroEmbeddedArgs, password: Option<&str>) -> Result<(), 
 
 fn run_data(args: &MacroDataArgs, password: Option<&str>) -> Result<(), jetdb::FileError> {
     let mut reader = PageReader::open_with_password(&args.file, password)?;
-    for def in read_data_macros(&mut reader, &args.table)? {
-        println!("{}", def.xml);
+    let macros = read_data_macros(&mut reader, &args.table)?;
+    if args.xml {
+        for def in &macros {
+            println!("{}", def.xml);
+        }
+    } else {
+        print!("{}", data_macros_to_text(&macros));
     }
 
     Ok(())

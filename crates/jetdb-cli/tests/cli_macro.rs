@@ -116,10 +116,25 @@ fn macro_embedded() {
 fn macro_data() {
     let path = skip_if_missing!(MACRO_FILE);
     let stdout = stdout_of(&run(&["macro", "data", path.to_str().unwrap(), "tblNamed"]));
+    assert!(stdout.contains("<DataMacros xmlns="), "got: {stdout}");
     assert!(
-        stdout.contains("<DataMacro Name=\"dmLog\""),
+        stdout.contains("<DataMacro Name=\"dmLog\">"),
         "got: {stdout}"
     );
+}
+
+#[test]
+fn macro_data_xml() {
+    let path = skip_if_missing!(MACRO_FILE);
+    let stdout = stdout_of(&run(&[
+        "macro",
+        "data",
+        "--xml",
+        path.to_str().unwrap(),
+        "tblItems",
+    ]));
+    assert_eq!(stdout.matches("<?xml").count(), 2, "got: {stdout}");
+    assert!(!stdout.contains("<DataMacros"), "got: {stdout}");
 }
 
 // ---------------------------------------------------------------------------
