@@ -76,6 +76,9 @@ pub struct ColumnDef {
     pub scale: u8,
     /// Precision for Numeric columns.
     pub precision: u8,
+    /// `true` for an Access calculated column (Access 2010 and later), whose
+    /// value is an expression result cached in the row.
+    pub is_calculated: bool,
 }
 
 /// A parsed table definition.
@@ -418,6 +421,8 @@ fn parse_column_entries(
         let col_size = cursor.u16_le_at(entry_start + format.coldef_length_pos)?;
         let scale = cursor.u8_at(entry_start + format.coldef_scale_pos)?;
         let precision = cursor.u8_at(entry_start + format.coldef_precision_pos)?;
+        let is_calculated = !is_jet3
+            && (cursor.u8_at(entry_start + COLDEF_EXT_FLAGS_POS)? & CALCULATED_EXT_FLAG_MASK) != 0;
 
         columns.push(ColumnDef {
             name: String::new(), // filled by read_names
@@ -430,12 +435,19 @@ fn parse_column_entries(
             is_fixed,
             scale,
             precision,
+            is_calculated,
         });
 
         cursor.set_position(entry_start + span);
     }
     Ok(columns)
 }
+
+/// Position of the extended flags byte within a Jet4/ACE column entry.
+/// Jet3 column entries have no such byte.
+const COLDEF_EXT_FLAGS_POS: usize = 16;
+/// Extended flag bits that mark a calculated column.
+const CALCULATED_EXT_FLAG_MASK: u8 = 0xC0;
 
 /// Parse index column definitions from TDEF section [5].
 fn parse_index_column_defs(
@@ -865,6 +877,7 @@ mod tests {
             is_fixed: false,
             precision: 0,
             scale: 0,
+            is_calculated: false,
         };
         assert!(is_replication_column(&col));
     }
@@ -882,6 +895,7 @@ mod tests {
             is_fixed: true,
             precision: 0,
             scale: 0,
+            is_calculated: false,
         };
         assert!(!is_replication_column(&col));
     }

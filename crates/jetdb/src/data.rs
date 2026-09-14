@@ -72,19 +72,21 @@ impl ReadResult {
 
 /// Read all data rows from the table's data pages.
 ///
-/// Also detects and decodes Access "Calculated" field values (an expression
-/// cached alongside the row, introduced in Access 2010) via one extra
-/// `MSysObjects.LvProp` read -- see [`read_calculated_value`]'s doc comment
-/// for the byte format. This lookup is skipped for system tables (`MSys*`):
-/// they never have user-defined calculated fields, and
-/// [`crate::prop::read_object_properties`] itself reads `MSysObjects` via
-/// this same function, so attempting the lookup while reading `MSysObjects`
-/// would recurse.
+/// Also decodes Access "Calculated" field values (an expression cached
+/// alongside the row, introduced in Access 2010). When the table has a
+/// column marked [`ColumnDef::is_calculated`], one extra `MSysObjects.LvProp`
+/// read finds each calculated column's result type -- see
+/// [`read_calculated_value`]'s doc comment for the byte format. Tables
+/// without calculated columns skip that read. System tables (`MSys*`) always
+/// skip it: [`crate::prop::read_object_properties`] itself reads
+/// `MSysObjects` via this same function, so the lookup must never run while
+/// reading `MSysObjects`.
 ///
 /// Returns a `ReadResult` containing the successfully parsed rows and a count
 /// of rows that were skipped due to errors (e.g. corrupt row data).
 pub fn read_table_rows(reader: &mut PageReader, table: &TableDef) -> Result<ReadResult, FileError> {
-    let calculated = if table.name.starts_with("MSys") {
+    let has_calculated = table.columns.iter().any(|c| c.is_calculated);
+    let calculated = if !has_calculated || table.name.starts_with("MSys") {
         HashMap::new()
     } else {
         crate::prop::read_object_properties(reader, &table.name)
@@ -481,8 +483,9 @@ fn read_column_value(
     reader: &mut PageReader,
     calculated: &HashMap<String, ColumnType>,
 ) -> Value {
-    // Boolean is special: value comes from the null mask
-    if col.col_type == ColumnType::Boolean {
+    // Boolean is special: value comes from the null mask. A calculated
+    // Boolean is not stored there; its cached value is read below.
+    if col.col_type == ColumnType::Boolean && !col.is_calculated {
         return Value::Bool(!is_null(cracked.null_mask, col.col_num));
     }
 
@@ -495,7 +498,7 @@ fn read_column_value(
     // variable-length mechanism, whatever their nominal `col.col_type`
     // says (often just a generic placeholder -- see
     // `read_calculated_value`'s doc comment).
-    if !col.is_fixed {
+    if col.is_calculated && !col.is_fixed {
         if let Some(&result_type) = calculated.get(&col.name.to_ascii_lowercase()) {
             if let Some(var_data) = extract_var_data(cracked, col) {
                 // A calculated Memo is stored as a long value like any other
@@ -1478,6 +1481,7 @@ mod tests {
             is_fixed: true,
             scale: 0,
             precision: 0,
+            is_calculated: false,
         };
         assert_eq!(read_fixed_value(&cracked, &col, false), Value::Int(-42));
     }
@@ -1502,6 +1506,7 @@ mod tests {
             is_fixed: true,
             scale: 0,
             precision: 0,
+            is_calculated: false,
         };
         assert_eq!(read_fixed_value(&cracked, &col, false), Value::Long(123456));
     }
@@ -1531,6 +1536,7 @@ mod tests {
             is_fixed: true,
             scale: 0,
             precision: 0,
+            is_calculated: false,
         };
         assert_eq!(
             read_fixed_value(&cracked, &col, false),
@@ -1875,6 +1881,7 @@ mod tests {
             is_fixed: true,
             scale: 0,
             precision: 0,
+            is_calculated: false,
         };
         assert_eq!(
             read_column_value(&cracked, &bool_col, false, &mut reader, &HashMap::new()),
@@ -1915,6 +1922,7 @@ mod tests {
             is_fixed: true,
             scale: 0,
             precision: 0,
+            is_calculated: false,
         };
         assert_eq!(
             read_column_value(&cracked, &col, false, &mut reader, &HashMap::new()),
@@ -1945,10 +1953,33 @@ mod tests {
             is_fixed: true,
             scale: 0,
             precision: 0,
+            is_calculated: false,
         };
         assert_eq!(
             read_column_value(&cracked, &col, false, &mut reader, &HashMap::new()),
             Value::Int(-42)
+        );
+    }
+
+    #[test]
+    fn dispatch_calculated_boolean_reads_cached_value() {
+        // A calculated column declared as Boolean keeps its value in the row,
+        // not in the null mask: here the null mask bit is set (not null) but
+        // the cached value is false.
+        let path = skip_if_missing!("V2003/testV2003.mdb");
+        let mut reader = PageReader::open(&path).unwrap();
+
+        let row_data = make_jet4_row_with_var(&calc_envelope(&[0x00]));
+        let cracked = crack_row_jet4(&row_data).unwrap();
+        let col = ColumnDef {
+            is_fixed: false,
+            is_calculated: true,
+            ..make_col_def(ColumnType::Boolean, 0)
+        };
+        let calculated = HashMap::from([("x".to_string(), ColumnType::Boolean)]);
+        assert_eq!(
+            read_column_value(&cracked, &col, false, &mut reader, &calculated),
+            Value::Bool(false)
         );
     }
 
@@ -2208,6 +2239,7 @@ mod tests {
             is_fixed: true,
             scale: 0,
             precision: 0,
+            is_calculated: false,
         }
     }
 
