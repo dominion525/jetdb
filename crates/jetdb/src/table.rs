@@ -49,7 +49,7 @@ pub struct IndexDef {
     pub name: String,
     /// Logical index number.
     pub index_num: u16,
-    /// Index type: 0x01 = normal/PK, 0x02 = FK reference.
+    /// Index type: 0x00 = ordinary, 0x01 = primary key, 0x02 = FK reference (see `format::index_type`).
     pub index_type: u8,
     /// Columns in this index (empty for FK type=2).
     pub columns: Vec<IndexColumn>,
@@ -1081,7 +1081,7 @@ mod tests {
             fk_table_page: 0,
             update_action: 0,
             delete_action: 0,
-            index_type: crate::format::index_type::NORMAL,
+            index_type: crate::format::index_type::ORDINARY,
         }];
         let col = IndexColumn {
             col_num: 3,
@@ -1139,7 +1139,7 @@ mod tests {
             fk_table_page: 0,
             update_action: 0,
             delete_action: 0,
-            index_type: crate::format::index_type::NORMAL,
+            index_type: crate::format::index_type::ORDINARY,
         }];
         let physical: Vec<PhysicalIndexEntry> = vec![]; // empty → 99 is out of range
         let names = vec!["BadIdx".to_string()];
@@ -1184,7 +1184,7 @@ mod tests {
                 fk_table_page: 0,
                 update_action: 0,
                 delete_action: 0,
-                index_type: crate::format::index_type::NORMAL,
+                index_type: crate::format::index_type::ORDINARY,
             },
             LogicalIndex {
                 index_num: 1,
@@ -1194,7 +1194,7 @@ mod tests {
                 fk_table_page: 0,
                 update_action: 0,
                 delete_action: 0,
-                index_type: crate::format::index_type::NORMAL,
+                index_type: crate::format::index_type::ORDINARY,
             },
         ];
         let col = IndexColumn {

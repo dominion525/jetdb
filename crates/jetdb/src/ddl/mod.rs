@@ -793,7 +793,7 @@ mod tests {
         let tdef = table(
             "T",
             vec![col_with_num("B", ColumnType::Long, 0, 0, 0, 0, 2)],
-            vec![index("idx_B", &[2], 0, index_type::NORMAL, 1)],
+            vec![index("idx_B", &[2], 0, index_type::ORDINARY, 1)],
         );
         let result = generate_create_indexes(&*d, &tdef);
         assert_eq!(result, "CREATE INDEX \"idx_B\" ON \"T\" (\"B\");\n");
@@ -809,7 +809,7 @@ mod tests {
                 "idx_B",
                 &[2],
                 index_flags::UNIQUE,
-                index_type::NORMAL,
+                index_type::ORDINARY,
                 1,
             )],
         );
@@ -978,7 +978,7 @@ mod tests {
                         index_type::PRIMARY,
                         0,
                     ),
-                    index("idx_pid", &[2], 0, index_type::NORMAL, 1),
+                    index("idx_pid", &[2], 0, index_type::ORDINARY, 1),
                 ],
             ),
         ];
@@ -1006,7 +1006,7 @@ mod tests {
         let tables = vec![table(
             "T",
             vec![col_with_num("B", ColumnType::Long, 0, 0, 0, 0, 2)],
-            vec![index("idx_B", &[2], 0, index_type::NORMAL, 1)],
+            vec![index("idx_B", &[2], 0, index_type::ORDINARY, 1)],
         )];
         let result = generate_ddl(&*d, &tables, &[], false, true);
         assert!(!result.contains("CREATE INDEX"), "got:\n{result}");
