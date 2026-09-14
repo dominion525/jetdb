@@ -1041,6 +1041,22 @@ mod tests {
     }
 
     #[test]
+    fn list_forms_access_2000_format() {
+        // No MSysAccessStorage: the forms come from the compound file in
+        // MSysAccessObjects.
+        let path = skip_if_missing!("V2000/macroTestV2000.mdb");
+        let mut reader = PageReader::open(&path).unwrap();
+        let forms = list_forms(&mut reader).unwrap();
+        assert!(
+            forms
+                .iter()
+                .any(|e| e.name == "tblItems" && e.object_type == FormObjectType::Form),
+            "got: {:?}",
+            forms.iter().map(|e| &e.name).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
     fn read_form_blob_v2007() {
         let path = skip_if_missing!("vbaV2007.accdb");
         let mut reader = PageReader::open(&path).unwrap();

@@ -27,6 +27,10 @@ pub(crate) struct StorageEntry {
 // ---------------------------------------------------------------------------
 
 /// Read all entries from the MSysAccessStorage system table.
+///
+/// Databases in the Access 2000 format have no MSysAccessStorage; the same
+/// tree is a compound file stored in MSysAccessObjects, which is converted
+/// into entries of the same shape.
 pub(crate) fn read_storage_entries(
     reader: &mut PageReader,
 ) -> Result<Vec<StorageEntry>, FileError> {
@@ -34,7 +38,13 @@ pub(crate) fn read_storage_entries(
     let catalog = catalog::read_catalog(reader)?;
     let entry = match catalog.iter().find(|e| e.name == "MSysAccessStorage") {
         Some(e) => e,
-        None => return Ok(Vec::new()),
+        None => {
+            let cfb_bytes = read_access_objects_cfb(reader)?;
+            if cfb_bytes.is_empty() {
+                return Ok(Vec::new());
+            }
+            return entries_from_cfb(cfb_bytes);
+        }
     };
 
     let tdef = table::read_table_def(reader, &entry.name, entry.table_page)?;
@@ -103,6 +113,119 @@ pub(crate) fn read_storage_entries(
         });
     }
 
+    Ok(entries)
+}
+
+/// Read the MSysAccessObjects table and reconstruct the full CFB.
+///
+/// In MSysAccessObjects format, all database objects (forms, reports, VBA,
+/// etc.) are stored in a single large OLE2/CFB file split across multiple
+/// rows in MSysAccessObjects. Row 0 is a metadata/directory entry; rows 1+
+/// contain the CFB data that should be concatenated in ID order.
+pub(crate) fn read_access_objects_cfb(reader: &mut PageReader) -> Result<Vec<u8>, FileError> {
+    let catalog = catalog::read_catalog(reader)?;
+    let entry = match catalog.iter().find(|e| e.name == "MSysAccessObjects") {
+        Some(e) => e,
+        None => return Ok(Vec::new()),
+    };
+
+    let tdef = table::read_table_def(reader, &entry.name, entry.table_page)?;
+    let result = data::read_table_rows(reader, &tdef)?;
+    result.warn_skipped("MSysAccessObjects");
+
+    // Locate column indices
+    let (mut data_idx, mut id_idx) = (None, None);
+    for (i, col) in tdef.columns.iter().enumerate() {
+        match col.name.as_str() {
+            "Data" => data_idx = Some(i),
+            "ID" => id_idx = Some(i),
+            _ => {}
+        }
+    }
+
+    let data_idx = data_idx.ok_or(FileError::InvalidTableDef {
+        reason: "MSysAccessObjects missing Data column",
+    })?;
+    let id_idx = id_idx.ok_or(FileError::InvalidTableDef {
+        reason: "MSysAccessObjects missing ID column",
+    })?;
+
+    // Collect rows with their IDs
+    let mut rows: Vec<(i32, Vec<u8>)> = Vec::new();
+    for row in &result.rows {
+        let id = match row.get(id_idx) {
+            Some(Value::Long(v)) => *v,
+            _ => continue,
+        };
+        let data = match row.get(data_idx) {
+            Some(Value::Binary(b)) => b.clone(),
+            _ => continue,
+        };
+        rows.push((id, data));
+    }
+
+    // Sort by ID, skip row 0 (metadata), concatenate
+    rows.sort_by_key(|(id, _)| *id);
+
+    let mut cfb_bytes = Vec::new();
+    for (id, data) in &rows {
+        if *id == 0 {
+            continue;
+        }
+        cfb_bytes.extend_from_slice(data);
+    }
+
+    if cfb_bytes.len() < 4 || cfb_bytes[..4] != [0xD0, 0xCF, 0x11, 0xE0] {
+        return Ok(Vec::new());
+    }
+
+    Ok(cfb_bytes)
+}
+
+/// Converts a compound file into entries shaped like MSysAccessStorage rows:
+/// the root storage is id 1 (its own parent), and every other storage or
+/// stream gets the next id with its parent's id.
+fn entries_from_cfb(cfb_bytes: Vec<u8>) -> Result<Vec<StorageEntry>, FileError> {
+    use std::collections::HashMap;
+    use std::io::Read;
+
+    const INVALID: FileError = FileError::InvalidFormData {
+        reason: "invalid compound file in MSysAccessObjects",
+    };
+    let mut cf = cfb::CompoundFile::open(std::io::Cursor::new(cfb_bytes)).map_err(|_| INVALID)?;
+    let walked: Vec<(std::path::PathBuf, bool)> = cf
+        .walk()
+        .map(|e| (e.path().to_path_buf(), e.is_storage()))
+        .collect();
+
+    let mut ids: HashMap<std::path::PathBuf, i32> = HashMap::new();
+    let mut entries = Vec::new();
+    for (path, is_storage) in walked {
+        let id = entries.len() as i32 + 1;
+        let (parent_id, name) = match path.parent() {
+            None => (id, "MSysAccessStorage_ROOT".to_string()),
+            Some(parent) => (
+                *ids.get(parent).ok_or(INVALID)?,
+                path.file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+            ),
+        };
+        let mut data = Vec::new();
+        if !is_storage {
+            cf.open_stream(&path)
+                .and_then(|mut s| s.read_to_end(&mut data))
+                .map_err(|_| INVALID)?;
+        }
+        ids.insert(path, id);
+        entries.push(StorageEntry {
+            id,
+            parent_id,
+            name,
+            entry_type: if is_storage { 1 } else { 2 },
+            data,
+        });
+    }
     Ok(entries)
 }
 

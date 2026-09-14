@@ -201,7 +201,10 @@ pub fn read_macro(reader: &mut PageReader, name: &str) -> Result<MacroDef, FileE
 }
 
 /// Read the embedded macros of the form or report `object_name`, in the order
-/// they appear in its `Blob` stream.
+/// they appear in its `Blob` stream and then its `BlobDelta` stream.
+///
+/// Databases in the Access 2000 format keep the macros in `BlobDelta`. A
+/// document found in both streams is returned once.
 ///
 /// Returns [`FileError::FormNotFound`] if there is no such form or report.
 pub fn read_embedded_macros(
@@ -209,7 +212,15 @@ pub fn read_embedded_macros(
     object_name: &str,
 ) -> Result<Vec<MacroDef>, FileError> {
     let stream = form::read_form_stream(reader, object_name, StreamKind::Blob)?;
-    extract_axl_documents(&stream.data)
+    let mut documents = extract_axl_documents(&stream.data);
+    if let Ok(delta) = form::read_form_stream(reader, object_name, StreamKind::BlobDelta) {
+        for document in extract_axl_documents(&delta.data) {
+            if !documents.contains(&document) {
+                documents.push(document);
+            }
+        }
+    }
+    documents
         .into_iter()
         .map(|xml| {
             let root = parse_xml_tree(&xml)?;
@@ -885,9 +896,10 @@ mod tests {
 
     // -- Real files ---------------------------------------------------------
     //
-    // macroTestV2010.accdb and its Access 2002-2003 copy macroTestV2003.mdb
-    // hold four named macros created in Access (see testdata/SOURCES.md),
-    // plus the designer's internal ~TMPCLPMacro.
+    // macroTestV2010.accdb and its Access 2002-2003 and Access 2000 copies
+    // (macroTestV2003.mdb, macroTestV2000.mdb) hold four named macros created
+    // in Access (see testdata/SOURCES.md), plus the designer's internal
+    // ~TMPCLPMacro. The Access 2000 copy stores them in MSysAccessObjects.
 
     fn test_data_path(relative: &str) -> Option<std::path::PathBuf> {
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
@@ -913,7 +925,11 @@ mod tests {
         };
     }
 
-    const MACRO_TEST_FILES: [&str; 2] = ["V2010/macroTestV2010.accdb", "V2003/macroTestV2003.mdb"];
+    const MACRO_TEST_FILES: [&str; 3] = [
+        "V2010/macroTestV2010.accdb",
+        "V2003/macroTestV2003.mdb",
+        "V2000/macroTestV2000.mdb",
+    ];
 
     fn expected_macro_statements() -> Vec<(&'static str, Vec<MacroStatement>)> {
         let message = |text: &str| action("MessageBox", &[("Message", text)]);
@@ -1086,11 +1102,7 @@ mod tests {
     #[test]
     fn read_data_macros_real_files() {
         // tblItems has one BeforeChange data macro in all three copies.
-        for file in [
-            "V2010/macroTestV2010.accdb",
-            "V2003/macroTestV2003.mdb",
-            "V2000/macroTestV2000.mdb",
-        ] {
+        for file in MACRO_TEST_FILES {
             let path = skip_if_missing!(file);
             let mut reader = PageReader::open(&path).unwrap();
             let macros = read_data_macros(&mut reader, "tblItems").unwrap();

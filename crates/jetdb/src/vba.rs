@@ -3,11 +3,8 @@
 use std::collections::{HashMap, HashSet};
 use std::io::{Cursor, Read as _, Write};
 
-use crate::catalog;
-use crate::data::{self, Value};
 use crate::file::{FileError, PageReader};
 use crate::storage::{self, StorageEntry};
-use crate::table;
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -53,7 +50,7 @@ pub fn read_vba_project(reader: &mut PageReader) -> Result<VbaProject, FileError
     }
 
     // Fall back to MSysAccessObjects (Jet3/Access 97 format)
-    let raw_cfb = read_access_objects_cfb(reader)?;
+    let raw_cfb = storage::read_access_objects_cfb(reader)?;
     if raw_cfb.is_empty() {
         return Ok(VbaProject {
             modules: Vec::new(),
@@ -101,76 +98,6 @@ fn extract_modules_from_cfb(cfb_bytes: Vec<u8>) -> Result<VbaProject, FileError>
 // ---------------------------------------------------------------------------
 // Internal: MSysAccessStorage reading is now in crate::storage
 // ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Internal: MSysAccessObjects reading (Jet3 / Access 97)
-// ---------------------------------------------------------------------------
-
-/// Read the MSysAccessObjects table and reconstruct the full CFB.
-///
-/// In Access 97 format, all database objects (forms, reports, VBA, etc.) are
-/// stored in a single large OLE2/CFB file split across multiple rows in
-/// MSysAccessObjects. Row 0 is a metadata/directory entry; rows 1+ contain
-/// the CFB data that should be concatenated in ID order.
-fn read_access_objects_cfb(reader: &mut PageReader) -> Result<Vec<u8>, FileError> {
-    let catalog = catalog::read_catalog(reader)?;
-    let entry = match catalog.iter().find(|e| e.name == "MSysAccessObjects") {
-        Some(e) => e,
-        None => return Ok(Vec::new()),
-    };
-
-    let tdef = table::read_table_def(reader, &entry.name, entry.table_page)?;
-    let result = data::read_table_rows(reader, &tdef)?;
-    result.warn_skipped("MSysAccessObjects");
-
-    // Locate column indices
-    let (mut data_idx, mut id_idx) = (None, None);
-    for (i, col) in tdef.columns.iter().enumerate() {
-        match col.name.as_str() {
-            "Data" => data_idx = Some(i),
-            "ID" => id_idx = Some(i),
-            _ => {}
-        }
-    }
-
-    let data_idx = data_idx.ok_or(FileError::InvalidTableDef {
-        reason: "MSysAccessObjects missing Data column",
-    })?;
-    let id_idx = id_idx.ok_or(FileError::InvalidTableDef {
-        reason: "MSysAccessObjects missing ID column",
-    })?;
-
-    // Collect rows with their IDs
-    let mut rows: Vec<(i32, Vec<u8>)> = Vec::new();
-    for row in &result.rows {
-        let id = match row.get(id_idx) {
-            Some(Value::Long(v)) => *v,
-            _ => continue,
-        };
-        let data = match row.get(data_idx) {
-            Some(Value::Binary(b)) => b.clone(),
-            _ => continue,
-        };
-        rows.push((id, data));
-    }
-
-    // Sort by ID, skip row 0 (metadata), concatenate
-    rows.sort_by_key(|(id, _)| *id);
-
-    let mut cfb_bytes = Vec::new();
-    for (id, data) in &rows {
-        if *id == 0 {
-            continue;
-        }
-        cfb_bytes.extend_from_slice(data);
-    }
-
-    if cfb_bytes.len() < 4 || cfb_bytes[..4] != [0xD0, 0xCF, 0x11, 0xE0] {
-        return Ok(Vec::new());
-    }
-
-    Ok(cfb_bytes)
-}
 
 /// Extract the VBAProject subtree from a CFB and rebuild it as a root-level CFB.
 ///
@@ -368,6 +295,7 @@ fn build_cfb_and_extract(entries: &[StorageEntry]) -> Result<VbaProject, FileErr
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::catalog;
 
     fn test_data_path(relative: &str) -> Option<std::path::PathBuf> {
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
@@ -463,7 +391,8 @@ mod tests {
 
     #[test]
     fn vba_v2000() {
-        // Uses MSysAccessObjects fallback (no MSysAccessStorage in this database).
+        // No MSysAccessStorage in this database: the storage entries come from
+        // the compound file in MSysAccessObjects.
         let path = skip_if_missing!("vbaV2000.mdb");
         let mut reader = PageReader::open(&path).unwrap();
         let project = read_vba_project(&mut reader).expect("failed to read VBA project");
