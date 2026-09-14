@@ -510,4 +510,85 @@ mod tests {
             "If Not [CurrentProject].[IsTrusted]\n    OpenForm\n        FormName =\"frmStartup\"\nEnd If\nIf [CurrentProject].[IsTrusted]\n    RunCode\n        FunctionName =\"Startup()\"\nEnd If\n"
         );
     }
+
+    // -- Real files ---------------------------------------------------------
+    //
+    // macroTestV2010.accdb and its Access 2002-2003 copy macroTestV2003.mdb
+    // hold four named macros created in Access (see testdata/SOURCES.md),
+    // plus the designer's internal ~TMPCLPMacro.
+
+    fn test_data_path(relative: &str) -> Option<std::path::PathBuf> {
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let path = std::path::PathBuf::from(manifest_dir)
+            .join("../../testdata")
+            .join(relative);
+        if path.exists() {
+            Some(path)
+        } else {
+            None
+        }
+    }
+
+    macro_rules! skip_if_missing {
+        ($path:expr) => {
+            match test_data_path($path) {
+                Some(p) => p,
+                None => {
+                    eprintln!("SKIP: test data not found: {}", $path);
+                    return;
+                }
+            }
+        };
+    }
+
+    const MACRO_TEST_FILES: [&str; 2] = ["V2010/macroTestV2010.accdb", "V2003/macroTestV2003.mdb"];
+
+    fn expected_macro_texts() -> Vec<(&'static str, String)> {
+        vec![
+            (
+                "mcrSimple",
+                "OpenForm\n    FormName =\"frmEmbedded\"\nMessageBox\n    Message =\"Hello\"\n    Beep =\"No\"\n    Type =\"Information\"\n    Title =\"Title\"\nMessageBox\n    Message =\"Default\"\n".to_string(),
+            ),
+            (
+                "mcrConditions",
+                "' first comment\nIf [TempVars]![x]=1\n    MessageBox\n        Message =\"one\"\nElseIf [TempVars]![x]<10\n    MessageBox\n        Message =\"small\"\nElse\n    MessageBox\n        Message =\"other\"\nEnd If\nStopMacro\n".to_string(),
+            ),
+            (
+                "mcrLongText",
+                // Access stores at most 255 characters of the 300-character message.
+                format!(
+                    "MessageBox\n    Message =\"{}\"\nMessageBox\n    Message =\"日本語のメッセージ\"\n    Title =\"確認\"\n",
+                    &"0123456789".repeat(26)[..255]
+                ),
+            ),
+            ("AutoExec", "MessageBox\n    Message =\"autoexec\"\n".to_string()),
+        ]
+    }
+
+    #[test]
+    fn list_macros_real_files() {
+        for file in MACRO_TEST_FILES {
+            let path = skip_if_missing!(file);
+            let mut reader = PageReader::open(&path).unwrap();
+            let mut names: Vec<String> = list_macros(&mut reader).unwrap().into_iter().map(|m| m.name).collect();
+            names.sort();
+            assert_eq!(
+                names,
+                ["AutoExec", "mcrConditions", "mcrLongText", "mcrSimple", "~TMPCLPMacro"],
+                "{file}"
+            );
+        }
+    }
+
+    #[test]
+    fn read_macro_text_real_files() {
+        for file in MACRO_TEST_FILES {
+            let path = skip_if_missing!(file);
+            let mut reader = PageReader::open(&path).unwrap();
+            for (name, expected) in expected_macro_texts() {
+                let text = read_macro_text(&mut reader, name).unwrap();
+                assert_eq!(text, expected, "{file}: {name}");
+            }
+        }
+    }
 }
