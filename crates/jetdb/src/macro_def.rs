@@ -128,7 +128,19 @@ pub enum MacroSource {
         event: Option<String>,
         /// The macro name (`Name` attribute), if any.
         name: Option<String>,
+        /// The parameters of a named data macro (`Parameter` elements of
+        /// `Parameters`), in document order.
+        parameters: Vec<MacroParameter>,
     },
+}
+
+/// A parameter of a named data macro.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacroParameter {
+    /// The `Name` attribute.
+    pub name: String,
+    /// The other attributes of the `Parameter` element, in document order.
+    pub attributes: Vec<(String, String)>,
 }
 
 /// One statement of a macro.
@@ -365,6 +377,24 @@ fn data_macros_from_xml(table: &str, xml: String) -> Result<Vec<MacroDef>, FileE
                 table: table.to_string(),
                 event: element.attribute("Event").map(str::to_string),
                 name: element.attribute("Name").map(str::to_string),
+                parameters: element
+                    .child("Parameters")
+                    .map(|p| {
+                        p.children
+                            .iter()
+                            .filter(|c| c.name == "Parameter")
+                            .map(|c| MacroParameter {
+                                name: c.attribute("Name").unwrap_or_default().to_string(),
+                                attributes: c
+                                    .attributes
+                                    .iter()
+                                    .filter(|(k, _)| k != "Name")
+                                    .cloned()
+                                    .collect(),
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default(),
             },
             statements: statements_of(element),
             xml: xml.clone(),
@@ -1127,12 +1157,14 @@ mod tests {
                 &MacroSource::Data {
                     table: "T".to_string(),
                     event: Some("AfterInsert".to_string()),
-                    name: None
+                    name: None,
+                    parameters: vec![]
                 },
                 &MacroSource::Data {
                     table: "T".to_string(),
                     event: None,
-                    name: Some("dmNamed".to_string())
+                    name: Some("dmNamed".to_string()),
+                    parameters: vec![]
                 },
             ]
         );
@@ -1388,7 +1420,8 @@ mod tests {
                 MacroSource::Data {
                     table: "tblItems".to_string(),
                     event: Some("BeforeChange".to_string()),
-                    name: None
+                    name: None,
+                    parameters: vec![]
                 },
                 "{file}"
             );
@@ -1402,6 +1435,61 @@ mod tests {
                             &[("Number", "1"), ("Description", " negative qty")]
                         )],
                     }]
+                }],
+                "{file}"
+            );
+        }
+    }
+
+    #[test]
+    fn read_data_macros_generated_files() {
+        // tblItems has two table events and tblNamed one named data macro with
+        // a parameter, in the accdb and its two .mdb copies.
+        for file in [
+            "V2010/macroGeneratedTestV2010.accdb",
+            "V2003/macroGeneratedTestV2003.mdb",
+            "V2000/macroGeneratedTestV2000.mdb",
+        ] {
+            let path = skip_if_missing!(file);
+            let mut reader = PageReader::open(&path).unwrap();
+            let events: Vec<Option<String>> = read_data_macros(&mut reader, "tblItems")
+                .unwrap()
+                .into_iter()
+                .map(|m| match m.source {
+                    MacroSource::Data { event, .. } => event,
+                    other => panic!("{other:?}"),
+                })
+                .collect();
+            assert_eq!(
+                events,
+                [
+                    Some("BeforeChange".to_string()),
+                    Some("AfterInsert".to_string())
+                ],
+                "{file}"
+            );
+
+            let macros = read_data_macros(&mut reader, "tblNamed").unwrap();
+            assert_eq!(macros.len(), 1, "{file}");
+            assert_eq!(
+                macros[0].source,
+                MacroSource::Data {
+                    table: "tblNamed".to_string(),
+                    event: None,
+                    name: Some("dmLog".to_string()),
+                    parameters: vec![MacroParameter {
+                        name: "msg".to_string(),
+                        attributes: vec![],
+                    }],
+                },
+                "{file}"
+            );
+            assert_eq!(
+                macros[0].statements,
+                [MacroStatement::DataBlock {
+                    kind: "CreateRecord".to_string(),
+                    data: vec![("Reference".to_string(), "tblAudit".to_string())],
+                    statements: vec![action("SetField", &[("Field", "Note"), ("Value", "[msg]")])],
                 }],
                 "{file}"
             );
