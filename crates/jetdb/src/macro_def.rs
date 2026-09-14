@@ -53,7 +53,10 @@ pub fn list_macros(reader: &mut PageReader) -> Result<Vec<MacroEntry>, FileError
     let Some(mapping) = scripts_dir_mapping(&entries) else {
         return Ok(Vec::new());
     };
-    Ok(mapping.into_iter().map(|(name, _storage_num)| MacroEntry { name }).collect())
+    Ok(mapping
+        .into_iter()
+        .map(|(name, _storage_num)| MacroEntry { name })
+        .collect())
 }
 
 /// Rendered text for macro `name`'s logic (see module docs for the format),
@@ -88,8 +91,9 @@ fn find_macro_blob<'a>(
     name: &str,
 ) -> Result<Option<&'a [u8]>, FileError> {
     let root_id = storage::find_root_id(entries);
-    let Some(scripts_folder) =
-        entries.iter().find(|e| e.parent_id == root_id && e.name == "Scripts" && storage::is_storage(e))
+    let Some(scripts_folder) = entries
+        .iter()
+        .find(|e| e.parent_id == root_id && e.name == "Scripts" && storage::is_storage(e))
     else {
         return Ok(None);
     };
@@ -165,7 +169,10 @@ fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 }
 
 fn decode_utf16le_lossy(bytes: &[u8]) -> String {
-    let units: Vec<u16> = bytes.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+    let units: Vec<u16> = bytes
+        .chunks_exact(2)
+        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .collect();
     String::from_utf16_lossy(&units)
 }
 
@@ -187,11 +194,18 @@ struct XNode {
 
 impl XNode {
     fn attr(&self, name: &str) -> Option<&str> {
-        self.attrs.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str())
+        self.attrs
+            .iter()
+            .find(|(k, _)| k == name)
+            .map(|(_, v)| v.as_str())
     }
 
     fn child_text(&self, name: &str) -> &str {
-        self.children.iter().find(|c| c.name == name).map(|c| c.text.as_str()).unwrap_or("")
+        self.children
+            .iter()
+            .find(|c| c.name == name)
+            .map(|c| c.text.as_str())
+            .unwrap_or("")
     }
 }
 
@@ -202,7 +216,12 @@ fn parse_xml_tree(xml: &str) -> Result<XNode, FileError> {
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(true);
 
-    let mut root = XNode { name: String::new(), attrs: Vec::new(), children: Vec::new(), text: String::new() };
+    let mut root = XNode {
+        name: String::new(),
+        attrs: Vec::new(),
+        children: Vec::new(),
+        text: String::new(),
+    };
     let mut stack: Vec<XNode> = Vec::new();
 
     loop {
@@ -210,12 +229,22 @@ fn parse_xml_tree(xml: &str) -> Result<XNode, FileError> {
             Ok(Event::Start(e)) => {
                 let name = e.name().as_ref().to_string();
                 let attrs = read_attrs(&e)?;
-                stack.push(XNode { name, attrs, children: Vec::new(), text: String::new() });
+                stack.push(XNode {
+                    name,
+                    attrs,
+                    children: Vec::new(),
+                    text: String::new(),
+                });
             }
             Ok(Event::Empty(e)) => {
                 let name = e.name().as_ref().to_string();
                 let attrs = read_attrs(&e)?;
-                let node = XNode { name, attrs, children: Vec::new(), text: String::new() };
+                let node = XNode {
+                    name,
+                    attrs,
+                    children: Vec::new(),
+                    text: String::new(),
+                };
                 match stack.last_mut() {
                     Some(parent) => parent.children.push(node),
                     None => root.children.push(node),
@@ -258,7 +287,9 @@ fn parse_xml_tree(xml: &str) -> Result<XNode, FileError> {
             Ok(Event::Eof) => break,
             Ok(_) => {}
             Err(e) => {
-                return Err(FileError::InvalidMacroData { reason: format!("malformed macro XML: {e}") })
+                return Err(FileError::InvalidMacroData {
+                    reason: format!("malformed macro XML: {e}"),
+                })
             }
         }
     }
@@ -266,7 +297,9 @@ fn parse_xml_tree(xml: &str) -> Result<XNode, FileError> {
     // The document element (UserInterfaceMacro) is `root`'s only child.
     root.children
         .pop()
-        .ok_or_else(|| FileError::InvalidMacroData { reason: "empty macro XML document".to_string() })
+        .ok_or_else(|| FileError::InvalidMacroData {
+            reason: "empty macro XML document".to_string(),
+        })
 }
 
 fn read_attrs(e: &quick_xml::events::BytesStart<'_>) -> Result<Vec<(String, String)>, FileError> {
@@ -342,8 +375,11 @@ fn render_node(node: &XNode, indent: usize, out: &mut String) {
         // recurse into its children, rather than silently dropping data for
         // a macro XML schema variant this renderer hasn't been taught yet.
         other => {
-            let attr_text: String =
-                node.attrs.iter().map(|(k, v)| format!(" {k}=\"{v}\"")).collect();
+            let attr_text: String = node
+                .attrs
+                .iter()
+                .map(|(k, v)| format!(" {k}=\"{v}\""))
+                .collect();
             out.push_str(&format!("{}<{other}{attr_text}>\n", pad(indent)));
             render_children(node, indent + 1, out);
         }
@@ -355,7 +391,11 @@ fn render_action(node: &XNode, indent: usize, out: &mut String) {
     out.push_str(&format!("{}{name}\n", pad(indent)));
     for arg in node.children.iter().filter(|c| c.name == "Argument") {
         let arg_name = arg.attr("Name").unwrap_or("");
-        out.push_str(&format!("{}{arg_name} =\"{}\"\n", pad(indent + 1), quote_escape(&arg.text)));
+        out.push_str(&format!(
+            "{}{arg_name} =\"{}\"\n",
+            pad(indent + 1),
+            quote_escape(&arg.text)
+        ));
     }
 }
 
@@ -400,8 +440,10 @@ mod tests {
     use super::*;
 
     fn axl_chunk_header(chunk_including_prefix_and_marker: &str) -> Vec<u8> {
-        let text_bytes: Vec<u8> =
-            chunk_including_prefix_and_marker.encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
+        let text_bytes: Vec<u8> = chunk_including_prefix_and_marker
+            .encode_utf16()
+            .flat_map(|u| u.to_le_bytes())
+            .collect();
         let declared_len = (text_bytes.len() + 2) as u16;
         let mut out = vec![0xFFu8; 18];
         out.extend_from_slice(&declared_len.to_le_bytes());
@@ -457,10 +499,7 @@ mod tests {
     fn format_macro_xml_conditional_block_if_elseif_else() {
         let xml = r#"<UserInterfaceMacro xmlns="ns"><Statements><ConditionalBlock><If><Condition>A</Condition><Statements><Action Name="X"/></Statements></If><ElseIf><Condition>B</Condition><Statements><Action Name="Y"/></Statements></ElseIf><Else><Statements><Action Name="Z"/></Statements></Else></ConditionalBlock></Statements></UserInterfaceMacro>"#;
         let text = format_macro_xml(xml).unwrap();
-        assert_eq!(
-            text,
-            "If A\n    X\nElseIf B\n    Y\nElse\n    Z\nEnd If\n"
-        );
+        assert_eq!(text, "If A\n    X\nElseIf B\n    Y\nElse\n    Z\nEnd If\n");
     }
 
     #[test]
@@ -488,7 +527,10 @@ mod tests {
     fn format_macro_xml_escapes_quotes_and_backslashes_in_argument_values() {
         let xml = r#"<UserInterfaceMacro xmlns="ns"><Statements><Action Name="SetValue"><Argument Name="Expression">say "hi" \ bye</Argument></Action></Statements></UserInterfaceMacro>"#;
         let text = format_macro_xml(xml).unwrap();
-        assert_eq!(text, "SetValue\n    Expression =\"say \\\"hi\\\" \\\\ bye\"\n");
+        assert_eq!(
+            text,
+            "SetValue\n    Expression =\"say \\\"hi\\\" \\\\ bye\"\n"
+        );
     }
 
     #[test]
@@ -570,11 +612,21 @@ mod tests {
         for file in MACRO_TEST_FILES {
             let path = skip_if_missing!(file);
             let mut reader = PageReader::open(&path).unwrap();
-            let mut names: Vec<String> = list_macros(&mut reader).unwrap().into_iter().map(|m| m.name).collect();
+            let mut names: Vec<String> = list_macros(&mut reader)
+                .unwrap()
+                .into_iter()
+                .map(|m| m.name)
+                .collect();
             names.sort();
             assert_eq!(
                 names,
-                ["AutoExec", "mcrConditions", "mcrLongText", "mcrSimple", "~TMPCLPMacro"],
+                [
+                    "AutoExec",
+                    "mcrConditions",
+                    "mcrLongText",
+                    "mcrSimple",
+                    "~TMPCLPMacro"
+                ],
                 "{file}"
             );
         }
