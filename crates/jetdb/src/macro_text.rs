@@ -7,9 +7,80 @@
 //! backslash and control characters as three-digit octal escapes (`\015`),
 //! and is wrapped into quoted pieces of 80 characters of escaped text, each
 //! piece extended to the end of an escape sequence it would otherwise split.
+//!
+//! [`data_macros_to_text`] gives the text `Application.SaveAsText` writes for
+//! a table's data macros.
 
 use crate::macro_action::macro_action;
-use crate::macro_def::{MacroGrid, MacroGridRow};
+use crate::macro_def::{MacroDef, MacroGrid, MacroGridRow, MacroSource};
+
+/// The table events in the order `Application.SaveAsText` writes their data
+/// macros.
+const DATA_MACRO_EVENTS: [&str; 5] = [
+    "AfterInsert",
+    "AfterUpdate",
+    "AfterDelete",
+    "BeforeChange",
+    "BeforeDelete",
+];
+
+/// The text `Application.SaveAsText` writes for the data macros of a table,
+/// given as [`read_data_macros`](crate::read_data_macros) returns them, or an
+/// empty string if there are none.
+///
+/// Access stores each data macro as its own XML document, and writes them as
+/// one `DataMacros` document: the XML declaration and a CRLF, then a
+/// `DataMacros` element carrying the namespace, holding each `DataMacro`
+/// element without its own namespace attribute. The table events come first,
+/// in the order AfterInsert, AfterUpdate, AfterDelete, BeforeChange,
+/// BeforeDelete; the named data macros follow in their stored order.
+pub fn data_macros_to_text(macros: &[MacroDef]) -> String {
+    let rank = |def: &MacroDef| match &def.source {
+        MacroSource::Data {
+            event: Some(event), ..
+        } => DATA_MACRO_EVENTS
+            .iter()
+            .position(|e| e == event)
+            .unwrap_or(DATA_MACRO_EVENTS.len()),
+        _ => DATA_MACRO_EVENTS.len() + 1,
+    };
+    let mut ordered: Vec<&MacroDef> = macros.iter().collect();
+    ordered.sort_by_key(|def| rank(def));
+
+    let mut namespace = None;
+    let mut body = String::new();
+    for def in ordered {
+        let Some(start) = def.xml.find("<DataMacro") else {
+            continue;
+        };
+        let element = &def.xml[start..];
+        let tag_end = element.find('>').unwrap_or(element.len());
+        match find_attribute(&element[..tag_end], " xmlns=\"") {
+            Some((from, to)) => {
+                namespace.get_or_insert_with(|| element[from..to].to_string());
+                body.push_str(&element[..from]);
+                body.push_str(&element[to..]);
+            }
+            None => body.push_str(element),
+        }
+    }
+    match namespace {
+        None if body.is_empty() => String::new(),
+        namespace => format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-16\" standalone=\"no\"?>\r\n<DataMacros{}>{body}</DataMacros>",
+            namespace.unwrap_or_default()
+        ),
+    }
+}
+
+/// The byte range of the attribute starting with `prefix` (such as
+/// ` xmlns="`) in `tag`, through its closing quote.
+fn find_attribute(tag: &str, prefix: &str) -> Option<(usize, usize)> {
+    let from = tag.find(prefix)?;
+    let value_start = from + prefix.len();
+    let to = value_start + tag[value_start..].find('"')? + 1;
+    Some((from, to))
+}
 
 /// The width of the pieces a long value is wrapped into.
 const PIECE_WIDTH: usize = 80;
@@ -233,6 +304,57 @@ mod tests {
             "saveastext/Strings/macros",
             encoding_rs::WINDOWS_1251,
         );
+    }
+
+    #[test]
+    fn data_macros_match_access_output_in_generated_test_data() {
+        // tblGenExport holds Access's SaveAsText output of the data macros of
+        // tblItems and tblNamed (kind `datamacro`), and of tblOrderA and
+        // tblOrderB (kind `datamacro-order`), whose data macros were loaded in
+        // scrambled orders.
+        use crate::catalog::read_catalog;
+        use crate::data::{read_table_rows, Value};
+        use crate::file::PageReader;
+        use crate::macro_def::read_data_macros;
+        use crate::table::read_table_def;
+
+        let relative = "V2010/macroGeneratedTestV2010.accdb";
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../testdata")
+            .join(relative);
+        if !path.exists() {
+            eprintln!("SKIP: test data not found: {relative}");
+            return;
+        }
+        let mut reader = PageReader::open(&path).unwrap();
+        let page = read_catalog(&mut reader)
+            .unwrap()
+            .into_iter()
+            .find(|e| e.name == "tblGenExport")
+            .unwrap()
+            .table_page;
+        let tdef = read_table_def(&mut reader, "tblGenExport", page).unwrap();
+        let mut compared = Vec::new();
+        for row in read_table_rows(&mut reader, &tdef).unwrap().rows {
+            let (Value::Text(kind), Value::Text(table), Value::Text(content)) =
+                (&row[1], &row[2], &row[3])
+            else {
+                continue;
+            };
+            if kind != "datamacro" && kind != "datamacro-order" {
+                continue;
+            }
+            let macros = read_data_macros(&mut reader, table).unwrap();
+            assert_eq!(data_macros_to_text(&macros), *content, "{table}");
+            compared.push(table.clone());
+        }
+        compared.sort();
+        assert_eq!(compared, ["tblItems", "tblNamed", "tblOrderA", "tblOrderB"]);
+    }
+
+    #[test]
+    fn data_macros_to_text_without_macros_is_empty() {
+        assert_eq!(data_macros_to_text(&[]), "");
     }
 
     #[test]

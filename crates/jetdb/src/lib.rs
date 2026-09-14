@@ -45,6 +45,7 @@ pub use macro_def::{
     MacroDef, MacroEntry, MacroGrid, MacroGridRow, MacroParameter, MacroSource, MacroStatement,
     MacroXmlElement,
 };
+pub use macro_text::data_macros_to_text;
 pub use prop::{read_object_properties, ObjectProperties, PropMapType, Property, PropertyMap};
 pub use query::{query_to_sql, read_queries, QueryDef, QueryType};
 pub use vba::{read_vba_project, VbaModule, VbaModuleType, VbaProject};
