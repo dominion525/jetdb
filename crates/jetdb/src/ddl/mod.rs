@@ -1541,10 +1541,9 @@ mod tests {
     // primaryKeyTestV2007.accdb, covering a
     // default-named PK, a renamed PK, a renamed multi-column PK, and a PK
     // coexisting with other indexes carrying every UNIQUE/IGNORE_NULLS
-    // combination. Regression coverage for `find_primary_key` having
-    // relied on the index literally being named "PrimaryKey" (renamable by
-    // the user, so unreliable) instead of `index_type::PRIMARY` (Access's
-    // own `Index.Primary` property).
+    // combination. These pin `find_primary_key` to `index_type::PRIMARY`
+    // (Access's own `Index.Primary` property) rather than to the index name
+    // or its UNIQUE/REQUIRED flags.
 
     fn test_data_path(relative: &str) -> Option<std::path::PathBuf> {
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
