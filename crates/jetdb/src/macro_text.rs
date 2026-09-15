@@ -8,7 +8,8 @@
 //! and is wrapped into quoted pieces of 80 characters of escaped text, each
 //! piece extended to the end of an escape sequence it would otherwise split.
 //!
-//! [`data_macros_to_text`] gives the text `Application.SaveAsText` writes for
+//! [`embedded_macro_to_text`] gives the block an embedded macro takes in its
+//! form's text, and [`data_macros_to_text`] the text `Application.SaveAsText` writes for
 //! a table's data macros.
 
 use crate::macro_action::macro_action;
@@ -98,10 +99,40 @@ impl MacroGrid {
         push_line(&mut out, "PublishOption =1");
         push_line(&mut out, &format!("ColumnsShown ={}", self.columns_shown));
         for row in &self.rows {
-            push_row(&mut out, row);
+            push_row(&mut out, "", row);
         }
         out
     }
+}
+
+/// The text `Application.SaveAsText` writes for an embedded macro, as part of
+/// its form's or report's text: an `<event>EmMacro = Begin` line, the grid's
+/// `Version` and `ColumnsShown` lines and rows indented by four spaces, and an
+/// `End` line, with CRLF line endings. The form's text indents this block by
+/// the depth of the form, section, or control it belongs to.
+///
+/// Returns `None` for a macro that is not embedded, has no grid, or has no
+/// event name.
+pub fn embedded_macro_to_text(def: &MacroDef) -> Option<String> {
+    let MacroSource::Embedded { event, .. } = &def.source else {
+        return None;
+    };
+    let grid = def.grid.as_ref()?;
+    if event.is_empty() {
+        return None;
+    }
+    let mut out = String::new();
+    push_line(&mut out, &format!("{event}EmMacro = Begin"));
+    push_line(&mut out, &format!("    Version ={}", version(&grid.header)));
+    push_line(
+        &mut out,
+        &format!("    ColumnsShown ={}", grid.columns_shown),
+    );
+    for row in &grid.rows {
+        push_row(&mut out, "    ", row);
+    }
+    push_line(&mut out, "End");
+    Some(out)
 }
 
 /// The `Version` value for a grid header string of two digits `ab`, which is
@@ -114,21 +145,22 @@ fn version(header: &str) -> u32 {
     }
 }
 
-fn push_row(out: &mut String, row: &MacroGridRow) {
-    push_line(out, "Begin");
+/// Writes a row as a `Begin` ... `End` block at `indent`.
+fn push_row(out: &mut String, indent: &str, row: &MacroGridRow) {
+    push_line(out, &format!("{indent}Begin"));
     if let Some(name) = &row.macro_name {
-        push_value(out, "MacroName", name);
+        push_value(out, indent, "MacroName", name);
     }
     if let Some(condition) = &row.condition {
-        push_value(out, "Condition", condition);
+        push_value(out, indent, "Condition", condition);
     }
     if row.action_code != 0 {
         let name = macro_action(row.action_code)
             .map_or_else(|| row.action_code.to_string(), |a| a.text_name.to_string());
-        push_value(out, "Action", &name);
+        push_value(out, indent, "Action", &name);
     }
     if let Some(comment) = &row.comment {
-        push_value(out, "Comment", comment);
+        push_value(out, indent, "Comment", comment);
     }
     let slots: Vec<usize> = match macro_action(row.action_code).and_then(|a| a.text_slots) {
         Some(slots) => slots.to_vec(),
@@ -140,10 +172,10 @@ fn push_row(out: &mut String, row: &MacroGridRow) {
         .collect();
     if let Some(last) = arguments.iter().rposition(Option::is_some) {
         for argument in &arguments[..=last] {
-            push_value(out, "Argument", argument.unwrap_or(""));
+            push_value(out, indent, "Argument", argument.unwrap_or(""));
         }
     }
-    push_line(out, "End");
+    push_line(out, &format!("{indent}End"));
 }
 
 fn push_line(out: &mut String, line: &str) {
@@ -151,12 +183,13 @@ fn push_line(out: &mut String, line: &str) {
     out.push_str("\r\n");
 }
 
-/// Writes `    key ="value"`, wrapping a long value onto `        "..."` lines.
-fn push_value(out: &mut String, key: &str, value: &str) {
+/// Writes `key ="value"` four spaces deeper than `indent`, wrapping a long
+/// value onto `"..."` lines four spaces deeper still.
+fn push_value(out: &mut String, indent: &str, key: &str, value: &str) {
     let pieces = wrap(value);
-    push_line(out, &format!("    {key} =\"{}\"", pieces[0]));
+    push_line(out, &format!("{indent}    {key} =\"{}\"", pieces[0]));
     for piece in &pieces[1..] {
-        push_line(out, &format!("        \"{piece}\""));
+        push_line(out, &format!("{indent}        \"{piece}\""));
     }
 }
 
@@ -350,6 +383,81 @@ mod tests {
         }
         compared.sort();
         assert_eq!(compared, ["tblItems", "tblNamed", "tblOrderA", "tblOrderB"]);
+    }
+
+    #[test]
+    fn embedded_macros_match_access_output_in_generated_test_data() {
+        // tblGenExport holds Access's SaveAsText output of frmEmbedded (kind
+        // `form`) and rptEmbedded (kind `report`). Each `<event>EmMacro = Begin`
+        // block in it, without its indentation, is compared with the text of
+        // the embedded macro for that event.
+        use crate::catalog::read_catalog;
+        use crate::data::{read_table_rows, Value};
+        use crate::file::PageReader;
+        use crate::macro_def::read_embedded_macros;
+        use crate::table::read_table_def;
+
+        let relative = "V2010/macroGeneratedTestV2010.accdb";
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../testdata")
+            .join(relative);
+        if !path.exists() {
+            eprintln!("SKIP: test data not found: {relative}");
+            return;
+        }
+        let mut reader = PageReader::open(&path).unwrap();
+        let page = read_catalog(&mut reader)
+            .unwrap()
+            .into_iter()
+            .find(|e| e.name == "tblGenExport")
+            .unwrap()
+            .table_page;
+        let tdef = read_table_def(&mut reader, "tblGenExport", page).unwrap();
+        let mut compared = Vec::new();
+        for row in read_table_rows(&mut reader, &tdef).unwrap().rows {
+            let (Value::Text(kind), Value::Text(object), Value::Text(content)) =
+                (&row[1], &row[2], &row[3])
+            else {
+                continue;
+            };
+            if kind != "form" && kind != "report" {
+                continue;
+            }
+            let macros = read_embedded_macros(&mut reader, object).unwrap();
+            let lines: Vec<&str> = content.split("\r\n").collect();
+            for (i, line) in lines.iter().enumerate() {
+                let Some(key) = line.trim_start().strip_suffix("EmMacro = Begin") else {
+                    continue;
+                };
+                let indent = line.len() - line.trim_start().len();
+                let end = (i..lines.len())
+                    .find(|&j| lines[j] == format!("{}End", &line[..indent]))
+                    .unwrap();
+                let expected: String = lines[i..=end]
+                    .iter()
+                    .map(|l| format!("{}\r\n", &l[indent..]))
+                    .collect();
+                let def = macros
+                    .iter()
+                    .find(|m| matches!(&m.source, MacroSource::Embedded { event, .. } if event == key))
+                    .unwrap_or_else(|| panic!("{object}: no {key} macro"));
+                assert_eq!(
+                    embedded_macro_to_text(def).unwrap(),
+                    expected,
+                    "{object} {key}"
+                );
+                compared.push(format!("{object}.{key}"));
+            }
+        }
+        compared.sort();
+        assert_eq!(
+            compared,
+            [
+                "frmEmbedded.OnClick",
+                "frmEmbedded.OnLoad",
+                "rptEmbedded.OnOpen"
+            ]
+        );
     }
 
     #[test]
