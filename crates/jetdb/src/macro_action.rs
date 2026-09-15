@@ -490,7 +490,10 @@ const TRANSFER_TYPE: &[(i32, &str)] = &[(0, "Import"), (1, "Export"), (2, "Link"
 
 /// The named values of each argument that takes a choice, by action and
 /// argument name.
-static ARGUMENT_VALUES: &[(&str, &str, &[(i32, &str)])] = &[
+/// An action name, an argument name, and the argument's numbers and names.
+type ArgumentValues = (&'static str, &'static str, &'static [(i32, &'static str)]);
+
+static ARGUMENT_VALUES: &[ArgumentValues] = &[
     ("CloseWindow", "ObjectType", OBJECT_TYPE),
     // AcCloseSave.
     (

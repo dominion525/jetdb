@@ -472,11 +472,14 @@ fn data_macros_from_xml(table: &str, xml: String) -> Result<Vec<MacroDef>, FileE
         .collect())
 }
 
+/// An `MSysObjects` row's name and `LvExtra`.
+type NamedLvExtra = (String, Option<Vec<u8>>);
+
 /// The name and `LvExtra` of every `MSysObjects` row of type `object_type`.
 fn msysobjects_rows(
     reader: &mut PageReader,
     object_type: i16,
-) -> Result<Vec<(String, Option<Vec<u8>>)>, FileError> {
+) -> Result<Vec<NamedLvExtra>, FileError> {
     let tdef = read_table_def(reader, "MSysObjects", CATALOG_PAGE)?;
     let column = |name: &str| {
         tdef.columns
