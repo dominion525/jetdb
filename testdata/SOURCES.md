@@ -160,6 +160,13 @@ These files were created by the jetdb project using Microsoft Access for Microso
 | V2003/macroGeneratedTestV2003.mdb | A copy saved in the Access 2002-2003 format before the one-row macros were added |
 | V2000/macroGeneratedTestV2000.mdb | A copy saved in the Access 2000 format before the one-row macros were added |
 
+The `macroGenerated*` files were made with the VBA modules in `macro-generators/`, each imported into the database and run once from the Immediate window, in this order:
+
+1. `macro-generator.bas` (`CreateMacroTestObjects`) in a new, empty `.accdb`. The two `.mdb` files are copies saved at this point.
+2. `macro-resave.bas` (`ResaveMacroTestObjects`). Opening the macros in Design view failed with error 2046 for every macro, as `tblGenLog` records; the `old_*` macros come from its second step.
+3. `macro-probe.bas` (`ProbeMacroActions`)
+4. `macro-datamacro-order.bas` (`ProbeDataMacroOrder`)
+
 ## Created independently
 
 These files were created by the jetdb project using Microsoft Access for Microsoft 365 MSO (Version 2602 Build 16.0.19725.20014, 64-bit).
