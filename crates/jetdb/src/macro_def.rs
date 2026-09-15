@@ -69,12 +69,12 @@ pub struct MacroDef {
     /// The XML definition the statements were read from, or empty for a macro
     /// stored without XML.
     pub xml: String,
-    /// The macro grid of a named macro (see [`MacroGrid`]), or `None` for
-    /// embedded and data macros.
+    /// The macro grid of a named or embedded macro (see [`MacroGrid`]), or
+    /// `None` for data macros.
     pub grid: Option<MacroGrid>,
 }
 
-/// The rows of a named macro as stored in its binary grid.
+/// The rows of a named or embedded macro as stored in its binary grid.
 ///
 /// Every named macro has this grid, including macros saved before Access 2010
 /// that have no XML. It is the classic macro sheet: each row has an optional
@@ -293,8 +293,14 @@ pub fn read_macro(reader: &mut PageReader, name: &str) -> Result<MacroDef, FileE
 /// Read the embedded macros of the form or report `object_name`, in the order
 /// they appear in its `Blob` stream and then its `BlobDelta` stream.
 ///
+/// Each embedded macro is a property of the form, report, or control whose
+/// value is a macro grid (see [`MacroGrid`]) holding the macro's XML as
+/// `_AXL:` comment rows. The XML's `For` and `Event` attributes give
+/// [`MacroSource::Embedded`]'s control and event; a macro without XML has no
+/// control and an empty event, and its statements are read from the grid.
+///
 /// Databases in the Access 2000 format keep the macros in `BlobDelta`. A
-/// document found in both streams is returned once.
+/// grid found in both streams is returned once.
 ///
 /// Returns [`FileError::FormNotFound`] if there is no such form or report.
 pub fn read_embedded_macros(
@@ -302,31 +308,92 @@ pub fn read_embedded_macros(
     object_name: &str,
 ) -> Result<Vec<MacroDef>, FileError> {
     let stream = form::read_form_stream(reader, object_name, StreamKind::Blob)?;
-    let mut documents = extract_axl_documents(&stream.data);
+    let mut grids: Vec<Vec<u8>> = embedded_macro_grids(&stream.data)
+        .into_iter()
+        .map(<[u8]>::to_vec)
+        .collect();
     if let Ok(delta) = form::read_form_stream(reader, object_name, StreamKind::BlobDelta) {
-        for document in extract_axl_documents(&delta.data) {
-            if !documents.contains(&document) {
-                documents.push(document);
+        for grid in embedded_macro_grids(&delta.data) {
+            if !grids.iter().any(|g| g == grid) {
+                grids.push(grid.to_vec());
             }
         }
     }
-    documents
-        .into_iter()
-        .map(|xml| {
-            let root = parse_xml_tree(&xml)?;
+    grids
+        .iter()
+        .map(|bytes| {
+            let grid = parse_macro_grid(bytes, false)?;
+            let (control, event, statements, xml) = match extract_axl_xml(bytes) {
+                Some(xml) => {
+                    let root = parse_xml_tree(&xml)?;
+                    (
+                        root.attribute("For").map(str::to_string),
+                        root.attribute("Event").unwrap_or("").to_string(),
+                        statements_of(&root),
+                        xml,
+                    )
+                }
+                None => (
+                    None,
+                    String::new(),
+                    statements_from_grid(&grid),
+                    String::new(),
+                ),
+            };
             Ok(MacroDef {
                 source: MacroSource::Embedded {
                     object_kind: stream.object_type,
                     object_name: object_name.to_string(),
-                    control: root.attribute("For").map(str::to_string),
-                    event: root.attribute("Event").unwrap_or("").to_string(),
+                    control,
+                    event,
                 },
-                statements: statements_of(&root),
+                statements,
                 xml,
-                grid: None,
+                grid: Some(grid),
             })
         })
         .collect()
+}
+
+/// The type of a form property entry whose value is an embedded macro grid.
+const EMBEDDED_MACRO_PROPERTY_TYPE: [u8; 4] = [0x11, 0, 0, 0];
+
+/// The macro grids stored as embedded macro properties in a form or report
+/// stream, in order.
+///
+/// A property entry is a 2-byte property id, a 4-byte type, 4 bytes (4 in
+/// these entries), and a 4-byte value length, followed by the value (see
+/// `form.rs`). Embedded macro entries have type 0x11, and their value is a
+/// grid whose header string length at offset 0x20 is 4 (`33`) or 0.
+fn embedded_macro_grids(stream: &[u8]) -> Vec<&[u8]> {
+    let mut grids = Vec::new();
+    let mut search_from = 2;
+    while let Some(rel) = find_bytes(
+        stream.get(search_from..).unwrap_or(&[]),
+        &EMBEDDED_MACRO_PROPERTY_TYPE,
+    ) {
+        let type_pos = search_from + rel;
+        search_from = type_pos + 1;
+        let Some(header) = stream.get(type_pos + 4..type_pos + 12) else {
+            break;
+        };
+        if header[0..4] != [4, 0, 0, 0] {
+            continue;
+        }
+        let len = u32::from_le_bytes([header[4], header[5], header[6], header[7]]) as usize;
+        let start = type_pos + 12;
+        let Some(grid) = stream.get(start..start + len) else {
+            continue;
+        };
+        let header_len = grid
+            .get(0x20..0x22)
+            .map(|s| u16::from_le_bytes([s[0], s[1]]));
+        if matches!(header_len, Some(0) | Some(4)) && parse_macro_grid(grid, false).is_ok() {
+            grids.push(grid);
+            search_from = start + len;
+        }
+    }
+    grids
 }
 
 /// `MSysObjects.Type` of a local table.
@@ -1385,6 +1452,68 @@ mod tests {
             assert_eq!(
                 macros[1].statements,
                 [action("MessageBox", &[("Message", "button clicked")])],
+                "{file}"
+            );
+
+            // Each macro's grid has its compiled rows, then its XML as comment rows.
+            let grids: Vec<&MacroGrid> = macros.iter().map(|m| m.grid.as_ref().unwrap()).collect();
+            assert_eq!(
+                grids[0].rows[0],
+                grid_row(1, 4, None, Some("[Qty]<0"), None, &[]),
+                "{file}"
+            );
+            assert_eq!(
+                grids[1].rows[0],
+                grid_row(
+                    1,
+                    22,
+                    None,
+                    None,
+                    None,
+                    &[Some("button clicked"), Some("-1"), Some("0")]
+                ),
+                "{file}"
+            );
+            assert!(grids.iter().all(|g| g.header == "33"
+                && g.rows[1..].iter().all(|r| r.action_code == 0
+                    && r.comment.as_deref().is_some_and(|c| c.starts_with("_AXL:")))));
+        }
+    }
+
+    #[test]
+    fn read_embedded_macros_generated_files() {
+        // frmEmbedded has an OnLoad macro and an OnClick macro on btnHello, and
+        // rptEmbedded an OnOpen macro. They were loaded from text holding only
+        // their XML, so their grids have only comment rows.
+        for file in [
+            "V2010/macroGeneratedTestV2010.accdb",
+            "V2003/macroGeneratedTestV2003.mdb",
+            "V2000/macroGeneratedTestV2000.mdb",
+        ] {
+            let path = skip_if_missing!(file);
+            let mut reader = PageReader::open(&path).unwrap();
+            let mut found = Vec::new();
+            for object in ["frmEmbedded", "rptEmbedded"] {
+                for m in read_embedded_macros(&mut reader, object).unwrap() {
+                    let MacroSource::Embedded { control, event, .. } = &m.source else {
+                        panic!("{:?}", m.source);
+                    };
+                    let grid = m.grid.as_ref().unwrap();
+                    assert!(grid.rows.iter().all(|r| r.action_code == 0), "{file}");
+                    found.push((object, control.clone(), event.clone()));
+                }
+            }
+            assert_eq!(
+                found,
+                [
+                    ("frmEmbedded", None, "OnLoad".to_string()),
+                    (
+                        "frmEmbedded",
+                        Some("btnHello".to_string()),
+                        "OnClick".to_string()
+                    ),
+                    ("rptEmbedded", None, "OnOpen".to_string()),
+                ],
                 "{file}"
             );
         }
