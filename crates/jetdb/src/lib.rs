@@ -39,7 +39,7 @@ pub use form::{
     BlobProperty, BlobValue, ControlInfo, ControlProperties, FormEntry, FormObjectType,
     FormProperties, FormStream, FormTypeInfo, StreamKind,
 };
-pub use macro_action::{macro_action, MacroAction, MACRO_ACTIONS};
+pub use macro_action::{macro_action, macro_argument_value_name, MacroAction, MACRO_ACTIONS};
 pub use macro_def::{
     list_macros, read_data_macros, read_embedded_macros, read_macro, MacroArgument, MacroBranch,
     MacroDef, MacroEntry, MacroGrid, MacroGridRow, MacroParameter, MacroSource, MacroStatement,

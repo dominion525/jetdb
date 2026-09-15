@@ -34,7 +34,7 @@ use crate::data::{read_table_rows, Value};
 use crate::file::{FileError, PageReader};
 use crate::form::{self, FormObjectType, StreamKind};
 use crate::format::CATALOG_PAGE;
-use crate::macro_action::macro_action;
+use crate::macro_action::{macro_action, macro_argument_value_name};
 use crate::storage;
 use crate::table::read_table_def;
 
@@ -60,8 +60,10 @@ pub struct MacroDef {
     /// For a macro stored without XML they are read from the grid: a row's
     /// comment becomes a [`MacroStatement::Comment`], its action a
     /// [`MacroStatement::Action`] named with [`macro_action`] and its argument
-    /// names, a row with a macro name starts a [`MacroStatement::SubMacro`],
-    /// and a condition starts a [`MacroStatement::Conditional`] that the
+    /// names (a value that is one of named choices by
+    /// [`macro_argument_value_name`]), a row with a macro name starts a
+    /// [`MacroStatement::SubMacro`], and a condition starts a
+    /// [`MacroStatement::Conditional`] that the
     /// following `...` rows continue. An action whose number is not in that
     /// table is named by its number, and so is an argument beyond its
     /// argument names.
@@ -670,12 +672,14 @@ fn grid_action(row: &MacroGridRow) -> MacroStatement {
             .iter()
             .enumerate()
             .filter_map(|(i, value)| {
-                Some(MacroArgument {
-                    name: argument_names
-                        .get(i)
-                        .map_or_else(|| i.to_string(), |n| n.to_string()),
-                    value: value.clone()?,
-                })
+                let value = value.as_deref()?;
+                let name = argument_names
+                    .get(i)
+                    .map_or_else(|| i.to_string(), |n| n.to_string());
+                let value = macro_argument_value_name(row.action_code, &name, value)
+                    .unwrap_or(value)
+                    .to_string();
+                Some(MacroArgument { name, value })
             })
             .collect(),
     }
@@ -1722,14 +1726,14 @@ mod tests {
         let def = read_macro(&mut reader, "old_MsgBox").unwrap();
         assert_eq!(def.xml, "");
         assert_eq!(def.statements, [action("MessageBox", &[])]);
-        // Loaded with the arguments 1 to 10.
+        // Loaded with the arguments 1 to 10. ObjectType 1 is named as a choice.
         let def = read_macro(&mut reader, "oldarg_SendObject").unwrap();
         assert_eq!(
             def.statements,
             [action(
                 "EMailDatabaseObject",
                 &[
-                    ("ObjectType", "1"),
+                    ("ObjectType", "Query"),
                     ("ObjectName", "2"),
                     ("OutputFormat", "3"),
                     ("To", "4"),
@@ -1920,8 +1924,8 @@ mod tests {
                                         "MessageBox",
                                         &[
                                             ("Message", "The Customer ID you entered already exists. Enter a unique ID."),
-                                            ("Beep", "-1"),
-                                            ("Type", "4"),
+                                            ("Beep", "Yes"),
+                                            ("Type", "Information"),
                                             ("Title", "Duplicate Customer ID"),
                                         ]
                                     ),

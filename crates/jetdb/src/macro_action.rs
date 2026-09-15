@@ -425,6 +425,233 @@ pub static MACRO_ACTIONS: &[MacroAction] = &[
     action(95, "DeleteRecord", "DeleteRecord", &[]),
 ];
 
+/// Returns the name of an argument value stored as a number in a macro grid
+/// row: `value` in the argument `argument` (a name from
+/// [`MacroAction::arguments`]) of the action numbered `code`, or `None` if the
+/// argument is not a choice of named values or the number is not one of them.
+///
+/// The numbers are those of the VBA enumerations the corresponding `DoCmd`
+/// methods take (for example `AcFormView` for the `View` argument of
+/// `OpenForm`), and `-1` and `0` for arguments set to Yes or No. The names are
+/// the settings the macro action reference lists for each argument, and are
+/// not checked against Access: Access accepts any value in macro XML.
+/// `MessageBox`'s `Type` takes its numbers from the order of its settings.
+/// Real macros confirm `No` = 0 for `Beep` and `Information` = 4 for `Type`
+/// of `MessageBox`.
+pub fn macro_argument_value_name(code: u16, argument: &str, value: &str) -> Option<&'static str> {
+    let action = macro_action(code)?.name;
+    let number: i32 = value.parse().ok()?;
+    ARGUMENT_VALUES
+        .iter()
+        .find(|(a, arg, _)| *a == action && *arg == argument)?
+        .2
+        .iter()
+        .find(|(n, _)| *n == number)
+        .map(|(_, name)| *name)
+}
+
+const YES_NO: &[(i32, &str)] = &[(-1, "Yes"), (0, "No")];
+/// `AcObjectType`.
+const OBJECT_TYPE: &[(i32, &str)] = &[
+    (0, "Table"),
+    (1, "Query"),
+    (2, "Form"),
+    (3, "Report"),
+    (4, "Macro"),
+    (5, "Module"),
+    (7, "Server View"),
+    (8, "Diagram"),
+    (9, "Stored Procedure"),
+    (10, "Function"),
+];
+/// `AcView` for tables, queries, views, stored procedures, and functions.
+const DATA_VIEW: &[(i32, &str)] = &[
+    (0, "Datasheet"),
+    (1, "Design"),
+    (2, "Print Preview"),
+    (3, "PivotTable"),
+    (4, "PivotChart"),
+];
+/// `AcOpenDataMode`.
+const DATA_MODE: &[(i32, &str)] = &[(0, "Add"), (1, "Edit"), (2, "Read Only")];
+/// `AcWindowMode`.
+const WINDOW_MODE: &[(i32, &str)] = &[(0, "Normal"), (1, "Hidden"), (2, "Icon"), (3, "Dialog")];
+/// `AcRecord`.
+const RECORD: &[(i32, &str)] = &[
+    (0, "Previous"),
+    (1, "Next"),
+    (2, "First"),
+    (3, "Last"),
+    (4, "Go To"),
+    (5, "New"),
+];
+/// `AcDataTransferType`.
+const TRANSFER_TYPE: &[(i32, &str)] = &[(0, "Import"), (1, "Export"), (2, "Link")];
+
+/// The named values of each argument that takes a choice, by action and
+/// argument name.
+static ARGUMENT_VALUES: &[(&str, &str, &[(i32, &str)])] = &[
+    ("CloseWindow", "ObjectType", OBJECT_TYPE),
+    // AcCloseSave.
+    (
+        "CloseWindow",
+        "Save",
+        &[(0, "Prompt"), (1, "Yes"), (2, "No")],
+    ),
+    ("CopyDatabaseFile", "OverwriteExistingFile", YES_NO),
+    ("CopyDatabaseFile", "DisconnectAllUsers", YES_NO),
+    ("CopyObject", "SourceObjectType", OBJECT_TYPE),
+    ("DeleteObject", "ObjectType", OBJECT_TYPE),
+    ("DisplayHourglassPointer", "HourglassOn", YES_NO),
+    ("Echo", "EchoOn", YES_NO),
+    ("EMailDatabaseObject", "ObjectType", OBJECT_TYPE),
+    ("EMailDatabaseObject", "EditMessage", YES_NO),
+    ("ExportWithFormatting", "ObjectType", OBJECT_TYPE),
+    ("ExportWithFormatting", "AutoStart", YES_NO),
+    // AcExportQuality.
+    (
+        "ExportWithFormatting",
+        "OutputQuality",
+        &[(0, "Print"), (1, "Screen")],
+    ),
+    // AcFindMatch.
+    (
+        "FindRecord",
+        "Match",
+        &[
+            (0, "Any Part of Field"),
+            (1, "Whole Field"),
+            (2, "Start of Field"),
+        ],
+    ),
+    ("FindRecord", "MatchCase", YES_NO),
+    // AcSearchDirection.
+    (
+        "FindRecord",
+        "Search",
+        &[(0, "Up"), (1, "Down"), (2, "All")],
+    ),
+    ("FindRecord", "SearchAsFormatted", YES_NO),
+    ("FindRecord", "OnlyCurrentField", YES_NO),
+    ("FindRecord", "FindFirst", YES_NO),
+    ("GoToRecord", "ObjectType", OBJECT_TYPE),
+    ("GoToRecord", "Record", RECORD),
+    ("ImportExportData", "TransferType", TRANSFER_TYPE),
+    ("ImportExportData", "ObjectType", OBJECT_TYPE),
+    ("ImportExportData", "StructureOnly", YES_NO),
+    ("ImportExportSpreadsheet", "TransferType", TRANSFER_TYPE),
+    ("ImportExportSpreadsheet", "HasFieldNames", YES_NO),
+    // AcTextTransferType.
+    (
+        "ImportExportText",
+        "TransferType",
+        &[
+            (0, "Import Delimited"),
+            (1, "Import Fixed Width"),
+            (2, "Export Delimited"),
+            (3, "Export Fixed Width"),
+            (4, "Export Word for Windows Merge"),
+            (5, "Link Delimited"),
+            (6, "Link Fixed Width"),
+            (7, "Import HTML"),
+            (8, "Export HTML"),
+            (9, "Link HTML"),
+        ],
+    ),
+    ("ImportExportText", "HasFieldNames", YES_NO),
+    ("LockNavigationPane", "Lock", YES_NO),
+    ("MessageBox", "Beep", YES_NO),
+    (
+        "MessageBox",
+        "Type",
+        &[
+            (0, "None"),
+            (1, "Critical"),
+            (2, "Warning?"),
+            (3, "Warning!"),
+            (4, "Information"),
+        ],
+    ),
+    // AcFormView.
+    (
+        "OpenForm",
+        "View",
+        &[
+            (0, "Form"),
+            (1, "Design"),
+            (2, "Print Preview"),
+            (3, "Datasheet"),
+            (4, "PivotTable"),
+            (5, "PivotChart"),
+            (6, "Layout"),
+        ],
+    ),
+    // AcFormOpenDataMode; -1 (property settings) is the empty default.
+    ("OpenForm", "DataMode", DATA_MODE),
+    ("OpenForm", "WindowMode", WINDOW_MODE),
+    ("OpenFunction", "View", DATA_VIEW),
+    ("OpenFunction", "DataMode", DATA_MODE),
+    ("OpenQuery", "View", DATA_VIEW),
+    ("OpenQuery", "DataMode", DATA_MODE),
+    // AcView.
+    (
+        "OpenReport",
+        "View",
+        &[
+            (0, "Print"),
+            (1, "Design"),
+            (2, "Print Preview"),
+            (5, "Report"),
+            (6, "Layout"),
+        ],
+    ),
+    ("OpenReport", "WindowMode", WINDOW_MODE),
+    ("OpenStoredProcedure", "View", DATA_VIEW),
+    ("OpenStoredProcedure", "DataMode", DATA_MODE),
+    ("OpenTable", "View", DATA_VIEW),
+    ("OpenTable", "DataMode", DATA_MODE),
+    ("OpenView", "View", DATA_VIEW),
+    ("OpenView", "DataMode", DATA_MODE),
+    // AcPrintRange.
+    (
+        "PrintOut",
+        "PrintRange",
+        &[(0, "All"), (1, "Selection"), (2, "Pages")],
+    ),
+    // AcPrintQuality.
+    (
+        "PrintOut",
+        "PrintQuality",
+        &[(0, "High"), (1, "Medium"), (2, "Low"), (3, "Draft")],
+    ),
+    ("PrintOut", "CollateCopies", YES_NO),
+    // AcQuitOption.
+    (
+        "QuitAccess",
+        "Options",
+        &[(0, "Prompt"), (1, "Save All"), (2, "Exit")],
+    ),
+    ("RenameObject", "ObjectType", OBJECT_TYPE),
+    ("RepaintObject", "ObjectType", OBJECT_TYPE),
+    ("RunSQL", "UseTransaction", YES_NO),
+    ("SaveObject", "ObjectType", OBJECT_TYPE),
+    ("SearchForRecord", "ObjectType", OBJECT_TYPE),
+    ("SearchForRecord", "Record", RECORD),
+    ("SelectObject", "ObjectType", OBJECT_TYPE),
+    ("SelectObject", "InNavigationPane", YES_NO),
+    ("SendKeys", "Wait", YES_NO),
+    ("SetDisplayedCategories", "Show", YES_NO),
+    ("SetWarnings", "WarningsOn", YES_NO),
+    // AcShowToolbar.
+    (
+        "ShowToolbar",
+        "Show",
+        &[(0, "Yes"), (1, "Where Appropriate"), (2, "No")],
+    ),
+    ("TransferSQLDatabase", "UseTrustedConnection", YES_NO),
+    ("TransferSQLDatabase", "TransferCopyData", YES_NO),
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -437,6 +664,65 @@ mod tests {
     #[test]
     fn codes_are_unique_and_ordered() {
         assert!(MACRO_ACTIONS.windows(2).all(|w| w[0].code < w[1].code));
+    }
+
+    #[test]
+    fn argument_values_name_existing_arguments() {
+        for (action, argument, values) in ARGUMENT_VALUES {
+            let entry = MACRO_ACTIONS.iter().find(|a| a.name == *action);
+            assert!(
+                entry.is_some_and(|a| a.arguments.contains(argument)),
+                "{action}.{argument}"
+            );
+            let mut numbers: Vec<i32> = values.iter().map(|(n, _)| *n).collect();
+            numbers.sort_unstable();
+            numbers.dedup();
+            assert_eq!(numbers.len(), values.len(), "{action}.{argument}");
+        }
+    }
+
+    #[test]
+    fn argument_value_names() {
+        assert_eq!(
+            macro_argument_value_name(23, "View", "2"),
+            Some("Print Preview")
+        );
+        assert_eq!(
+            macro_argument_value_name(46, "View", "2"),
+            Some("Print Preview")
+        );
+        assert_eq!(macro_argument_value_name(6, "Save", "0"), Some("Prompt"));
+        // Not a named choice, not one of the choices, or not a number.
+        assert_eq!(macro_argument_value_name(23, "FormName", "0"), None);
+        assert_eq!(macro_argument_value_name(23, "DataMode", "-1"), None);
+        assert_eq!(macro_argument_value_name(23, "View", "Form"), None);
+    }
+
+    #[test]
+    fn argument_value_names_match_macro_xml() {
+        // mcrSimple's second action is a MessageBox whose XML sets Beep to No
+        // and Type to Information, stored in the grid as 0 and 4.
+        use crate::macro_def::MacroStatement;
+
+        let Some(path) = test_data_path("V2010/macroTestV2010.accdb") else {
+            eprintln!("SKIP: test data not found: V2010/macroTestV2010.accdb");
+            return;
+        };
+        let mut reader = PageReader::open(&path).unwrap();
+        let def = read_macro(&mut reader, "mcrSimple").unwrap();
+        let MacroStatement::Action { arguments, .. } = &def.statements[1] else {
+            panic!("{:?}", def.statements[1]);
+        };
+        let row = &def.grid.unwrap().rows[1];
+        for (slot, name) in [(1, "Beep"), (2, "Type")] {
+            let xml_value = &arguments.iter().find(|a| a.name == name).unwrap().value;
+            let grid_value = row.arguments[slot].as_deref().unwrap();
+            assert_eq!(
+                macro_argument_value_name(row.action_code, name, grid_value),
+                Some(xml_value.as_str()),
+                "{name}"
+            );
+        }
     }
 
     #[test]
