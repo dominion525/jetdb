@@ -527,15 +527,34 @@ $ jetdb macro show --xml database.accdb mcrSimple
 #### macro embedded — フォーム/レポートの埋め込みマクロの表示
 
 ```
-jetdb macro embedded <FILE> <NAME>
+jetdb macro embedded [OPTIONS] <FILE> <NAME>
 ```
 
-フォームまたはレポートの埋め込みマクロの XML を 1 つずつ、それぞれの後に改行を付けて表示する。`For` 属性がコントロール名、`Event` 属性がイベント名を表す。埋め込みマクロを持たないフォーム/レポートでは何も出力しない。
+フォームまたはレポートの埋め込みマクロを、`Application.SaveAsText` がフォーム/レポートのテキストの中に書き出す `<イベント名>EmMacro = Begin` ... `End` のかたまりとして表示する (かたまり自体の字下げは付けず、改行は CRLF)。埋め込みマクロを持たないフォーム/レポートでは何も出力しない。
+
+##### オプション
+
+- `--xml` — テキストの代わりに各埋め込みマクロの XML を 1 つずつ、それぞれの後に改行を付けて表示。`For` 属性がコントロール名、`Event` 属性がイベント名を表す。
 
 ##### 出力例
 
 ```
 $ jetdb macro embedded database.accdb frmEmbedded
+OnLoadEmMacro = Begin
+    Version =196611
+    ColumnsShown =0
+    Begin
+        Comment ="_AXL:<?xml version='1.0' encoding='UTF-16' standalone='no'?><UserInterfaceMacro "
+            "Event='OnLoad' xmlns='http://schemas.microsoft.com/office/accessservices/2009/11"
+            "/application'><Statements><Action Name='SetTe"
+    End
+    ...
+End
+OnClickEmMacro = Begin
+    ...
+End
+
+$ jetdb macro embedded --xml database.accdb frmEmbedded
 <?xml version='1.0' encoding='UTF-16' standalone='no'?><UserInterfaceMacro Event='OnLoad' ...>...</UserInterfaceMacro>
 <?xml version='1.0' encoding='UTF-16' standalone='no'?><UserInterfaceMacro For='btnHello' Event='OnClick' ...>...</UserInterfaceMacro>
 ```

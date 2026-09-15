@@ -3,8 +3,8 @@ use std::process::ExitCode;
 
 use clap::{Args, Subcommand};
 use jetdb::{
-    data_macros_to_text, list_macros, read_data_macros, read_embedded_macros, read_macro,
-    PageReader,
+    data_macros_to_text, embedded_macro_to_text, list_macros, read_data_macros,
+    read_embedded_macros, read_macro, PageReader,
 };
 
 // ---------------------------------------------------------------------------
@@ -23,7 +23,7 @@ pub enum MacroCommands {
     List(MacroListArgs),
     /// Show a named macro as SaveAsText text or XML
     Show(MacroShowArgs),
-    /// Show the embedded macros of a form or report as XML
+    /// Show the embedded macros of a form or report as SaveAsText text or XML
     Embedded(MacroEmbeddedArgs),
     /// Show the data macros of a table as SaveAsText text or XML
     Data(MacroDataArgs),
@@ -63,6 +63,10 @@ pub struct MacroEmbeddedArgs {
 
     /// Form or report name
     pub name: String,
+
+    /// Print each embedded macro's XML instead of SaveAsText text
+    #[arg(long = "xml")]
+    pub xml: bool,
 }
 
 #[derive(Args)]
@@ -143,7 +147,11 @@ fn run_show(args: &MacroShowArgs, password: Option<&str>) -> Result<(), jetdb::F
 fn run_embedded(args: &MacroEmbeddedArgs, password: Option<&str>) -> Result<(), jetdb::FileError> {
     let mut reader = PageReader::open_with_password(&args.file, password)?;
     for def in read_embedded_macros(&mut reader, &args.name)? {
-        println!("{}", def.xml);
+        if args.xml {
+            println!("{}", def.xml);
+        } else if let Some(text) = embedded_macro_to_text(&def) {
+            print!("{text}");
+        }
     }
 
     Ok(())

@@ -528,15 +528,34 @@ $ jetdb macro show --xml database.accdb mcrSimple
 #### macro embedded — Show the embedded macros of a form or report
 
 ```
-jetdb macro embedded <FILE> <NAME>
+jetdb macro embedded [OPTIONS] <FILE> <NAME>
 ```
 
-Show the XML of each embedded macro of the form or report, each followed by a newline. The `For` attribute names the control and `Event` the event. If the form or report has no embedded macros, produces no output.
+Show each embedded macro of the form or report as the `<event>EmMacro = Begin` ... `End` block `Application.SaveAsText` writes in the form's or report's text, without the block's indentation and with CRLF line endings. If the form or report has no embedded macros, produces no output.
+
+##### Options
+
+- `--xml` — Show each embedded macro's XML instead, each followed by a newline. The `For` attribute names the control and `Event` the event.
 
 ##### Output examples
 
 ```
 $ jetdb macro embedded database.accdb frmEmbedded
+OnLoadEmMacro = Begin
+    Version =196611
+    ColumnsShown =0
+    Begin
+        Comment ="_AXL:<?xml version='1.0' encoding='UTF-16' standalone='no'?><UserInterfaceMacro "
+            "Event='OnLoad' xmlns='http://schemas.microsoft.com/office/accessservices/2009/11"
+            "/application'><Statements><Action Name='SetTe"
+    End
+    ...
+End
+OnClickEmMacro = Begin
+    ...
+End
+
+$ jetdb macro embedded --xml database.accdb frmEmbedded
 <?xml version='1.0' encoding='UTF-16' standalone='no'?><UserInterfaceMacro Event='OnLoad' ...>...</UserInterfaceMacro>
 <?xml version='1.0' encoding='UTF-16' standalone='no'?><UserInterfaceMacro For='btnHello' Event='OnClick' ...>...</UserInterfaceMacro>
 ```

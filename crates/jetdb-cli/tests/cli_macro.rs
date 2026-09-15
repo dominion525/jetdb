@@ -108,6 +108,26 @@ fn macro_embedded() {
         path.to_str().unwrap(),
         "frmEmbedded",
     ]));
+    assert!(
+        stdout.starts_with("OnLoadEmMacro = Begin\r\n"),
+        "got: {stdout}"
+    );
+    assert!(
+        stdout.contains("\r\nOnClickEmMacro = Begin\r\n"),
+        "got: {stdout}"
+    );
+}
+
+#[test]
+fn macro_embedded_xml() {
+    let path = skip_if_missing!(MACRO_FILE);
+    let stdout = stdout_of(&run(&[
+        "macro",
+        "embedded",
+        "--xml",
+        path.to_str().unwrap(),
+        "frmEmbedded",
+    ]));
     assert_eq!(stdout.lines().count(), 2, "got: {stdout}");
     assert!(stdout.contains("For='btnHello'"), "got: {stdout}");
 }
