@@ -57,6 +57,10 @@ jetdb queries show database.mdb SelectQuery
 jetdb vba list database.mdb
 jetdb vba show database.mdb Module1
 
+# 名前付きマクロの一覧を表示する・SaveAsText 形式のテキストで確認する
+jetdb macro list database.accdb
+jetdb macro show database.accdb AutoExec
+
 # オブジェクトプロパティを表示する
 jetdb prop database.mdb Table1
 ```

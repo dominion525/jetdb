@@ -147,6 +147,26 @@ Encryption-related test files. Some files have been renamed for clarity about th
 | db2007-enc.accdb | db2007-enc.accdb |
 | db2013-enc.accdb | db2013-enc.accdb |
 
+## Created independently: macro test databases
+
+These files were created by the jetdb project using Microsoft Access for Microsoft 365 MSO (Version 2604 Build 16.0.19929.20090, 64-bit). The `.accdb` was saved in the Access 2007-2016 format (ACE14), and the two `.mdb` files are copies of it saved in the Access 2002-2003 and Access 2000 formats.
+
+| File | Purpose |
+|------|---------|
+| V2010/macroTestV2010.accdb | Named macros, embedded macros on a form, and a data macro on a table |
+| V2003/macroTestV2003.mdb | The same macros in the Access 2002-2003 format |
+| V2000/macroTestV2000.mdb | The same macros in the Access 2000 format |
+| V2010/macroGeneratedTestV2010.accdb | Objects created by VBA with `Application.LoadFromText`: a named macro for each macro action, macros with groups, submacros, and error handling, data macros on two tables, and embedded macros on a form and a report. It also has one-row macros loaded from `Action ="..."` text rows, one for each action name and argument count Access accepts, and data macros on two more tables loaded in scrambled orders. `tblGenLog` records what was created, and `tblGenExport` holds Access's SaveAsText output |
+| V2003/macroGeneratedTestV2003.mdb | A copy saved in the Access 2002-2003 format before the one-row macros were added |
+| V2000/macroGeneratedTestV2000.mdb | A copy saved in the Access 2000 format before the one-row macros were added |
+
+The `macroGenerated*` files were made with the VBA modules in `macro-generators/`, each imported into the database and run once from the Immediate window, in this order:
+
+1. `macro-generator.bas` (`CreateMacroTestObjects`) in a new, empty `.accdb`. The two `.mdb` files are copies saved at this point.
+2. `macro-resave.bas` (`ResaveMacroTestObjects`). Opening the macros in Design view failed with error 2046 for every macro, as `tblGenLog` records; the `old_*` macros come from its second step.
+3. `macro-probe.bas` (`ProbeMacroActions`)
+4. `macro-datamacro-order.bas` (`ProbeDataMacroOrder`)
+
 ## Created independently
 
 These files were created by the jetdb project using Microsoft Access for Microsoft 365 MSO (Version 2602 Build 16.0.19725.20014, 64-bit).
@@ -173,10 +193,19 @@ These files were created with Microsoft Access by [@semenenkov](https://github.c
 
 These files are downloaded by `scripts/fetch-testdata.sh` and are listed in `.gitignore`. Tests that use them are guarded by `skip_if_missing!`, so they are skipped until the script has been run. CI runs the script before `cargo test`.
 
-They are kept out of the repository because their licensing is not stated anywhere. The upstream repository has no LICENSE file, and its README says only "Test files for MDB Tools found on the Internet." The file itself is the Northwind sample database that Microsoft distributed with Access 97, in its German localization: it circulates widely and is treated as freely available, but no explicit grant accompanies it. mdbtools keeps its own test data in a separate repository and downloads it at test time for the same reason.
+`V1997/nwind.mdb` is kept out of the repository because its licensing is not stated anywhere. The upstream repository has no LICENSE file, and its README says only "Test files for MDB Tools found on the Internet." The file itself is the Northwind sample database that Microsoft distributed with Access 97, in its German localization: it circulates widely and is treated as freely available, but no explicit grant accompanies it. mdbtools keeps its own test data in a separate repository and downloads it at test time for the same reason.
 
 Each entry is pinned to an immutable commit hash and verified against a SHA-256 digest.
 
 | File | Source | Purpose |
 |------|--------|---------|
 | V1997/nwind.mdb | https://github.com/mdbtools/mdbtestdata `data/nwind.mdb` @ `156fc65` | Jet3 table with only fixed-length columns (`Order Details`), where rows carry no variable-column trailer |
+
+The files under `saveastext/` are published under the MIT License. They are fetched rather than copied so that each stays with its copyright and license notice in its upstream repository (`License.txt` of ruddj/SportsAdmin, `LICENSE` of iKaRus-VLZ/Strings). Each database comes with the text files its project exported from it in the `Application.SaveAsText` format, and tests compare the macro text jetdb writes with those files.
+
+| File | Source | Purpose |
+|------|--------|---------|
+| saveastext/SportsAdmin/Sports.accdb | https://github.com/ruddj/SportsAdmin `Sports.accdb` @ `a5b9086` | Macros with macro names, conditions, escaped quotes, and macros converted from Access 97 |
+| saveastext/SportsAdmin/macros/*.bas | https://github.com/ruddj/SportsAdmin `Source/macros/` @ `a5b9086` | SaveAsText output of the 24 macros of Sports.accdb |
+| saveastext/Strings/Strings.mdb | https://github.com/iKaRus-VLZ/Strings `Strings.mdb` @ `9bf2b11` | Macros with Russian comments in a Jet4 `.mdb` |
+| saveastext/Strings/macros/*.accmac | https://github.com/iKaRus-VLZ/Strings `Macro/` @ `9bf2b11` | SaveAsText output of the 10 macros of Strings.mdb, in Windows-1251 |

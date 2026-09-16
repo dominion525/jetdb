@@ -1,6 +1,7 @@
 mod ddl;
 mod export;
 mod form;
+mod macro_cmd;
 mod prop;
 mod query;
 mod vba;
@@ -55,6 +56,8 @@ enum Commands {
     Vba(vba::VbaArgs),
     /// Manage forms and reports (list / dump / controls)
     Form(form::FormArgs),
+    /// Manage macros (list / show / embedded / data)
+    Macro(macro_cmd::MacroArgs),
 }
 
 #[derive(Args)]
@@ -540,6 +543,7 @@ Details: https://github.com/dominion525/agent-skills"
         Commands::Prop(args) => prop::cmd_prop(args, password.as_deref()),
         Commands::Vba(args) => vba::cmd_vba(args, password.as_deref()),
         Commands::Form(args) => form::cmd_form(args, password.as_deref()),
+        Commands::Macro(args) => macro_cmd::cmd_macro(args, password.as_deref()),
     }
 }
 

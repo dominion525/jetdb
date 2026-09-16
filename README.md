@@ -57,6 +57,10 @@ jetdb queries show database.mdb SelectQuery
 jetdb vba list database.mdb
 jetdb vba show database.mdb Module1
 
+# List named macros / show a macro as SaveAsText text
+jetdb macro list database.accdb
+jetdb macro show database.accdb AutoExec
+
 # Show object properties
 jetdb prop database.mdb Table1
 ```

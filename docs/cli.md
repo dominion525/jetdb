@@ -462,6 +462,128 @@ Form: F_ClientList
     FontName       Meiryo UI
 ```
 
+### macro — Manage macros
+
+#### macro list — List named macro names
+
+```
+jetdb macro list [OPTIONS] <FILE>
+```
+
+List the names of named macros in the database (space-separated by default, sorted alphabetically).
+If the database has no named macros, produces no output.
+
+##### Options
+
+- `-1`, `--newline` — Print one macro name per line
+- `-d`, `--delimiter <STRING>` — Custom delimiter between macro names (default: space)
+
+##### Output examples
+
+```
+$ jetdb macro list database.accdb
+AutoExec mcrConditions mcrSimple
+
+$ jetdb macro list -1 nwind.mdb
+Customer Labels Dialog
+Customers
+Sample Autokeys
+```
+
+#### macro show — Show a named macro
+
+```
+jetdb macro show [OPTIONS] <FILE> <MACRO_NAME>
+```
+
+Show the named macro as the text `Application.SaveAsText` writes, with CRLF line endings. Macros saved without XML, including Access 97 macros, are shown the same way.
+
+##### Options
+
+- `--xml` — Show the macro's XML instead. A macro saved without XML produces no output.
+
+##### Output examples
+
+```
+$ jetdb macro show nwind.mdb Customers
+Version =131074
+PublishOption =1
+ColumnsShown =3
+Begin
+    Comment ="Attached to the Customers form."
+End
+...
+Begin
+    MacroName ="Update Country List"
+    Action ="Requery"
+    Comment ="Requery the Country control."
+    Argument ="Country"
+End
+
+$ jetdb macro show --xml database.accdb mcrSimple
+<?xml version="1.0" encoding="UTF-16" standalone="no"?>
+<UserInterfaceMacro ...><Statements><Action Name="OpenForm">...</Statements></UserInterfaceMacro>
+```
+
+#### macro embedded — Show the embedded macros of a form or report
+
+```
+jetdb macro embedded [OPTIONS] <FILE> <NAME>
+```
+
+Show each embedded macro of the form or report as the `<event>EmMacro = Begin` ... `End` block `Application.SaveAsText` writes in the form's or report's text, without the block's indentation and with CRLF line endings. If the form or report has no embedded macros, produces no output.
+
+##### Options
+
+- `--xml` — Show each embedded macro's XML instead, each followed by a newline. The `For` attribute names the control and `Event` the event.
+
+##### Output examples
+
+```
+$ jetdb macro embedded database.accdb frmEmbedded
+OnLoadEmMacro = Begin
+    Version =196611
+    ColumnsShown =0
+    Begin
+        Comment ="_AXL:<?xml version='1.0' encoding='UTF-16' standalone='no'?><UserInterfaceMacro "
+            "Event='OnLoad' xmlns='http://schemas.microsoft.com/office/accessservices/2009/11"
+            "/application'><Statements><Action Name='SetTe"
+    End
+    ...
+End
+OnClickEmMacro = Begin
+    ...
+End
+
+$ jetdb macro embedded --xml database.accdb frmEmbedded
+<?xml version='1.0' encoding='UTF-16' standalone='no'?><UserInterfaceMacro Event='OnLoad' ...>...</UserInterfaceMacro>
+<?xml version='1.0' encoding='UTF-16' standalone='no'?><UserInterfaceMacro For='btnHello' Event='OnClick' ...>...</UserInterfaceMacro>
+```
+
+#### macro data — Show the data macros of a table
+
+```
+jetdb macro data [OPTIONS] <FILE> <TABLE>
+```
+
+Show the data macros of the table as the text `Application.SaveAsText` writes: one `DataMacros` XML document, with the table events in the order AfterInsert, AfterUpdate, AfterDelete, BeforeChange, BeforeDelete, followed by the named data macros. If the table has no data macros, produces no output.
+
+##### Options
+
+- `--xml` — Show each data macro's XML as stored instead, each followed by a newline
+
+##### Output examples
+
+```
+$ jetdb macro data database.accdb tblItems
+<?xml version="1.0" encoding="UTF-16" standalone="no"?>
+<DataMacros xmlns="..."><DataMacro Event="AfterInsert">...</DataMacro><DataMacro Event="BeforeChange">...</DataMacro></DataMacros>
+
+$ jetdb macro data --xml database.accdb tblNamed
+<?xml version="1.0" encoding="UTF-16" standalone="no"?>
+<DataMacro Name="dmLog" ...><Parameters><Parameter Name="msg"/></Parameters><Statements>...</Statements></DataMacro>
+```
+
 ### export — Export table data as CSV
 
 ```

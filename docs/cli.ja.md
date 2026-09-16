@@ -461,6 +461,128 @@ Form: F_クライアント一覧
     FontName       Meiryo UI
 ```
 
+### macro — マクロの管理
+
+#### macro list — 名前付きマクロ名の一覧表示
+
+```
+jetdb macro list [OPTIONS] <FILE>
+```
+
+データベースに含まれる名前付きマクロの名前一覧を表示する (デフォルトはスペース区切り、名前順ソート)。
+名前付きマクロを含まないデータベースでは何も出力しない。
+
+##### オプション
+
+- `-1`, `--newline` — マクロ名を1行ずつ出力
+- `-d`, `--delimiter <STRING>` — マクロ名間のカスタム区切り文字列 (デフォルト: スペース)
+
+##### 出力例
+
+```
+$ jetdb macro list database.accdb
+AutoExec mcrConditions mcrSimple
+
+$ jetdb macro list -1 nwind.mdb
+Customer Labels Dialog
+Customers
+Sample Autokeys
+```
+
+#### macro show — 名前付きマクロの表示
+
+```
+jetdb macro show [OPTIONS] <FILE> <MACRO_NAME>
+```
+
+名前付きマクロを `Application.SaveAsText` が書き出すテキスト (改行は CRLF) で表示する。Access 97 のマクロを含め、XML を持たずに保存されたマクロも同じ形で表示する。
+
+##### オプション
+
+- `--xml` — テキストの代わりにマクロの XML を表示。XML を持たずに保存されたマクロでは何も出力しない。
+
+##### 出力例
+
+```
+$ jetdb macro show nwind.mdb Customers
+Version =131074
+PublishOption =1
+ColumnsShown =3
+Begin
+    Comment ="Attached to the Customers form."
+End
+...
+Begin
+    MacroName ="Update Country List"
+    Action ="Requery"
+    Comment ="Requery the Country control."
+    Argument ="Country"
+End
+
+$ jetdb macro show --xml database.accdb mcrSimple
+<?xml version="1.0" encoding="UTF-16" standalone="no"?>
+<UserInterfaceMacro ...><Statements><Action Name="OpenForm">...</Statements></UserInterfaceMacro>
+```
+
+#### macro embedded — フォーム/レポートの埋め込みマクロの表示
+
+```
+jetdb macro embedded [OPTIONS] <FILE> <NAME>
+```
+
+フォームまたはレポートの埋め込みマクロを、`Application.SaveAsText` がフォーム/レポートのテキストの中に書き出す `<イベント名>EmMacro = Begin` ... `End` のかたまりとして表示する (かたまり自体の字下げは付けず、改行は CRLF)。埋め込みマクロを持たないフォーム/レポートでは何も出力しない。
+
+##### オプション
+
+- `--xml` — テキストの代わりに各埋め込みマクロの XML を 1 つずつ、それぞれの後に改行を付けて表示。`For` 属性がコントロール名、`Event` 属性がイベント名を表す。
+
+##### 出力例
+
+```
+$ jetdb macro embedded database.accdb frmEmbedded
+OnLoadEmMacro = Begin
+    Version =196611
+    ColumnsShown =0
+    Begin
+        Comment ="_AXL:<?xml version='1.0' encoding='UTF-16' standalone='no'?><UserInterfaceMacro "
+            "Event='OnLoad' xmlns='http://schemas.microsoft.com/office/accessservices/2009/11"
+            "/application'><Statements><Action Name='SetTe"
+    End
+    ...
+End
+OnClickEmMacro = Begin
+    ...
+End
+
+$ jetdb macro embedded --xml database.accdb frmEmbedded
+<?xml version='1.0' encoding='UTF-16' standalone='no'?><UserInterfaceMacro Event='OnLoad' ...>...</UserInterfaceMacro>
+<?xml version='1.0' encoding='UTF-16' standalone='no'?><UserInterfaceMacro For='btnHello' Event='OnClick' ...>...</UserInterfaceMacro>
+```
+
+#### macro data — テーブルのデータマクロの表示
+
+```
+jetdb macro data [OPTIONS] <FILE> <TABLE>
+```
+
+テーブルのデータマクロを `Application.SaveAsText` が書き出すテキストで表示する。1 つの `DataMacros` の XML 文書で、テーブルイベントを AfterInsert、AfterUpdate、AfterDelete、BeforeChange、BeforeDelete の順に並べ、その後に名前付きデータマクロを並べる。データマクロを持たないテーブルでは何も出力しない。
+
+##### オプション
+
+- `--xml` — テキストの代わりに、保存されている各データマクロの XML を 1 つずつ、それぞれの後に改行を付けて表示
+
+##### 出力例
+
+```
+$ jetdb macro data database.accdb tblItems
+<?xml version="1.0" encoding="UTF-16" standalone="no"?>
+<DataMacros xmlns="..."><DataMacro Event="AfterInsert">...</DataMacro><DataMacro Event="BeforeChange">...</DataMacro></DataMacros>
+
+$ jetdb macro data --xml database.accdb tblNamed
+<?xml version="1.0" encoding="UTF-16" standalone="no"?>
+<DataMacro Name="dmLog" ...><Parameters><Parameter Name="msg"/></Parameters><Statements>...</Statements></DataMacro>
+```
+
 ### export — テーブルデータの CSV エクスポート
 
 ```

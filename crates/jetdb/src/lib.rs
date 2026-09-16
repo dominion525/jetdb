@@ -8,6 +8,9 @@ pub mod encoding;
 pub mod file;
 pub mod form;
 pub mod format;
+pub mod macro_action;
+pub mod macro_def;
+mod macro_text;
 pub mod map;
 pub mod money;
 pub mod prop;
@@ -36,6 +39,13 @@ pub use form::{
     BlobProperty, BlobValue, ControlInfo, ControlProperties, FormEntry, FormObjectType,
     FormProperties, FormStream, FormTypeInfo, StreamKind,
 };
+pub use macro_action::{macro_action, macro_argument_value_name, MacroAction, MACRO_ACTIONS};
+pub use macro_def::{
+    list_macros, read_data_macros, read_embedded_macros, read_macro, MacroArgument, MacroBranch,
+    MacroDef, MacroEntry, MacroGrid, MacroGridRow, MacroParameter, MacroSource, MacroStatement,
+    MacroXmlElement,
+};
+pub use macro_text::{data_macros_to_text, embedded_macro_to_text};
 pub use prop::{read_object_properties, ObjectProperties, PropMapType, Property, PropertyMap};
 pub use query::{query_to_sql, read_queries, QueryDef, QueryType};
 pub use vba::{read_vba_project, VbaModule, VbaModuleType, VbaProject};
