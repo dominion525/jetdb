@@ -1463,6 +1463,7 @@ mod tests {
             is_fixed: true,
             precision: 0,
             scale: 0,
+            is_calculated: false,
         }
     }
 
