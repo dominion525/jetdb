@@ -1482,6 +1482,35 @@ mod tests {
         );
     }
 
+    #[test]
+    fn numeric_scale_and_precision_not_swapped() {
+        // Regression test for `format::JET4::coldef_scale_pos` /
+        // `coldef_precision_pos` having been swapped: col2..col7 are
+        // declared Numeric(precision=18, scale=0), so their values must
+        // come back as plain integers, not padded with 18 digits after
+        // a decimal point.
+        let path = skip_if_missing!("V2007/fixedNumericTestV2007.accdb");
+        let mut reader = PageReader::open(&path).unwrap();
+        let catalog = crate::catalog::read_catalog(&mut reader).unwrap();
+        let entry = catalog
+            .iter()
+            .find(|e| e.name == "test")
+            .expect("test table entry in catalog");
+        let table =
+            crate::table::read_table_def(&mut reader, &entry.name, entry.table_page).unwrap();
+        for col in &table.columns[1..] {
+            assert_eq!(col.precision, 18, "{}: expected precision 18", col.name);
+            assert_eq!(col.scale, 0, "{}: expected scale 0", col.name);
+        }
+        let result = read_table_rows(&mut reader, &table).unwrap();
+        assert_eq!(result.rows.len(), 1);
+        let row = &result.rows[0];
+        let expected = ["1", "0", "0", "4", "-1", "1"];
+        for (col, expected) in row[1..].iter().zip(expected) {
+            assert_eq!(*col, Value::Numeric(expected.to_string()));
+        }
+    }
+
     // -- LVAL overflow (Memo / OLE) -------------------------------------------
 
     /// Expected long author text in test2 MSP_PROJECTS.
