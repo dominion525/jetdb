@@ -161,6 +161,14 @@ These files were created by the jetdb project using Microsoft Access for Microso
 | enc_vbaV2007.accdb | Password-protected VBA (Access 2007 format, Agile encryption) |
 | overflow_enc_vbaV2003.mdb | Password-protected VBA with overflow pages (Access 2003 format, Jet encryption) |
 
+## Contributed
+
+These files were created with Microsoft Access by [@semenenkov](https://github.com/semenenkov) and contributed along with the changes that use them.
+
+| File | Purpose |
+|------|---------|
+| V2007/primaryKeyTestV2007.accdb | Covers `find_primary_key` correctly using the `Index.Primary` property rather than the index's name (user-renamable) or its UNIQUE/REQUIRED flags (an ordinary index can carry either) |
+
 ## Fetched, not stored in this repository
 
 These files are downloaded by `scripts/fetch-testdata.sh` and are listed in `.gitignore`. Tests that use them are guarded by `skip_if_missing!`, so they are skipped until the script has been run. CI runs the script before `cargo test`.
