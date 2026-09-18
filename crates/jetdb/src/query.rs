@@ -264,10 +264,9 @@ fn build_query_defs(
 pub fn read_queries(reader: &mut PageReader) -> Result<Vec<QueryDef>, FileError> {
     let catalog = read_catalog(reader)?;
 
-    let queries_entry = catalog.iter().find(|e| {
-        e.name == "MSysQueries"
-            && matches!(e.object_type, ObjectType::Table | ObjectType::SystemTable)
-    });
+    let queries_entry = catalog
+        .iter()
+        .find(|e| e.name == "MSysQueries" && e.object_type == ObjectType::Table);
     let queries_page = match queries_entry {
         Some(e) => e.table_page,
         None => return Ok(Vec::new()),

@@ -56,10 +56,9 @@ pub mod relationship_flags {
 pub fn read_relationships(reader: &mut PageReader) -> Result<Vec<Relationship>, FileError> {
     // Find MSysRelationships in the catalog
     let catalog = read_catalog(reader)?;
-    let rel_entry = catalog.iter().find(|e| {
-        e.name == "MSysRelationships"
-            && matches!(e.object_type, ObjectType::Table | ObjectType::SystemTable)
-    });
+    let rel_entry = catalog
+        .iter()
+        .find(|e| e.name == "MSysRelationships" && e.object_type == ObjectType::Table);
     let rel_page = match rel_entry {
         Some(e) => e.table_page,
         None => return Ok(Vec::new()),
