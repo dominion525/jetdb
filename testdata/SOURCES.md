@@ -188,6 +188,8 @@ These files were created with Microsoft Access by [@semenenkov](https://github.c
 | File | Purpose |
 |------|---------|
 | V2007/primaryKeyTestV2007.accdb | Covers `find_primary_key` correctly using the `Index.Primary` property rather than the index's name (user-renamable) or its UNIQUE/REQUIRED flags (an ordinary index can carry either) |
+| V2007/columnOrderTestV2007.accdb | Design-time field order vs. creation order: fields ID, A, C created in that order, then B inserted between A and C in Design View (creation order stays ID, A, C, B; Design View / display order becomes ID, A, B, C). Created with Access for Microsoft 365 (Version 2608, 32-bit) in the Access 2007-2016 format (ACE12) |
+| V1997/columnOrderTestV1997.mdb | The same field order scenario as `V2007/columnOrderTestV2007.accdb`, for Jet3. Created with Microsoft Access 97 SR-1 |
 
 ## Fetched, not stored in this repository
 
