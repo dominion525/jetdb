@@ -208,7 +208,9 @@ pub fn read_table_def(
     // `Field.OrdinalPosition`), not `col_num` (creation order) -- these
     // diverge whenever a field was inserted at a specific position
     // rather than appended. See `ColumnDef::display_index`'s doc comment.
-    columns.sort_by_key(|c| c.display_index);
+    // System tables store 0 for every column, and Jet4 and later list
+    // column entries by name, so creation order breaks the ties.
+    columns.sort_by_key(|c| (c.display_index, c.col_num));
 
     Ok(TableDef {
         name: name.to_string(),
@@ -713,6 +715,28 @@ mod tests {
             assert!(
                 w[0].display_index <= w[1].display_index,
                 "columns should be sorted by display_index"
+            );
+        }
+    }
+
+    #[test]
+    fn system_table_columns_keep_creation_order() {
+        // System tables store 0 as the design-time order of every column,
+        // and Jet4 and later list their column entries by name, so ties
+        // must fall back to creation order.
+        for file in [
+            "V1997/testV1997.mdb",
+            "V2003/testV2003.mdb",
+            "V2007/testV2007.accdb",
+        ] {
+            let path = skip_if_missing!(file);
+            let mut reader = PageReader::open(&path).unwrap();
+            let tdef = read_table_def(&mut reader, "MSysObjects", CATALOG_PAGE).unwrap();
+            let names: Vec<&str> = tdef.columns.iter().map(|c| c.name.as_str()).collect();
+            assert_eq!(names[..4], ["Id", "ParentId", "Name", "Type"], "{file}");
+            assert!(
+                tdef.columns.windows(2).all(|w| w[0].col_num < w[1].col_num),
+                "{file}: {names:?}"
             );
         }
     }
