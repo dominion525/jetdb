@@ -1760,7 +1760,11 @@ mod tests {
         let table =
             crate::table::read_table_def(&mut reader, &entry.name, entry.table_page).unwrap();
         assert_eq!(
-            table.columns.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+            table
+                .columns
+                .iter()
+                .map(|c| c.name.as_str())
+                .collect::<Vec<_>>(),
             vec!["ID", "A", "B", "C"]
         );
         let result = read_table_rows(&mut reader, &table).unwrap();
