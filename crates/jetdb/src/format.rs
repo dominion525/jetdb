@@ -436,20 +436,38 @@ impl fmt::Display for ColumnType {
 // ObjectType
 // ---------------------------------------------------------------------------
 
-/// Object type stored in the MSysObjects system catalog.
+/// Object type stored in the MSysObjects system catalog, as the `Type` column
+/// holds it.
+///
+/// System tables are [`ObjectType::Table`] with the system flag set (see
+/// [`catalog_flags`]), not a type of their own. Names follow the object types
+/// of the DAO containers the rows belong to; `Table`, `LinkedOdbcTable`,
+/// `Query`, `LinkedTable`, and `Relationship` match the values Jackcess reads
+/// from the same column.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(i32)]
 pub enum ObjectType {
-    Form = 0,
+    Form = -32768,
+    Macro = -32766,
+    Report = -32764,
+    Module = -32761,
+    /// A user of the workgroup (the `Admin` row).
+    UserInfo = -32758,
+    /// A property document of the database (`SummaryInfo`, `UserDefined`,
+    /// `AccessLayout`).
+    DatabaseProperty = -32757,
     Table = 1,
-    Macro = 2,
-    SystemTable = 3,
-    Report = 4,
+    /// The database itself (the `MSysDb` row).
+    Database = 2,
+    /// A DAO container, which holds objects of one type (`Tables`, `Forms`,
+    /// `Scripts`, `Databases`, `Relationships`, and so on).
+    Container = 3,
+    /// A table linked over ODBC.
+    LinkedOdbcTable = 4,
     Query = 5,
+    /// A table linked from another database file.
     LinkedTable = 6,
-    Module = 7,
     Relationship = 8,
-    DatabaseProperty = 11,
 }
 
 impl TryFrom<i32> for ObjectType {
@@ -457,16 +475,19 @@ impl TryFrom<i32> for ObjectType {
 
     fn try_from(value: i32) -> Result<Self, Self::Error> {
         match value {
-            0 => Ok(Self::Form),
+            -32768 => Ok(Self::Form),
+            -32766 => Ok(Self::Macro),
+            -32764 => Ok(Self::Report),
+            -32761 => Ok(Self::Module),
+            -32758 => Ok(Self::UserInfo),
+            -32757 => Ok(Self::DatabaseProperty),
             1 => Ok(Self::Table),
-            2 => Ok(Self::Macro),
-            3 => Ok(Self::SystemTable),
-            4 => Ok(Self::Report),
+            2 => Ok(Self::Database),
+            3 => Ok(Self::Container),
+            4 => Ok(Self::LinkedOdbcTable),
             5 => Ok(Self::Query),
             6 => Ok(Self::LinkedTable),
-            7 => Ok(Self::Module),
             8 => Ok(Self::Relationship),
-            11 => Ok(Self::DatabaseProperty),
             _ => Err(FormatError::UnknownObjectType(value)),
         }
     }
@@ -776,16 +797,19 @@ mod tests {
     #[test]
     fn object_type_roundtrip() {
         let types: &[(i32, ObjectType)] = &[
-            (0, ObjectType::Form),
+            (-32768, ObjectType::Form),
+            (-32766, ObjectType::Macro),
+            (-32764, ObjectType::Report),
+            (-32761, ObjectType::Module),
+            (-32758, ObjectType::UserInfo),
+            (-32757, ObjectType::DatabaseProperty),
             (1, ObjectType::Table),
-            (2, ObjectType::Macro),
-            (3, ObjectType::SystemTable),
-            (4, ObjectType::Report),
+            (2, ObjectType::Database),
+            (3, ObjectType::Container),
+            (4, ObjectType::LinkedOdbcTable),
             (5, ObjectType::Query),
             (6, ObjectType::LinkedTable),
-            (7, ObjectType::Module),
             (8, ObjectType::Relationship),
-            (11, ObjectType::DatabaseProperty),
         ];
         for &(val, expected) in types {
             let ot = ObjectType::try_from(val).unwrap();
@@ -855,12 +879,15 @@ mod tests {
         assert_eq!(ObjectType::Form.to_string(), "Form");
         assert_eq!(ObjectType::Table.to_string(), "Table");
         assert_eq!(ObjectType::Macro.to_string(), "Macro");
-        assert_eq!(ObjectType::SystemTable.to_string(), "SystemTable");
+        assert_eq!(ObjectType::Container.to_string(), "Container");
         assert_eq!(ObjectType::Report.to_string(), "Report");
         assert_eq!(ObjectType::Query.to_string(), "Query");
         assert_eq!(ObjectType::LinkedTable.to_string(), "LinkedTable");
+        assert_eq!(ObjectType::LinkedOdbcTable.to_string(), "LinkedOdbcTable");
         assert_eq!(ObjectType::Module.to_string(), "Module");
         assert_eq!(ObjectType::Relationship.to_string(), "Relationship");
+        assert_eq!(ObjectType::UserInfo.to_string(), "UserInfo");
+        assert_eq!(ObjectType::Database.to_string(), "Database");
         assert_eq!(ObjectType::DatabaseProperty.to_string(), "DatabaseProperty");
     }
 

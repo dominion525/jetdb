@@ -204,6 +204,49 @@ mod tests {
         assert_catalog(&path);
     }
 
+    #[test]
+    fn object_types_of_real_catalogs() {
+        // Every `Type` value in these catalogs is known, and each object gets
+        // the type of the DAO container it belongs to.
+        let cases: &[(&str, &[(&str, ObjectType)])] = &[
+            (
+                "V1997/nwind.mdb",
+                &[
+                    ("Tables", ObjectType::Container),
+                    ("MSysDb", ObjectType::Database),
+                    ("MSysObjects", ObjectType::Table),
+                    ("Categories", ObjectType::Table),
+                    ("AccessLayout", ObjectType::DatabaseProperty),
+                    ("Admin", ObjectType::UserInfo),
+                    ("Customer Labels Dialog", ObjectType::Form),
+                    ("Customer Labels Dialog", ObjectType::Macro),
+                    ("Alphabetical List of Products", ObjectType::Report),
+                    ("Alphabetical List of Products", ObjectType::Query),
+                    ("Northwind Help Function", ObjectType::Module),
+                    ("CategoriesProducts", ObjectType::Relationship),
+                ],
+            ),
+            (
+                // Ordrar is linked over ODBC (its Connect column holds a DSN).
+                "V2007/odbcLinkerTestV2007.accdb",
+                &[("Ordrar", ObjectType::LinkedOdbcTable)],
+            ),
+        ];
+        for (file, expected) in cases {
+            let path = skip_if_missing!(file);
+            let mut reader = PageReader::open(&path).unwrap();
+            let catalog = read_catalog(&mut reader).unwrap();
+            for (name, object_type) in *expected {
+                assert!(
+                    catalog
+                        .iter()
+                        .any(|e| e.name == *name && e.object_type == *object_type),
+                    "{file}: {name} should be {object_type}"
+                );
+            }
+        }
+    }
+
     // -- table_names tests ----------------------------------------------------
 
     fn assert_table_names(path: &std::path::Path) {

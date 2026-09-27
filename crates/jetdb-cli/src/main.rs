@@ -209,12 +209,15 @@ fn object_type_name(t: ObjectType) -> &'static str {
         ObjectType::Form => "form",
         ObjectType::Table => "table",
         ObjectType::Macro => "macro",
-        ObjectType::SystemTable => "systemtable",
+        ObjectType::Container => "container",
         ObjectType::Report => "report",
         ObjectType::Query => "query",
         ObjectType::LinkedTable => "linkedtable",
+        ObjectType::LinkedOdbcTable => "linkedodbctable",
         ObjectType::Module => "module",
         ObjectType::Relationship => "relationship",
+        ObjectType::UserInfo => "userinfo",
+        ObjectType::Database => "database",
         ObjectType::DatabaseProperty => "dbproperty",
     }
 }
@@ -643,12 +646,18 @@ mod tests {
         assert_eq!(object_type_name(ObjectType::Form), "form");
         assert_eq!(object_type_name(ObjectType::Table), "table");
         assert_eq!(object_type_name(ObjectType::Macro), "macro");
-        assert_eq!(object_type_name(ObjectType::SystemTable), "systemtable");
+        assert_eq!(object_type_name(ObjectType::Container), "container");
         assert_eq!(object_type_name(ObjectType::Report), "report");
         assert_eq!(object_type_name(ObjectType::Query), "query");
         assert_eq!(object_type_name(ObjectType::LinkedTable), "linkedtable");
+        assert_eq!(
+            object_type_name(ObjectType::LinkedOdbcTable),
+            "linkedodbctable"
+        );
         assert_eq!(object_type_name(ObjectType::Module), "module");
         assert_eq!(object_type_name(ObjectType::Relationship), "relationship");
+        assert_eq!(object_type_name(ObjectType::UserInfo), "userinfo");
+        assert_eq!(object_type_name(ObjectType::Database), "database");
         assert_eq!(object_type_name(ObjectType::DatabaseProperty), "dbproperty");
     }
 
