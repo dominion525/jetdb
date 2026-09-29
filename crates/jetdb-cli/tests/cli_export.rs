@@ -33,6 +33,36 @@ fn export_basic() {
 }
 
 // ---------------------------------------------------------------------------
+// System tables keep all columns
+// ---------------------------------------------------------------------------
+
+#[test]
+fn export_system_table_keeps_all_columns() {
+    // Every column of the system catalog tables carries the flag that marks
+    // columns Access maintains and hides, so excluding those columns left
+    // nothing to export.
+    for file in ["V1997/testV1997.mdb", "V2003/testV2003.mdb"] {
+        let path = skip_if_missing!(file);
+        let output = jetdb_bin()
+            .args(["export", path.to_str().unwrap(), "MSysObjects"])
+            .output()
+            .expect("failed to run jetdb");
+        assert!(output.status.success(), "{file}");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let lines: Vec<&str> = stdout.lines().collect();
+        assert!(
+            lines[0].starts_with("Id,ParentId,Name,Type,"),
+            "{file}: header: {}",
+            lines[0]
+        );
+        assert!(
+            lines[1..].iter().all(|l| !l.is_empty()),
+            "{file}: rows should not be empty"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
 // --no-header (-H)
 // ---------------------------------------------------------------------------
 
