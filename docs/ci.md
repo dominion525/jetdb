@@ -41,7 +41,7 @@ The library is also tested on WebAssembly, on two targets. They are separate bui
 
 - WASI (`wasm32-wasip1`): the whole library test suite runs under wasmtime, where it can open the files under `testdata/`
 - Browser (`wasm32-unknown-unknown`): this target has no filesystem, so `crates/jetdb/tests/wasm_browser.rs` embeds its databases, opens them from memory through `PageReader::open_reader`, and runs on Node.js. Building these tests also builds the library for the browser
-- npm package (`crates/jetdb-wasm`): `scripts/build-wasm-package.sh` builds the `jetdb-wasm` package into `crates/jetdb-wasm/pkg/`, and `scripts/test-wasm-package.sh` installs it with npm into a temporary directory and runs `crates/jetdb-wasm/tests/smoke.mjs` on its Node.js build and its web build
+- npm package (`crates/jetdb-wasm`): `scripts/build-wasm-package.sh` builds the `jetdb-wasm` package into `crates/jetdb-wasm/pkg/`, and `scripts/test-wasm-package.sh` installs it with npm into a temporary directory and runs `crates/jetdb-wasm/tests/smoke.mjs` on its Node.js build and its web build. It then type-checks `crates/jetdb-wasm/tests/types/check.ts` against the same install with TypeScript, pinned by the `package-lock.json` next to it, once as Node.js resolves the package and once as a bundler does
 
 Run from the repository root. The browser tests embed `testdata/V1997/nwind.mdb`, which is not stored in the repository, so fetch the test data first:
 

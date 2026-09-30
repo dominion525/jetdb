@@ -39,6 +39,16 @@ wasm-bindgen --target nodejs --out-dir "$OUT_DIR/node" "$wasm"
 # The web build is an ES module; node/ stays CommonJS.
 echo '{ "type": "module" }' >"$OUT_DIR/web/package.json"
 
+# The generated types declare [Symbol.dispose](), which the TypeScript
+# libraries before esnext lack. Referencing that library from the types lets
+# projects with an older target use them without changing their settings
+# (TypeScript 5.2 or later).
+for build in web node; do
+    types="$OUT_DIR/$build/jetdb_wasm.d.ts"
+    { echo '/// <reference lib="esnext.disposable" />'; cat "$types"; } >"$types.tmp"
+    mv "$types.tmp" "$types"
+done
+
 jq --arg version "$crate_version" '.version = $version' "$CRATE_DIR/package.json" \
     >"$OUT_DIR/package.json"
 cp "$PROJECT_DIR/LICENSE-MIT" "$PROJECT_DIR/LICENSE-APACHE" "$OUT_DIR/"
