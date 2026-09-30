@@ -44,3 +44,7 @@ Dockerfile.ci-test
 
 # npm package built by scripts/build-wasm-package.sh
 /crates/jetdb-wasm/pkg/
+
+# Playwright and its output for crates/jetdb-wasm/tests/browser/ (run by scripts/test-wasm-browser.sh)
+/crates/jetdb-wasm/tests/browser/node_modules/
+/crates/jetdb-wasm/tests/browser/test-results/
