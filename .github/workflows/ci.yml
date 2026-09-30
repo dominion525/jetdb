@@ -142,6 +142,12 @@ jobs:
         run: scripts/fetch-testdata.sh
       - run: scripts/build-wasm-package.sh
       - run: scripts/test-wasm-package.sh
+      - name: Install the browsers for the pinned Playwright
+        working-directory: crates/jetdb-wasm/tests/browser
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium firefox webkit
+      - run: scripts/test-wasm-browser.sh
 
   doc:
     name: Doc
