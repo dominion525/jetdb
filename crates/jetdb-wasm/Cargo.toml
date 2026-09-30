@@ -14,3 +14,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 jetdb = { path = "../jetdb" }
+# Pinned to the versions in Cargo.lock: the wasm-bindgen CLI that generates
+# the JavaScript glue must be the same version as this crate.
+wasm-bindgen = "=0.2.108"
+js-sys = "=0.3.85"

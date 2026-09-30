@@ -5,6 +5,8 @@
 //! methods reads one thing from it the way the matching `jetdb` CLI command
 //! does.
 
+mod js;
+
 use std::io::Cursor;
 
 use jetdb::format::{catalog_flags, JetVersion, ObjectType};

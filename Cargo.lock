@@ -422,6 +422,8 @@ name = "jetdb-wasm"
 version = "0.3.3"
 dependencies = [
  "jetdb",
+ "js-sys",
+ "wasm-bindgen",
 ]
 
 [[package]]
