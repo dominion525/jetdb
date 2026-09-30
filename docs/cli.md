@@ -591,7 +591,7 @@ jetdb export [OPTIONS] <FILE> <TABLE>
 ```
 
 Export all rows from a table as RFC 4180 compliant CSV to standard output.
-By default, replication system columns are excluded.
+By default, replication system columns are excluded. System tables are exported with all their columns.
 
 #### Options
 
