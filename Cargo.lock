@@ -418,6 +418,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "jetdb-wasm"
+version = "0.3.3"
+dependencies = [
+ "jetdb",
+]
+
+[[package]]
 name = "jiff"
 version = "0.2.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
