@@ -112,6 +112,37 @@ jobs:
         run: scripts/fetch-testdata.sh
       - run: cargo test --target wasm32-unknown-unknown -p jetdb --test wasm_browser
 
+  # Builds the jetdb-wasm npm package and tests it as npm installs it, through
+  # both its Node.js build and its web build. The wasm-bindgen CLI that
+  # generates the JavaScript glue must be the same version as the wasm-bindgen
+  # in Cargo.lock, so the version is read from there.
+  wasm-package-test:
+    name: Wasm package (jetdb-wasm)
+    needs: [clippy, audit, msrv]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+      - name: Read the wasm-bindgen version from Cargo.lock
+        id: wasm-bindgen
+        run: |
+          version=$(cargo metadata --format-version 1 --filter-platform wasm32-unknown-unknown \
+            | jq -r '.packages[] | select(.name == "wasm-bindgen") | .version')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@${{ steps.wasm-bindgen.outputs.version }}
+      - name: Fetch test data
+        run: scripts/fetch-testdata.sh
+      - run: scripts/build-wasm-package.sh
+      - run: scripts/test-wasm-package.sh
+
   doc:
     name: Doc
     needs: test
