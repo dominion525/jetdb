@@ -325,6 +325,7 @@ mod tests {
             precision,
             scale,
             is_calculated: false,
+            display_index: 0,
         }
     }
 
@@ -349,6 +350,7 @@ mod tests {
             precision,
             scale,
             is_calculated: false,
+            display_index: col_num,
         }
     }
 
@@ -1616,6 +1618,24 @@ mod tests {
         let path = skip_if_missing!("V2007/primaryKeyTestV2007.accdb");
         let ddl = create_table_ddl(&path, "t4renamedPKmulticol");
         assert!(ddl.contains("PRIMARY KEY ([ID1], [ID2])"), "got:\n{ddl}");
+    }
+
+    #[test]
+    fn columns_in_design_order() {
+        // Table1's fields were created as ID, A, C, and then B was inserted
+        // between A and C in Design View.
+        for file in [
+            "V2007/columnOrderTestV2007.accdb",
+            "V1997/columnOrderTestV1997.mdb",
+        ] {
+            let path = skip_if_missing!(file);
+            let ddl = create_table_ddl(&path, "Table1");
+            let positions: Vec<usize> = ["[ID]", "[A]", "[B]", "[C]"]
+                .iter()
+                .map(|name| ddl.find(name).unwrap_or_else(|| panic!("{file}: {name}")))
+                .collect();
+            assert!(positions.is_sorted(), "{file}: got:\n{ddl}");
+        }
     }
 
     #[test]

@@ -191,6 +191,12 @@ pub struct JetFormat {
     pub coldef_scale_pos: usize,
     /// Position of the precision field for numeric columns.
     pub coldef_precision_pos: usize,
+
+    /// Position of the design-time field-order `u16` (see
+    /// [`crate::table::ColumnDef::display_index`]). Confirmed per-format
+    /// against a real sample with a column manually inserted out of
+    /// creation order in Design View -- see `testdata/SOURCES.md`.
+    pub coldef_display_index_pos: usize,
 }
 
 /// Format constants for the Jet 3 engine (Access 97, page size 2048).
@@ -229,6 +235,7 @@ pub static JET3: JetFormat = JetFormat {
     // two fields are never actually read for real data.
     coldef_scale_pos: 9,
     coldef_precision_pos: 10,
+    coldef_display_index_pos: 5,
 };
 
 /// Format constants for the Jet 4 / ACE engine (Access 2000+, page size 4096).
@@ -265,6 +272,7 @@ pub static JET4: JetFormat = JetFormat {
     // (`V2007/fixedNumericTestV2007.accdb`).
     coldef_scale_pos: 12,
     coldef_precision_pos: 11,
+    coldef_display_index_pos: 9,
 };
 
 // ---------------------------------------------------------------------------
