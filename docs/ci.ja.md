@@ -41,7 +41,7 @@ rustup component add clippy
 
 - WASI（`wasm32-wasip1`）: ライブラリのテストをすべて wasmtime 上で実行する。WASI では `testdata/` 配下のファイルを開ける
 - ブラウザ用（`wasm32-unknown-unknown`）: ファイルシステムが無いので、`crates/jetdb/tests/wasm_browser.rs` がデータベースを埋め込み、`PageReader::open_reader` でメモリから開いて、Node.js 上で実行する。このテストのビルドには、ブラウザ用のライブラリのビルドも含まれる
-- npm パッケージ（`crates/jetdb-wasm`）: `scripts/build-wasm-package.sh` が `jetdb-wasm` パッケージを `crates/jetdb-wasm/pkg/` に作り、`scripts/test-wasm-package.sh` がそれを npm で一時ディレクトリに入れて、Node.js 用とブラウザ用のそれぞれで `crates/jetdb-wasm/tests/smoke.mjs` を実行する
+- npm パッケージ（`crates/jetdb-wasm`）: `scripts/build-wasm-package.sh` が `jetdb-wasm` パッケージを `crates/jetdb-wasm/pkg/` に作り、`scripts/test-wasm-package.sh` がそれを npm で一時ディレクトリに入れて、Node.js 用とブラウザ用のそれぞれで `crates/jetdb-wasm/tests/smoke.mjs` を実行する。続けて、同じインストールに対して `crates/jetdb-wasm/tests/types/check.ts` の型を TypeScript で確かめる。TypeScript の版は同じ場所の `package-lock.json` で固定し、Node.js としての解決とバンドラーとしての解決の 2 通りで確かめる
 
 リポジトリのルートで実行する。ブラウザ用テストはリポジトリに同梱していない `testdata/V1997/nwind.mdb` を埋め込むので、先にテストデータを取得する:
 
