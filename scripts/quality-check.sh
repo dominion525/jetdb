@@ -38,9 +38,11 @@ has_cmd cargo-audit    && HAS_AUDIT=true
 has_cmd rust-code-analysis-cli && HAS_RCA=true
 
 # Wasm checks need both Wasm targets installed through rustup, wasmtime for
-# WASI, and wasm-bindgen-test-runner plus Node.js for the browser target.
+# WASI, wasm-bindgen-test-runner plus Node.js for the browser target, and the
+# wasm-bindgen CLI, jq and npm for the jetdb-wasm package.
 HAS_WASM=false
-if has_cmd rustup && has_cmd wasmtime && has_cmd wasm-bindgen-test-runner && has_cmd node; then
+if has_cmd rustup && has_cmd wasmtime && has_cmd wasm-bindgen-test-runner && has_cmd node \
+    && has_cmd wasm-bindgen && has_cmd jq && has_cmd npm; then
     installed_targets=$(rustup target list --installed 2>/dev/null)
     if echo "$installed_targets" | grep -qx wasm32-unknown-unknown \
         && echo "$installed_targets" | grep -qx wasm32-wasip1; then
@@ -93,7 +95,8 @@ printf " $(pass)\n"
 # The whole library test suite runs on WASI, where it can open the files under
 # testdata/. The browser target has no filesystem, so tests/wasm_browser.rs
 # embeds its databases and runs on Node.js; it embeds nwind.mdb, so the test data
-# is fetched first. On failure the whole output is shown.
+# is fetched first. Then the jetdb-wasm npm package is built and tested as npm
+# installs it. On failure the whole output is shown.
 header "Wasm"
 if [ "$HAS_WASM" = true ]; then
     wasm_output=$( {
@@ -102,13 +105,17 @@ if [ "$HAS_WASM" = true ]; then
                 cargo test --target wasm32-wasip1 -p jetdb \
             && echo "--- browser ---" \
             && CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner \
-                cargo test --target wasm32-unknown-unknown -p jetdb --test wasm_browser
+                cargo test --target wasm32-unknown-unknown -p jetdb --test wasm_browser \
+            && echo "--- package ---" \
+            && scripts/build-wasm-package.sh \
+            && scripts/test-wasm-package.sh
     } 2>&1 ) && {
         wasi_output=${wasm_output%%--- browser ---*}
         browser_output=${wasm_output##*--- browser ---}
+        browser_output=${browser_output%%--- package ---*}
         wasi_passed=$(echo "$wasi_output" | grep -oE '[0-9]+ passed' | grep -m1 -oE '[0-9]+')
         browser_passed=$(echo "$browser_output" | grep -oE '[0-9]+ passed' | grep -m1 -oE '[0-9]+')
-        printf " $(pass) (%s passed on WASI, %s passed in the browser target)\n" \
+        printf " $(pass) (%s passed on WASI, %s passed in the browser target, package tested)\n" \
             "${wasi_passed:-?}" "${browser_passed:-?}"
     } || {
         printf " $(fail)\n"
@@ -116,7 +123,7 @@ if [ "$HAS_WASM" = true ]; then
         ERRORS=$((ERRORS + 1))
     }
 else
-    printf " $(skip) (needs the wasm32-unknown-unknown / wasm32-wasip1 targets, wasmtime, wasm-bindgen-test-runner and node)\n"
+    printf " $(skip) (needs the wasm32-unknown-unknown / wasm32-wasip1 targets, wasmtime, wasm-bindgen-cli, node, npm and jq)\n"
 fi
 
 # --- 4. Audit ---
