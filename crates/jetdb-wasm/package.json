@@ -1,0 +1,39 @@
+{
+  "name": "jetdb-wasm",
+  "version": "0.0.0",
+  "description": "Read Microsoft Access (.mdb / .accdb) databases in the browser and Node.js, with jetdb built as WebAssembly",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dominion525/jetdb.git",
+    "directory": "crates/jetdb-wasm"
+  },
+  "keywords": [
+    "access",
+    "mdb",
+    "accdb",
+    "jet",
+    "database",
+    "wasm"
+  ],
+  "exports": {
+    ".": {
+      "node": {
+        "types": "./node/jetdb_wasm.d.ts",
+        "default": "./node/jetdb_wasm.js"
+      },
+      "default": {
+        "types": "./web/jetdb_wasm.d.ts",
+        "default": "./web/jetdb_wasm.js"
+      }
+    }
+  },
+  "types": "./web/jetdb_wasm.d.ts",
+  "files": [
+    "node/",
+    "web/",
+    "LICENSE-MIT",
+    "LICENSE-APACHE"
+  ],
+  "sideEffects": false
+}

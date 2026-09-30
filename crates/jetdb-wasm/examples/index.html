@@ -1,0 +1,102 @@
+<!doctype html>
+<!--
+  A page for developers to check the jetdb-wasm package in a browser.
+
+  Build the package and serve this directory:
+    scripts/build-wasm-package.sh
+    node scripts/serve-wasm-example.mjs
+  then open http://localhost:8080/examples/ and choose a .mdb or .accdb file.
+  The file is read in the browser and is not sent anywhere.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>jetdb-wasm check</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 2rem;
+        max-width: 48rem;
+      }
+      label {
+        display: block;
+        margin: 0.5rem 0;
+      }
+      #error {
+        color: #b00020;
+        white-space: pre-wrap;
+      }
+      dt {
+        font-weight: bold;
+        margin-top: 0.75rem;
+      }
+      dd {
+        margin-left: 1rem;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>jetdb-wasm check</h1>
+    <label
+      >Database file <input id="file" type="file" accept=".mdb,.accdb"
+    /></label>
+    <label
+      >Password (for a password-protected .accdb)
+      <input id="password" type="password" autocomplete="off" data-1p-ignore
+    /></label>
+    <label
+      ><input id="system" type="checkbox" /> Include system and hidden
+      tables</label
+    >
+    <!-- Enabled once the Wasm is initialized. -->
+    <button id="open" disabled>Open</button>
+
+    <p id="error"></p>
+    <dl id="result" hidden>
+      <dt>Version</dt>
+      <dd id="version"></dd>
+      <dt>Tables</dt>
+      <dd><ul id="tables"></ul></dd>
+    </dl>
+
+    <script type="module">
+      import init, { Database } from "../pkg/web/jetdb_wasm.js";
+
+      const $ = (id) => document.getElementById(id);
+
+      try {
+        await init();
+        $("open").disabled = false;
+      } catch (e) {
+        $("error").textContent = `Failed to initialize the Wasm: ${e.message}`;
+      }
+
+      $("open").addEventListener("click", async () => {
+        $("error").textContent = "";
+        $("result").hidden = true;
+        const file = $("file").files[0];
+        if (!file) {
+          $("error").textContent = "Choose a database file first.";
+          return;
+        }
+        try {
+          const bytes = new Uint8Array(await file.arrayBuffer());
+          const password = $("password").value || undefined;
+          const db = Database.open(bytes, password);
+          $("version").textContent = db.version();
+          $("tables").replaceChildren(
+            ...db.tables({ system: $("system").checked }).map((name) => {
+              const li = document.createElement("li");
+              li.textContent = name;
+              return li;
+            }),
+          );
+          db.free();
+          $("result").hidden = false;
+        } catch (e) {
+          $("error").textContent = e.message;
+        }
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,20 @@
+[package]
+name = "jetdb-wasm"
+version = "0.3.3"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "JavaScript bindings of jetdb, built as WebAssembly for the jetdb-wasm npm package"
+repository = "https://github.com/dominion525/jetdb"
+rust-version = "1.86"
+# Published to npm as jetdb-wasm, not to crates.io.
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+jetdb = { path = "../jetdb" }
+# Pinned to the versions in Cargo.lock: the wasm-bindgen CLI that generates
+# the JavaScript glue must be the same version as this crate.
+wasm-bindgen = "=0.2.108"
+js-sys = "=0.3.85"
