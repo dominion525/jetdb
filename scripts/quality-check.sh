@@ -77,7 +77,9 @@ test_output=$(cargo test 2>&1) || {
     echo "Tests failed. Aborting."
     exit 1
 }
-test_passed=$(echo "$test_output" | grep -oE '[0-9]+ passed' | tail -1 | grep -oE '[0-9]+')
+# Each test binary prints its own "test result" line; add them all up.
+test_passed=$(echo "$test_output" | grep -oE 'test result: [a-z]+\. [0-9]+ passed' \
+    | grep -oE '[0-9]+ passed' | awk '{ sum += $1 } END { print sum }')
 printf " $(pass) (%s passed)\n" "${test_passed:-?}"
 
 # --- 2. Clippy ---
