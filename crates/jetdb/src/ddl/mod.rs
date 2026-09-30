@@ -10,7 +10,7 @@ pub use mysql::Mysql;
 pub use postgres::Postgres;
 pub use sqlite::Sqlite;
 
-use crate::format::{column_flags, index_flags, index_type};
+use crate::format::{column_flags, index_flags, index_type, ColumnType};
 use crate::{ColumnDef, IndexDef, Relationship, TableDef};
 
 // ---------------------------------------------------------------------------
@@ -51,8 +51,23 @@ fn find_primary_key(tdef: &TableDef) -> Option<&IndexDef> {
 }
 
 /// Check if a column is auto-increment.
+///
+/// A complex column (attachment, multi-value, or version history) carries the
+/// auto-increment flag because Access numbers the IDs it holds of its values
+/// in a hidden table, but it is not an auto-increment column of the table.
 fn is_auto_increment(col: &ColumnDef) -> bool {
-    (col.flags & column_flags::AUTO_LONG) != 0 || (col.flags & column_flags::AUTO_UUID) != 0
+    col.col_type != ColumnType::ComplexType
+        && ((col.flags & column_flags::AUTO_LONG) != 0
+            || (col.flags & column_flags::AUTO_UUID) != 0)
+}
+
+/// Check if an index is the hidden index Access keeps on a complex column.
+fn is_complex_column_index(tdef: &TableDef, idx: &IndexDef) -> bool {
+    idx.columns.iter().all(|ic| {
+        tdef.columns
+            .iter()
+            .any(|c| c.col_num == ic.col_num && c.col_type == ColumnType::ComplexType)
+    })
 }
 
 /// Resolve an index column number to a column name.
@@ -218,6 +233,10 @@ pub fn generate_create_indexes(dialect: &dyn DdlDialect, tdef: &TableDef) -> Str
     for idx in &tdef.indexes {
         // Skip FK indexes
         if idx.index_type == index_type::FOREIGN_KEY {
+            continue;
+        }
+        // Skip the hidden indexes on complex columns
+        if is_complex_column_index(tdef, idx) {
             continue;
         }
         // Skip the primary key index (already in CREATE TABLE)
@@ -1583,6 +1602,38 @@ mod tests {
         let tdef =
             crate::table::read_table_def(&mut reader, &entry.name, entry.table_page).unwrap();
         generate_create_table(&Access, &tdef, &[])
+    }
+
+    #[test]
+    fn complex_columns_are_plain_integers_without_hidden_indexes() {
+        // Table1's version history, multi-value, and attachment columns hold
+        // the ID of their values in a hidden table. Access numbers those IDs
+        // and gives each such column a hidden unique index; neither makes the
+        // column an auto-increment column or an index to recreate.
+        let path = skip_if_missing!("V2007/complexDataTestV2007.accdb");
+        let mut reader = crate::file::PageReader::open(&path).unwrap();
+        let entry = crate::catalog::read_catalog(&mut reader)
+            .unwrap()
+            .into_iter()
+            .find(|e| e.name == "Table1")
+            .unwrap();
+        let tdef =
+            crate::table::read_table_def(&mut reader, &entry.name, entry.table_page).unwrap();
+        let dialects: [(&dyn DdlDialect, &str); 4] = [
+            (&Access, "COUNTER"),
+            (&Postgres, "IDENTITY"),
+            (&Mysql, "AUTO_INCREMENT"),
+            (&Sqlite, "AUTOINCREMENT"),
+        ];
+        for (dialect, auto_keyword) in dialects {
+            let ddl = generate_ddl(dialect, std::slice::from_ref(&tdef), &[], true, false);
+            assert!(!ddl.contains(auto_keyword), "got:\n{ddl}");
+            assert!(!ddl.contains("CREATE UNIQUE INDEX"), "got:\n{ddl}");
+            assert_eq!(ddl.matches("PRIMARY KEY").count(), 1, "got:\n{ddl}");
+            for column in ["multi-value-data", "attach-data"] {
+                assert!(ddl.contains(column), "{column} should stay, got:\n{ddl}");
+            }
+        }
     }
 
     #[test]
