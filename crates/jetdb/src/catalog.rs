@@ -20,6 +20,20 @@ pub struct CatalogEntry {
     pub flags: u32,
 }
 
+impl CatalogEntry {
+    /// `true` for a system object, such as the `MSys*` tables.
+    pub fn is_system(&self) -> bool {
+        self.flags & catalog_flags::SYSTEM != 0
+    }
+
+    /// `true` for an object Access keeps from users: a system object or one
+    /// marked hidden. The `jetdb tables` command and [`table_names`] leave
+    /// these out unless asked for them.
+    pub fn is_system_or_hidden(&self) -> bool {
+        self.flags & (catalog_flags::SYSTEM | catalog_flags::HIDDEN) != 0
+    }
+}
+
 // ---------------------------------------------------------------------------
 // read_catalog
 // ---------------------------------------------------------------------------
@@ -98,6 +112,20 @@ pub fn read_catalog(reader: &mut PageReader) -> Result<Vec<CatalogEntry>, FileEr
 // table_names
 // ---------------------------------------------------------------------------
 
+/// Find the table named `name` in `catalog`, system and hidden tables
+/// included, or return [`FileError::TableNotFound`].
+pub fn find_table<'a>(
+    catalog: &'a [CatalogEntry],
+    name: &str,
+) -> Result<&'a CatalogEntry, FileError> {
+    catalog
+        .iter()
+        .find(|e| e.object_type == ObjectType::Table && e.name == name)
+        .ok_or_else(|| FileError::TableNotFound {
+            name: name.to_string(),
+        })
+}
+
 /// Return the names of user-visible tables in the database.
 ///
 /// Filters out system objects (`MSys*`) and hidden tables based on the
@@ -106,10 +134,7 @@ pub fn table_names(reader: &mut PageReader) -> Result<Vec<String>, FileError> {
     let catalog = read_catalog(reader)?;
     let names = catalog
         .into_iter()
-        .filter(|e| {
-            e.object_type == ObjectType::Table
-                && (e.flags & (catalog_flags::SYSTEM | catalog_flags::HIDDEN)) == 0
-        })
+        .filter(|e| e.object_type == ObjectType::Table && !e.is_system_or_hidden())
         .map(|e| e.name)
         .collect();
     Ok(names)
@@ -300,10 +325,7 @@ mod tests {
     fn filter_user_tables(catalog: Vec<CatalogEntry>) -> Vec<String> {
         catalog
             .into_iter()
-            .filter(|e| {
-                e.object_type == ObjectType::Table
-                    && (e.flags & (catalog_flags::SYSTEM | catalog_flags::HIDDEN)) == 0
-            })
+            .filter(|e| e.object_type == ObjectType::Table && !e.is_system_or_hidden())
             .map(|e| e.name)
             .collect()
     }
@@ -315,6 +337,39 @@ mod tests {
             table_page: 100,
             flags,
         }
+    }
+
+    #[test]
+    fn find_table_by_name() {
+        let catalog = vec![
+            entry("Table1", ObjectType::Table, 0),
+            entry("Query1", ObjectType::Query, 0),
+            entry("MSysObjects", ObjectType::Table, catalog_flags::SYSTEM),
+        ];
+        assert_eq!(find_table(&catalog, "Table1").unwrap().name, "Table1");
+        assert_eq!(
+            find_table(&catalog, "MSysObjects").unwrap().name,
+            "MSysObjects"
+        );
+        // A query of that name is not a table.
+        assert!(matches!(
+            find_table(&catalog, "Query1"),
+            Err(FileError::TableNotFound { name }) if name == "Query1"
+        ));
+        assert!(matches!(
+            find_table(&catalog, "NoSuchTable"),
+            Err(FileError::TableNotFound { name }) if name == "NoSuchTable"
+        ));
+    }
+
+    #[test]
+    fn system_and_hidden_flags() {
+        let user = entry("Table1", ObjectType::Table, 0);
+        let system = entry("MSysObjects", ObjectType::Table, catalog_flags::SYSTEM);
+        let hidden = entry("Hidden", ObjectType::Table, catalog_flags::HIDDEN);
+        assert!(!user.is_system() && !user.is_system_or_hidden());
+        assert!(system.is_system() && system.is_system_or_hidden());
+        assert!(!hidden.is_system() && hidden.is_system_or_hidden());
     }
 
     #[test]

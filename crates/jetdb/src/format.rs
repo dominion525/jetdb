@@ -82,6 +82,20 @@ impl JetVersion {
     pub fn is_accdb(&self) -> bool {
         !matches!(self, Self::Jet3 | Self::Jet4)
     }
+
+    /// The short name of the version, as the `jetdb ver` command prints it:
+    /// `JET3`, `JET4`, `ACE12`, `ACE14`, `ACE15`, `ACE16` or `ACE17`.
+    pub fn short_name(&self) -> &'static str {
+        match self {
+            Self::Jet3 => "JET3",
+            Self::Jet4 => "JET4",
+            Self::Ace12 => "ACE12",
+            Self::Ace14 => "ACE14",
+            Self::Ace15 => "ACE15",
+            Self::Ace16 => "ACE16",
+            Self::Ace17 => "ACE17",
+        }
+    }
 }
 
 impl TryFrom<u8> for JetVersion {
@@ -529,7 +543,15 @@ pub mod column_flags {
     pub const NULLABLE: u8 = 0x02;
     /// Column is an auto-increment long integer.
     pub const AUTO_LONG: u8 = 0x04;
-    /// Column is used for replication.
+    /// Column Access maintains and hides from users, such as every column of
+    /// a system table.
+    pub const HIDDEN: u8 = 0x10;
+    /// Former name of `HIDDEN`. It keeps its value, so existing checks
+    /// against it still match the same columns.
+    #[deprecated(
+        since = "0.4.0",
+        note = "the flag marks columns Access maintains and hides, which are not only replication columns; use `HIDDEN`"
+    )]
     pub const REPLICATION: u8 = 0x10;
     /// Column is an auto-generated UUID.
     pub const AUTO_UUID: u8 = 0x40;
@@ -864,6 +886,17 @@ mod tests {
         assert_eq!(JetVersion::Ace15.to_string(), "ACE15 (Access 2013)");
         assert_eq!(JetVersion::Ace16.to_string(), "ACE16 (Access 2016)");
         assert_eq!(JetVersion::Ace17.to_string(), "ACE17 (Access 2019)");
+    }
+
+    #[test]
+    fn jet_version_short_name() {
+        assert_eq!(JetVersion::Jet3.short_name(), "JET3");
+        assert_eq!(JetVersion::Jet4.short_name(), "JET4");
+        assert_eq!(JetVersion::Ace12.short_name(), "ACE12");
+        assert_eq!(JetVersion::Ace14.short_name(), "ACE14");
+        assert_eq!(JetVersion::Ace15.short_name(), "ACE15");
+        assert_eq!(JetVersion::Ace16.short_name(), "ACE16");
+        assert_eq!(JetVersion::Ace17.short_name(), "ACE17");
     }
 
     #[test]

@@ -98,13 +98,7 @@ fn format_value(value: &Value) -> String {
         Value::Binary(b) => format!("({} bytes)", b.len()),
         Value::Money(s) => s.clone(),
         Value::Numeric(s) => s.clone(),
-        Value::Timestamp(ts) => {
-            if jetdb::timestamp::is_date_only(*ts) {
-                jetdb::timestamp::format_timestamp(*ts, "%Y-%m-%d")
-            } else {
-                jetdb::timestamp::format_timestamp(*ts, "%Y-%m-%d %H:%M:%S")
-            }
-        }
+        Value::Timestamp(ts) => jetdb::timestamp::format_default(*ts),
         Value::Guid(s) => s.clone(),
         Value::DateTimeExtended(s) => s.clone(),
     }

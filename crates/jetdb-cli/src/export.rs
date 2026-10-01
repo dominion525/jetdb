@@ -4,7 +4,7 @@ use std::process::ExitCode;
 
 use clap::{Args, ValueEnum};
 use jetdb::timestamp;
-use jetdb::{catalog_flags, read_catalog, read_table_def, read_table_rows, PageReader, Value};
+use jetdb::{find_table, read_catalog, read_table_def, read_table_rows, PageReader, Value};
 
 // ---------------------------------------------------------------------------
 // CLI definition
@@ -27,14 +27,14 @@ pub struct ExportArgs {
     pub delimiter: String,
 
     /// Date format (strftime subset, default: "%Y-%m-%d")
-    #[arg(short = 'D', long = "date-format", default_value = "%Y-%m-%d")]
+    #[arg(short = 'D', long = "date-format", default_value = timestamp::DEFAULT_DATE_FORMAT)]
     pub date_format: String,
 
     /// Date-time format (strftime subset, default: "%Y-%m-%d %H:%M:%S")
     #[arg(
         short = 'T',
         long = "datetime-format",
-        default_value = "%Y-%m-%d %H:%M:%S"
+        default_value = timestamp::DEFAULT_DATETIME_FORMAT
     )]
     pub datetime_format: String,
 
@@ -50,7 +50,7 @@ pub struct ExportArgs {
     #[arg(short = 'B', long = "boolean-words")]
     pub boolean_words: bool,
 
-    /// Include replication system columns
+    /// Include the columns Access maintains and hides
     #[arg(short = 's', long = "system-columns")]
     pub system_columns: bool,
 }
@@ -203,26 +203,19 @@ fn run_export(args: &ExportArgs, password: Option<&str>) -> Result<(), jetdb::Fi
     let mut reader = PageReader::open_with_password(&args.file, password)?;
     let catalog = read_catalog(&mut reader)?;
 
-    let entry = catalog
-        .iter()
-        .find(|e| e.object_type == jetdb::format::ObjectType::Table && e.name == args.table)
-        .ok_or(jetdb::FileError::TableNotFound {
-            name: args.table.clone(),
-        })?;
+    let entry = find_table(&catalog, &args.table)?;
 
     let tdef = read_table_def(&mut reader, &entry.name, entry.table_page)?;
 
-    // Column filtering: build indices of columns to include. The flag
-    // `is_replication_column` checks marks columns Access maintains and hides,
-    // which in a system table is every column, so system tables keep them all.
-    let is_system_table = entry.flags & catalog_flags::SYSTEM != 0;
+    // Column filtering: build indices of columns to include. Hidden columns
+    // are left out unless asked for, except in system tables (see
+    // `ColumnDef::is_shown`).
+    let is_system_table = entry.is_system();
     let col_indices: Vec<usize> = tdef
         .columns
         .iter()
         .enumerate()
-        .filter(|(_, col)| {
-            args.system_columns || is_system_table || !jetdb::is_replication_column(col)
-        })
+        .filter(|(_, col)| args.system_columns || col.is_shown(is_system_table))
         .map(|(i, _)| i)
         .collect();
 
@@ -268,8 +261,8 @@ mod tests {
     fn default_opts() -> FormatOptions {
         FormatOptions {
             delimiter: ',',
-            date_format: "%Y-%m-%d".to_string(),
-            datetime_format: "%Y-%m-%d %H:%M:%S".to_string(),
+            date_format: timestamp::DEFAULT_DATE_FORMAT.to_string(),
+            datetime_format: timestamp::DEFAULT_DATETIME_FORMAT.to_string(),
             bin_mode: BinMode::Hex,
             null_string: String::new(),
             boolean_words: false,

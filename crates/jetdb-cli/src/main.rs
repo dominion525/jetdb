@@ -10,9 +10,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
-use jetdb::format::{
-    catalog_flags, column_flags, index_flags, index_type, ColumnType, JetVersion, ObjectType,
-};
+use jetdb::format::{column_flags, index_flags, index_type, ColumnType, ObjectType};
 use jetdb::{
     calculated_column_types, read_catalog, read_relationships, read_table_def, relationship_flags,
     CatalogEntry, ColumnDef, IndexColumnOrder, IndexDef, PageReader, Relationship, TableDef,
@@ -131,21 +129,9 @@ fn run_ver(args: &VerArgs, password: Option<&str>) -> Result<(), jetdb::FileErro
     if args.long {
         println!("{version}");
     } else {
-        println!("{}", version_short_name(version));
+        println!("{}", version.short_name());
     }
     Ok(())
-}
-
-fn version_short_name(v: JetVersion) -> &'static str {
-    match v {
-        JetVersion::Jet3 => "JET3",
-        JetVersion::Jet4 => "JET4",
-        JetVersion::Ace12 => "ACE12",
-        JetVersion::Ace14 => "ACE14",
-        JetVersion::Ace15 => "ACE15",
-        JetVersion::Ace16 => "ACE16",
-        JetVersion::Ace17 => "ACE17",
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -191,13 +177,11 @@ fn should_show(entry: &CatalogEntry, include_system: bool) -> bool {
     if include_system {
         return true;
     }
-    (entry.flags & (catalog_flags::SYSTEM | catalog_flags::HIDDEN)) == 0
+    !entry.is_system_or_hidden()
 }
 
 fn resolve_type_name(entry: &CatalogEntry) -> &'static str {
-    if entry.object_type == ObjectType::Table
-        && (entry.flags & (catalog_flags::SYSTEM | catalog_flags::HIDDEN)) != 0
-    {
+    if entry.object_type == ObjectType::Table && entry.is_system_or_hidden() {
         "systable"
     } else {
         object_type_name(entry.object_type)
@@ -242,18 +226,11 @@ fn run_schema(args: &SchemaArgs, password: Option<&str>) -> Result<(), jetdb::Fi
 
     // Collect target tables
     let targets: Vec<&CatalogEntry> = if let Some(ref name) = args.table_name {
-        let entry = catalog
-            .iter()
-            .find(|e| e.object_type == ObjectType::Table && e.name == *name)
-            .ok_or(jetdb::FileError::TableNotFound { name: name.clone() })?;
-        vec![entry]
+        vec![jetdb::find_table(&catalog, name)?]
     } else {
         catalog
             .iter()
-            .filter(|e| {
-                e.object_type == ObjectType::Table
-                    && (e.flags & (catalog_flags::SYSTEM | catalog_flags::HIDDEN)) == 0
-            })
+            .filter(|e| e.object_type == ObjectType::Table && !e.is_system_or_hidden())
             .collect()
     };
 
@@ -564,17 +541,7 @@ Details: https://github.com/dominion525/agent-skills"
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn short_name_all_versions() {
-        assert_eq!(version_short_name(JetVersion::Jet3), "JET3");
-        assert_eq!(version_short_name(JetVersion::Jet4), "JET4");
-        assert_eq!(version_short_name(JetVersion::Ace12), "ACE12");
-        assert_eq!(version_short_name(JetVersion::Ace14), "ACE14");
-        assert_eq!(version_short_name(JetVersion::Ace15), "ACE15");
-        assert_eq!(version_short_name(JetVersion::Ace16), "ACE16");
-        assert_eq!(version_short_name(JetVersion::Ace17), "ACE17");
-    }
+    use jetdb::format::catalog_flags;
 
     // -- tables helpers -------------------------------------------------------
 

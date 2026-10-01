@@ -9,11 +9,9 @@ mod js;
 
 use std::io::Cursor;
 
-use jetdb::format::{
-    catalog_flags, column_flags, index_flags, index_type, ColumnType, JetVersion, ObjectType,
-};
+use jetdb::format::{column_flags, index_flags, index_type, ColumnType, ObjectType};
 use jetdb::{
-    calculated_column_types, read_catalog, read_table_def, read_table_rows, timestamp, ColumnDef,
+    calculated_column_types, find_table, read_catalog, read_table_def, read_table_rows, timestamp,
     FileError, IndexColumnOrder, PageReader, TableDef, Value,
 };
 
@@ -100,7 +98,7 @@ impl From<Value> for Cell {
             | Value::Float(_)
             | Value::Double(_)) => Cell::Number(number_value(&number)),
             Value::BigInt(v) => Cell::BigInt(v),
-            Value::Timestamp(ts) => Cell::String(timestamp_string(ts)),
+            Value::Timestamp(ts) => Cell::String(timestamp::format_default(ts)),
             Value::Text(s)
             | Value::Money(s)
             | Value::Numeric(s)
@@ -126,17 +124,6 @@ fn number_value(value: &Value) -> f64 {
     }
 }
 
-/// A Timestamp as `jetdb export` writes it by default: the date alone when
-/// the time is midnight, and the date and time otherwise.
-fn timestamp_string(ts: f64) -> String {
-    let format = if timestamp::is_date_only(ts) {
-        "%Y-%m-%d"
-    } else {
-        "%Y-%m-%d %H:%M:%S"
-    };
-    timestamp::format_timestamp(ts, format)
-}
-
 impl Database {
     /// Open a database from its bytes, with the password for a
     /// password-protected `.accdb`.
@@ -148,15 +135,7 @@ impl Database {
     /// The database engine version, as the `jetdb ver` command prints it
     /// (`JET3`, `JET4`, `ACE12`, and so on).
     pub fn version(&self) -> &'static str {
-        match self.reader.header().version {
-            JetVersion::Jet3 => "JET3",
-            JetVersion::Jet4 => "JET4",
-            JetVersion::Ace12 => "ACE12",
-            JetVersion::Ace14 => "ACE14",
-            JetVersion::Ace15 => "ACE15",
-            JetVersion::Ace16 => "ACE16",
-            JetVersion::Ace17 => "ACE17",
-        }
+        self.reader.header().version.short_name()
     }
 
     /// The table names, sorted, as the `jetdb tables` command lists them:
@@ -165,9 +144,7 @@ impl Database {
         let mut names: Vec<String> = read_catalog(&mut self.reader)?
             .into_iter()
             .filter(|e| {
-                e.object_type == ObjectType::Table
-                    && (include_system
-                        || e.flags & (catalog_flags::SYSTEM | catalog_flags::HIDDEN) == 0)
+                e.object_type == ObjectType::Table && (include_system || !e.is_system_or_hidden())
             })
             .map(|e| e.name)
             .collect();
@@ -183,7 +160,7 @@ impl Database {
         Ok(tdef
             .columns
             .iter()
-            .filter(|c| is_shown_column(c, system_table))
+            .filter(|c| c.is_shown(system_table))
             .map(|c| {
                 // The declared type of a calculated column is a placeholder;
                 // its values have the type of its result, as rows reads them.
@@ -242,7 +219,7 @@ impl Database {
     pub fn rows(&mut self, table: &str) -> Result<Rows, FileError> {
         let (tdef, system_table) = self.table_def(table)?;
         let shown: Vec<usize> = (0..tdef.columns.len())
-            .filter(|&i| is_shown_column(&tdef.columns[i], system_table))
+            .filter(|&i| tdef.columns[i].is_shown(system_table))
             .collect();
         let result = read_table_rows(&mut self.reader, &tdef)?;
         Ok(Rows {
@@ -266,22 +243,11 @@ impl Database {
 
     /// The definition of `table`, and whether it is a system table.
     fn table_def(&mut self, table: &str) -> Result<(TableDef, bool), FileError> {
-        let entry = read_catalog(&mut self.reader)?
-            .into_iter()
-            .find(|e| e.object_type == ObjectType::Table && e.name == table)
-            .ok_or_else(|| FileError::TableNotFound {
-                name: table.to_string(),
-            })?;
+        let catalog = read_catalog(&mut self.reader)?;
+        let entry = find_table(&catalog, table)?;
         let tdef = read_table_def(&mut self.reader, &entry.name, entry.table_page)?;
-        Ok((tdef, entry.flags & catalog_flags::SYSTEM != 0))
+        Ok((tdef, entry.is_system()))
     }
-}
-
-/// Whether a column is shown, as `jetdb export` decides without
-/// `--system-columns`: columns flagged as maintained and hidden by Access are
-/// left out, except in system tables, where every column has that flag.
-fn is_shown_column(column: &ColumnDef, system_table: bool) -> bool {
-    system_table || !jetdb::is_replication_column(column)
 }
 
 /// The name of a column type, as `jetdb schema` prints it but without the
@@ -846,27 +812,5 @@ mod tests {
             error_code(&db.columns("NoSuchTable").unwrap_err()),
             "TABLE_NOT_FOUND"
         );
-    }
-
-    #[test]
-    fn hidden_columns_are_shown_only_in_system_tables() {
-        let column = |flags| ColumnDef {
-            name: "c".to_string(),
-            col_type: ColumnType::Long,
-            col_num: 0,
-            var_col_num: 0,
-            fixed_offset: 0,
-            col_size: 4,
-            flags,
-            is_fixed: true,
-            scale: 0,
-            precision: 0,
-            is_calculated: false,
-            display_index: 0,
-        };
-        let hidden = column(column_flags::REPLICATION);
-        assert!(!is_shown_column(&hidden, false));
-        assert!(is_shown_column(&hidden, true));
-        assert!(is_shown_column(&column(0), false));
     }
 }

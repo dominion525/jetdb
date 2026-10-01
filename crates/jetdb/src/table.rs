@@ -104,9 +104,29 @@ pub struct TableDef {
     pub data_pages: Vec<u32>,
 }
 
-/// Return `true` if the column has the REPLICATION flag set.
+impl ColumnDef {
+    /// `true` for a column Access maintains and hides from users
+    /// ([`column_flags::HIDDEN`](crate::format::column_flags::HIDDEN)), such as
+    /// every column of a system table.
+    pub fn is_hidden(&self) -> bool {
+        self.flags & crate::format::column_flags::HIDDEN != 0
+    }
+
+    /// `true` for a column to show by default, as `jetdb export` does without
+    /// `--system-columns`: hidden columns are left out, except in a system
+    /// table, where every column is hidden.
+    pub fn is_shown(&self, system_table: bool) -> bool {
+        system_table || !self.is_hidden()
+    }
+}
+
+/// Former name of [`ColumnDef::is_hidden`].
+#[deprecated(
+    since = "0.4.0",
+    note = "the flag marks columns Access maintains and hides, which are not only replication columns; use `ColumnDef::is_hidden`"
+)]
 pub fn is_replication_column(col: &ColumnDef) -> bool {
-    (col.flags & crate::format::column_flags::REPLICATION) != 0
+    col.is_hidden()
 }
 
 // ---------------------------------------------------------------------------
@@ -929,10 +949,10 @@ mod tests {
         }
     }
 
-    // -- is_replication_column tests ----------------------------------------
+    // -- is_hidden tests ----------------------------------------------------
 
     #[test]
-    fn is_replication_true() {
+    fn is_hidden_true() {
         let col = ColumnDef {
             name: "s_GUID".to_string(),
             col_type: ColumnType::Guid,
@@ -940,18 +960,22 @@ mod tests {
             var_col_num: 0,
             fixed_offset: 0,
             col_size: 16,
-            flags: column_flags::REPLICATION | column_flags::NULLABLE,
+            flags: column_flags::HIDDEN | column_flags::NULLABLE,
             is_fixed: false,
             precision: 0,
             scale: 0,
             is_calculated: false,
             display_index: 1,
         };
-        assert!(is_replication_column(&col));
+        assert!(col.is_hidden());
+        // The former name gives the same answer.
+        #[allow(deprecated)]
+        let former = is_replication_column(&col);
+        assert!(former);
     }
 
     #[test]
-    fn is_replication_false() {
+    fn is_hidden_false() {
         let col = ColumnDef {
             name: "ID".to_string(),
             col_type: ColumnType::Long,
@@ -966,7 +990,29 @@ mod tests {
             is_calculated: false,
             display_index: 1,
         };
-        assert!(!is_replication_column(&col));
+        assert!(!col.is_hidden());
+    }
+
+    #[test]
+    fn hidden_columns_are_shown_only_in_system_tables() {
+        let column = |flags| ColumnDef {
+            name: "c".to_string(),
+            col_type: ColumnType::Long,
+            col_num: 0,
+            var_col_num: 0,
+            fixed_offset: 0,
+            col_size: 4,
+            flags,
+            is_fixed: true,
+            precision: 0,
+            scale: 0,
+            is_calculated: false,
+            display_index: 0,
+        };
+        let hidden = column(column_flags::HIDDEN);
+        assert!(!hidden.is_shown(false));
+        assert!(hidden.is_shown(true));
+        assert!(column(0).is_shown(false));
     }
 
     #[test]

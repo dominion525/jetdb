@@ -593,7 +593,7 @@ jetdb export [OPTIONS] <FILE> <TABLE>
 ```
 
 Export all rows from a table as RFC 4180 compliant CSV to standard output.
-By default, replication system columns are excluded. System tables are exported with all their columns.
+By default, the columns Access maintains and hides are excluded. System tables, where every column is such a column, are exported with all their columns.
 
 #### Options
 
@@ -604,7 +604,7 @@ By default, replication system columns are excluded. System tables are exported 
 - `-b`, `--bin <MODE>` — Binary output mode (default: `hex`)
 - `-0`, `--null <STRING>` — String to represent NULL values (default: empty string)
 - `-B`, `--boolean-words` — Output booleans as TRUE/FALSE instead of 1/0
-- `-s`, `--system-columns` — Include replication system columns
+- `-s`, `--system-columns` — Include the columns Access maintains and hides
 
 #### Output examples
 

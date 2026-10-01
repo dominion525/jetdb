@@ -21,7 +21,7 @@ pub mod table;
 pub mod timestamp;
 pub mod vba;
 
-pub use catalog::{read_catalog, table_names, CatalogEntry};
+pub use catalog::{find_table, read_catalog, table_names, CatalogEntry};
 pub use file::{find_row, DbHeader, FileError, PageReader};
 pub use format::{
     catalog_flags, column_flags, index_flags, index_type, ColumnType, FormatError, JetFormat,
@@ -29,9 +29,12 @@ pub use format::{
 };
 pub use relationship::{read_relationships, relationship_flags, Relationship, RelationshipColumn};
 pub use table::{
-    is_replication_column, read_table_def, ColumnDef, ForeignKeyReference, IndexColumn,
-    IndexColumnOrder, IndexDef, TableDef,
+    read_table_def, ColumnDef, ForeignKeyReference, IndexColumn, IndexColumnOrder, IndexDef,
+    TableDef,
 };
+// Kept so that code using the former name still compiles, with a warning.
+#[allow(deprecated)]
+pub use table::is_replication_column;
 
 pub use data::{calculated_column_types, read_table_rows, ReadResult, Value};
 pub use form::{
