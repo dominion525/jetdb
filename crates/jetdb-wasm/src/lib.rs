@@ -9,9 +9,7 @@ mod js;
 
 use std::io::Cursor;
 
-use jetdb::format::{
-    catalog_flags, column_flags, index_flags, index_type, ColumnType, JetVersion, ObjectType,
-};
+use jetdb::format::{catalog_flags, column_flags, index_flags, index_type, ColumnType, ObjectType};
 use jetdb::{
     calculated_column_types, read_catalog, read_table_def, read_table_rows, timestamp, ColumnDef,
     FileError, IndexColumnOrder, PageReader, TableDef, Value,
@@ -148,15 +146,7 @@ impl Database {
     /// The database engine version, as the `jetdb ver` command prints it
     /// (`JET3`, `JET4`, `ACE12`, and so on).
     pub fn version(&self) -> &'static str {
-        match self.reader.header().version {
-            JetVersion::Jet3 => "JET3",
-            JetVersion::Jet4 => "JET4",
-            JetVersion::Ace12 => "ACE12",
-            JetVersion::Ace14 => "ACE14",
-            JetVersion::Ace15 => "ACE15",
-            JetVersion::Ace16 => "ACE16",
-            JetVersion::Ace17 => "ACE17",
-        }
+        self.reader.header().version.short_name()
     }
 
     /// The table names, sorted, as the `jetdb tables` command lists them:
