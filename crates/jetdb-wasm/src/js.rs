@@ -69,10 +69,24 @@ export interface IndexColumn {
 }
 
 /**
- * A value in a row. Byte, Int, Long, Float and Double are numbers, BigInt is
- * a bigint, Text, Memo, GUID, Money, Numeric and DateTimeExtended are strings,
- * a Timestamp is a string such as `2021-06-14` or `2021-06-14 22:45:12`, and
- * Binary and OLE are bytes.
+ * A value in a row, by the type of its column:
+ *
+ * - Byte, Int, Long, Float and Double: a number. A Float is the shortest
+ *   decimal that gives back the stored single-precision value, as Access shows
+ *   it, so 1.1 stays 1.1; `Math.fround(value)` gives the stored value itself.
+ * - BigInt: a bigint.
+ * - Boolean: a boolean.
+ * - Text, Memo, GUID, Money and Numeric: a string, so that no digits are lost.
+ * - Timestamp: a string such as `2021-06-14`, or `2021-06-14 22:45:12` when
+ *   the time is not midnight, rounded to the second as Access shows it.
+ * - DateTimeExtended: a string with all its digits, such as
+ *   `2021-06-14 22:45:12.3456789`, or the stored bytes when they cannot be
+ *   read as a date and time.
+ * - Binary and OLE: a Uint8Array, as are the values of a column type that
+ *   jetdb does not know.
+ * - ComplexType (attachments, multiple values, version history): a number,
+ *   the ID of the column's values in a hidden table.
+ * - NULL: null.
  */
 export type Value = null | boolean | number | bigint | string | Uint8Array;
 
