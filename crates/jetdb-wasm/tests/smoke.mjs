@@ -20,6 +20,7 @@ function check(Database, build) {
   checkColumns(Database, build);
   checkIndexes(Database, build);
   checkRows(Database, build);
+  checkSkippedRows(Database, build);
   checkPassword(Database, build);
   console.log(`ok: ${build}`);
 }
@@ -117,6 +118,32 @@ function checkRows(Database, build) {
     ],
     build,
   );
+}
+
+function checkSkippedRows(Database, build) {
+  // Table1's two rows are on page 27 of the 4096-byte pages. Giving the
+  // second row the offset of the first leaves it no bytes, so it cannot be
+  // read.
+  const damaged = new Uint8Array(read("V2003/testV2003.mdb"));
+  const pos = 27 * 4096 + 16;
+  assert.equal(damaged[pos] | (damaged[pos + 1] << 8), 0x0f89, build);
+  damaged.set([0xb8, 0x0f], pos);
+
+  const warnings = [];
+  const warn = console.warn;
+  console.warn = (message) => warnings.push(message);
+  let rows;
+  try {
+    rows = Database.open(damaged).rows("Table1");
+  } finally {
+    console.warn = warn;
+  }
+  assert.deepEqual(
+    rows.map((row) => row.A),
+    ["abcdefg"],
+    build,
+  );
+  assert.deepEqual(warnings, ["Table1: 1 row(s) skipped due to parse errors"], build);
 }
 
 function checkPassword(Database, build) {

@@ -686,6 +686,22 @@ mod tests {
     }
 
     #[test]
+    fn rows_left_out_when_unreadable() {
+        // Table1's two rows are on page 27 of the 4096-byte pages. Giving the
+        // second row the offset of the first leaves it no bytes, so it cannot
+        // be read.
+        let mut bytes = skip_if_missing!("V2003/testV2003.mdb");
+        let pos = 27 * 4096 + 16;
+        assert_eq!(u16::from_le_bytes([bytes[pos], bytes[pos + 1]]), 0x0F89);
+        bytes[pos..pos + 2].copy_from_slice(&0x0FB8u16.to_le_bytes());
+        let mut db = Database::open(bytes, None).unwrap();
+        let rows = db.rows("Table1").unwrap();
+        assert_eq!(rows.skipped, 1);
+        assert_eq!(rows.rows.len(), 1);
+        assert_eq!(rows.rows[0][0], string("abcdefg"));
+    }
+
+    #[test]
     fn rows_of_a_missing_table() {
         let bytes = skip_if_missing!("V2003/testV2003.mdb");
         let mut db = Database::open(bytes, None).unwrap();
