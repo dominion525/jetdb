@@ -13,6 +13,8 @@ import {
   type Index,
   type Row,
   type Value,
+  type ErrorCode,
+  type JetdbError,
 } from "jetdb-wasm";
 
 declare const bytes: Uint8Array;
@@ -82,5 +84,16 @@ export const text: string = rows[0]["A"];
 export const date: Date = rows[0]["G"];
 // @ts-expect-error: the table name is required.
 db.rows();
+
+declare const caught: unknown;
+if (caught instanceof Error && caught.name === "JetdbError") {
+  const error = caught as JetdbError;
+  const code: ErrorCode = error.code;
+  if (code === "PASSWORD_REQUIRED") {
+  }
+  // @ts-expect-error: NOT_FOUND is not an error code.
+  if (code === "NOT_FOUND") {
+  }
+}
 
 db.free();

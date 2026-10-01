@@ -22,6 +22,7 @@ function check(Database, build) {
   checkIndexes(Database, build);
   checkRows(Database, build);
   checkSkippedRows(Database, build);
+  checkErrors(Database, build);
   checkPassword(Database, build);
   console.log(`ok: ${build}`);
 }
@@ -149,6 +150,29 @@ function checkOpen(Database, build) {
   assert.equal(Database.open(arrayBuffer).version(), "JET4", build);
   assert.equal(Database.open(new Uint8Array(arrayBuffer)).version(), "JET4", build);
   assert.throws(() => Database.open("testV2003.mdb"), /bytes must be a Uint8Array or an ArrayBuffer/, build);
+}
+
+function checkErrors(Database, build) {
+  // Each error is a JetdbError with a code a caller can branch on.
+  const codeOf = (f) => {
+    try {
+      f();
+    } catch (e) {
+      assert.ok(e instanceof Error, build);
+      assert.equal(e.name, "JetdbError", build);
+      return e.code;
+    }
+    assert.fail(`${build}: nothing thrown`);
+  };
+  const encrypted = read("db2007-enc.accdb");
+  assert.equal(codeOf(() => Database.open(encrypted)), "PASSWORD_REQUIRED", build);
+  assert.equal(codeOf(() => Database.open(encrypted, "wrong")), "INVALID_PASSWORD", build);
+  assert.equal(codeOf(() => Database.open(new Uint8Array(10))), "INVALID_FILE", build);
+  assert.equal(codeOf(() => Database.open("testV2003.mdb")), "INVALID_ARGUMENT", build);
+  const db = openTest(Database);
+  assert.equal(codeOf(() => db.rows("NoSuchTable")), "TABLE_NOT_FOUND", build);
+  assert.equal(codeOf(() => db.tables(5)), "INVALID_ARGUMENT", build);
+  assert.equal(codeOf(() => db.tables({ system: "yes" })), "INVALID_ARGUMENT", build);
 }
 
 function checkPassword(Database, build) {
