@@ -83,15 +83,19 @@
           const bytes = new Uint8Array(await file.arrayBuffer());
           const password = $("password").value || undefined;
           const db = Database.open(bytes, password);
-          $("version").textContent = db.version();
-          $("tables").replaceChildren(
-            ...db.tables({ system: $("system").checked }).map((name) => {
-              const li = document.createElement("li");
-              li.textContent = name;
-              return li;
-            }),
-          );
-          db.free();
+          // Free the copy of the file in the Wasm memory even when reading fails.
+          try {
+            $("version").textContent = db.version();
+            $("tables").replaceChildren(
+              ...db.tables({ system: $("system").checked }).map((name) => {
+                const li = document.createElement("li");
+                li.textContent = name;
+                return li;
+              }),
+            );
+          } finally {
+            db.free();
+          }
           $("result").hidden = false;
         } catch (e) {
           $("error").textContent = e.message;
