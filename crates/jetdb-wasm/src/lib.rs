@@ -12,7 +12,7 @@ use std::io::Cursor;
 use jetdb::format::{column_flags, index_flags, index_type, ColumnType, ObjectType};
 use jetdb::{
     calculated_column_types, find_table, read_catalog, read_table_def, read_table_rows, timestamp,
-    ColumnDef, FileError, IndexColumnOrder, PageReader, TableDef, Value,
+    FileError, IndexColumnOrder, PageReader, TableDef, Value,
 };
 
 /// A database opened from bytes in memory.
@@ -171,7 +171,7 @@ impl Database {
         Ok(tdef
             .columns
             .iter()
-            .filter(|c| is_shown_column(c, system_table))
+            .filter(|c| c.is_shown(system_table))
             .map(|c| {
                 // The declared type of a calculated column is a placeholder;
                 // its values have the type of its result, as rows reads them.
@@ -230,7 +230,7 @@ impl Database {
     pub fn rows(&mut self, table: &str) -> Result<Rows, FileError> {
         let (tdef, system_table) = self.table_def(table)?;
         let shown: Vec<usize> = (0..tdef.columns.len())
-            .filter(|&i| is_shown_column(&tdef.columns[i], system_table))
+            .filter(|&i| tdef.columns[i].is_shown(system_table))
             .collect();
         let result = read_table_rows(&mut self.reader, &tdef)?;
         Ok(Rows {
@@ -259,13 +259,6 @@ impl Database {
         let tdef = read_table_def(&mut self.reader, &entry.name, entry.table_page)?;
         Ok((tdef, entry.is_system()))
     }
-}
-
-/// Whether a column is shown, as `jetdb export` decides without
-/// `--system-columns`: columns flagged as maintained and hidden by Access are
-/// left out, except in system tables, where every column has that flag.
-fn is_shown_column(column: &ColumnDef, system_table: bool) -> bool {
-    system_table || !column.is_hidden()
 }
 
 /// The name of a column type, as `jetdb schema` prints it but without the
@@ -830,27 +823,5 @@ mod tests {
             error_code(&db.columns("NoSuchTable").unwrap_err()),
             "TABLE_NOT_FOUND"
         );
-    }
-
-    #[test]
-    fn hidden_columns_are_shown_only_in_system_tables() {
-        let column = |flags| ColumnDef {
-            name: "c".to_string(),
-            col_type: ColumnType::Long,
-            col_num: 0,
-            var_col_num: 0,
-            fixed_offset: 0,
-            col_size: 4,
-            flags,
-            is_fixed: true,
-            scale: 0,
-            precision: 0,
-            is_calculated: false,
-            display_index: 0,
-        };
-        let hidden = column(column_flags::HIDDEN);
-        assert!(!is_shown_column(&hidden, false));
-        assert!(is_shown_column(&hidden, true));
-        assert!(is_shown_column(&column(0), false));
     }
 }

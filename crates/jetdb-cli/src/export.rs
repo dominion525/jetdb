@@ -207,15 +207,15 @@ fn run_export(args: &ExportArgs, password: Option<&str>) -> Result<(), jetdb::Fi
 
     let tdef = read_table_def(&mut reader, &entry.name, entry.table_page)?;
 
-    // Column filtering: build indices of columns to include. The flag
-    // `ColumnDef::is_hidden` checks marks columns Access maintains and hides,
-    // which in a system table is every column, so system tables keep them all.
+    // Column filtering: build indices of columns to include. Hidden columns
+    // are left out unless asked for, except in system tables (see
+    // `ColumnDef::is_shown`).
     let is_system_table = entry.is_system();
     let col_indices: Vec<usize> = tdef
         .columns
         .iter()
         .enumerate()
-        .filter(|(_, col)| args.system_columns || is_system_table || !col.is_hidden())
+        .filter(|(_, col)| args.system_columns || col.is_shown(is_system_table))
         .map(|(i, _)| i)
         .collect();
 

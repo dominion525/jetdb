@@ -111,6 +111,13 @@ impl ColumnDef {
     pub fn is_hidden(&self) -> bool {
         self.flags & crate::format::column_flags::HIDDEN != 0
     }
+
+    /// `true` for a column to show by default, as `jetdb export` does without
+    /// `--system-columns`: hidden columns are left out, except in a system
+    /// table, where every column is hidden.
+    pub fn is_shown(&self, system_table: bool) -> bool {
+        system_table || !self.is_hidden()
+    }
 }
 
 /// Former name of [`ColumnDef::is_hidden`].
@@ -984,6 +991,28 @@ mod tests {
             display_index: 1,
         };
         assert!(!col.is_hidden());
+    }
+
+    #[test]
+    fn hidden_columns_are_shown_only_in_system_tables() {
+        let column = |flags| ColumnDef {
+            name: "c".to_string(),
+            col_type: ColumnType::Long,
+            col_num: 0,
+            var_col_num: 0,
+            fixed_offset: 0,
+            col_size: 4,
+            flags,
+            is_fixed: true,
+            precision: 0,
+            scale: 0,
+            is_calculated: false,
+            display_index: 0,
+        };
+        let hidden = column(column_flags::HIDDEN);
+        assert!(!hidden.is_shown(false));
+        assert!(hidden.is_shown(true));
+        assert!(column(0).is_shown(false));
     }
 
     #[test]
