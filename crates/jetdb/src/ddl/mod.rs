@@ -1203,7 +1203,7 @@ mod tests {
     fn access_map_bigint() {
         let d = access();
         let c = col("x", ColumnType::BigInt, 0, 0, 0, 0);
-        assert_eq!(d.map_column_type(&c, false), "LONG");
+        assert_eq!(d.map_column_type(&c, false), "BIGINT");
     }
 
     #[test]
@@ -1636,6 +1636,14 @@ mod tests {
                 assert!(ddl.contains(column), "{column} should stay, got:\n{ddl}");
             }
         }
+    }
+
+    #[test]
+    fn access_bigint_column_from_a_database() {
+        // Access creates a Large Number column from BIGINT in CREATE TABLE.
+        let path = skip_if_missing!("V2016/bigIntTestV2016.accdb");
+        let ddl = create_table_ddl(&path, "BigIntTable");
+        assert!(ddl.contains("[Big] BIGINT"), "got:\n{ddl}");
     }
 
     #[test]
