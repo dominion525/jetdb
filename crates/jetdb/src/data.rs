@@ -433,9 +433,15 @@ fn crack_row_jet3(row_data: &[u8]) -> Result<CrackedRow<'_>, FileError> {
     let offset_entries = var_col_count as usize + 1;
 
     // Dummy jump check:
-    // If last jump is a dummy value, ignore it
+    // If last jump is a dummy value, ignore it.
+    //
+    // Subtract var_col_count, not the number of offset entries: when the
+    // variable data ends exactly on a 256-byte boundary, subtracting one more
+    // discards a real jump and the EOD offset comes out 256 short.
     let mut actual_num_jumps = num_jumps;
-    if actual_num_jumps > 0 && col_ptr.saturating_sub(offset_entries) / 256 < actual_num_jumps {
+    if actual_num_jumps > 0
+        && col_ptr.saturating_sub(var_col_count as usize) / 256 < actual_num_jumps
+    {
         actual_num_jumps -= 1;
     }
 
@@ -1303,6 +1309,41 @@ mod tests {
         assert_eq!(cracked.col_count, 2);
         assert_eq!(cracked.var_col_count, 1);
         assert_eq!(cracked.var_offsets, vec![3, 5]);
+    }
+
+    #[test]
+    fn crack_row_jet3_keeps_jump_when_var_data_ends_exactly_on_256() {
+        // Variable data ending exactly at offset 256 stores the EOD offset as
+        // raw byte 0 plus one jump. Here col_ptr - var_col_count == 256, which
+        // the "dummy jump" check must not treat as a dummy: doing so drops the
+        // jump, EOD reads as 0, and the last variable column comes back as
+        // Null because start > end.
+        //
+        // Layout (262 bytes, num_jumps = 261 / 256 = 1):
+        //   [0]       col_count = 2
+        //   [1..200]  var col 0 data
+        //   [200..256] var col 1 data
+        //   [256]     offset: EOD = 256 -> raw 0, needs the jump
+        //   [257]     offset: start of var col 1 = 200
+        //   [258]     offset: start of var col 0 = 1      (col_ptr)
+        //   [259]     jump table: jump applies at offset index 2
+        //   [260]     var_col_count = 2
+        //   [261]     null mask
+        let mut row = vec![0u8; 262];
+        row[0] = 2;
+        for b in &mut row[1..256] {
+            *b = b'x';
+        }
+        row[256] = 0;
+        row[257] = 200;
+        row[258] = 1;
+        row[259] = 2;
+        row[260] = 2;
+        row[261] = 0b11;
+
+        let cracked = crack_row_jet3(&row).unwrap();
+        assert_eq!(cracked.var_col_count, 2);
+        assert_eq!(cracked.var_offsets, vec![1, 200, 256]);
     }
 
     #[test]
