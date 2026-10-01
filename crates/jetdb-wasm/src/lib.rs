@@ -653,9 +653,11 @@ mod tests {
             cell(&timestamp, string("row0"), "data"),
             string("1899-12-30")
         );
+        // -0.00035134 days, which Access shows as 30 seconds past midnight
+        // of 1899-12-30.
         assert_eq!(
             cell(&timestamp, string("row10"), "data"),
-            string("1899-12-29 23:59:30")
+            string("1899-12-30 00:00:30")
         );
         let numeric = db.rows("Table7").unwrap();
         assert_eq!(
