@@ -16,14 +16,28 @@ const testdata = process.argv[2];
 const read = (file) => readFileSync(join(testdata, file));
 
 function check(Database, build) {
-  const db = Database.open(read("V2003/testV2003.mdb"));
+  checkTables(Database, build);
+  checkColumns(Database, build);
+  checkIndexes(Database, build);
+  checkRows(Database, build);
+  checkPassword(Database, build);
+  console.log(`ok: ${build}`);
+}
+
+const openTest = (Database) => Database.open(read("V2003/testV2003.mdb"));
+
+function checkTables(Database, build) {
+  const db = openTest(Database);
   assert.equal(db.version(), "JET4", build);
   const tables = db.tables();
   assert.ok(tables.includes("Table1"), `${build}: ${tables}`);
   assert.ok(!tables.some((name) => name.startsWith("MSys")), `${build}: ${tables}`);
   assert.ok(db.tables({ system: true }).includes("MSysObjects"), build);
   assert.throws(() => db.tables({ system: "yes" }), /option system must be a boolean/, build);
+}
 
+function checkColumns(Database, build) {
+  const db = openTest(Database);
   const columns = db.columns("Table1");
   assert.deepEqual(
     columns.map((c) => [c.name, c.type, c.size]),
@@ -46,7 +60,10 @@ function check(Database, build) {
     build,
   );
   assert.throws(() => db.columns("NoSuchTable"), /table not found: NoSuchTable/, build);
+}
 
+function checkIndexes(Database, build) {
+  const db = openTest(Database);
   assert.deepEqual(
     db.indexes("Table1"),
     [
@@ -70,7 +87,10 @@ function check(Database, build) {
     build,
   );
   assert.throws(() => db.indexes("NoSuchTable"), /table not found: NoSuchTable/, build);
+}
 
+function checkRows(Database, build) {
+  const db = openTest(Database);
   assert.deepEqual(
     db.rows("Table1"),
     [
@@ -84,12 +104,13 @@ function check(Database, build) {
   const binary = Database.open(read("V2010/binIdxTestV2010.accdb")).rows("Test");
   assert.deepEqual(binary.find((row) => row.ID === 1).BinAsc, new Uint8Array([0x61, 0x62]), build);
   assert.equal(binary.find((row) => row.ID === 200).BinAsc, null, build);
+}
 
+function checkPassword(Database, build) {
   const encrypted = read("db2007-enc.accdb");
   assert.throws(() => Database.open(encrypted), /password-protected/, build);
   assert.throws(() => Database.open(encrypted, "wrong"), /invalid password/, build);
   assert.deepEqual(Database.open(encrypted, "Test123").tables(), ["Table1"], build);
-  console.log(`ok: ${build}`);
 }
 
 check(NodeDatabase, "node");
