@@ -16,6 +16,7 @@ const testdata = process.argv[2];
 const read = (file) => readFileSync(join(testdata, file));
 
 function check(Database, build) {
+  checkOpen(Database, build);
   checkTables(Database, build);
   checkColumns(Database, build);
   checkIndexes(Database, build);
@@ -144,6 +145,15 @@ function checkSkippedRows(Database, build) {
     build,
   );
   assert.deepEqual(warnings, ["Table1: 1 row(s) skipped due to parse errors"], build);
+}
+
+function checkOpen(Database, build) {
+  // read gives a Node.js Buffer, which is a Uint8Array.
+  const buffer = read("V2003/testV2003.mdb");
+  const arrayBuffer = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+  assert.equal(Database.open(arrayBuffer).version(), "JET4", build);
+  assert.equal(Database.open(new Uint8Array(arrayBuffer)).version(), "JET4", build);
+  assert.throws(() => Database.open("testV2003.mdb"), /bytes must be a Uint8Array or an ArrayBuffer/, build);
 }
 
 function checkPassword(Database, build) {

@@ -20,6 +20,9 @@ declare const bytes: Uint8Array;
 const db = Database.open(bytes);
 Database.open(bytes, "password");
 Database.open(bytes, undefined);
+Database.open(new ArrayBuffer(8));
+// @ts-expect-error: the bytes are not a file name.
+Database.open("test.mdb");
 
 type Version =
   "JET3" | "JET4" | "ACE12" | "ACE14" | "ACE15" | "ACE16" | "ACE17";

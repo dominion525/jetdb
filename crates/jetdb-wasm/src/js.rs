@@ -1,7 +1,8 @@
 //! The JavaScript interface: thin `wasm-bindgen` wrappers over [`crate::Database`].
 
-use js_sys::{Array, BigInt, Object, Reflect, Uint8Array};
+use js_sys::{Array, ArrayBuffer, BigInt, Object, Reflect, Uint8Array};
 use wasm_bindgen::prelude::*;
+use wasm_bindgen::JsCast;
 
 use crate::{Cell, Column, Database, Index};
 
@@ -96,10 +97,14 @@ pub struct JsDatabase {
 
 #[wasm_bindgen(js_class = Database)]
 impl JsDatabase {
-    /// Opens a database from its bytes, with the password of a
-    /// password-protected `.accdb`.
-    pub fn open(bytes: Vec<u8>, password: Option<String>) -> Result<JsDatabase, JsError> {
-        let inner = Database::open(bytes, password.as_deref()).map_err(to_js_error)?;
+    /// Opens a database from its bytes, as a Uint8Array (a Node.js Buffer is
+    /// one) or an ArrayBuffer, with the password of a password-protected
+    /// `.accdb`.
+    pub fn open(
+        #[wasm_bindgen(unchecked_param_type = "Uint8Array | ArrayBuffer")] bytes: JsValue,
+        password: Option<String>,
+    ) -> Result<JsDatabase, JsError> {
+        let inner = Database::open(bytes_of(&bytes)?, password.as_deref()).map_err(to_js_error)?;
         Ok(JsDatabase { inner })
     }
 
@@ -161,6 +166,18 @@ impl JsDatabase {
             })
             .collect())
     }
+}
+
+/// The bytes of a Uint8Array or an ArrayBuffer. A `Vec<u8>` parameter would
+/// take any other value, an ArrayBuffer included, as no bytes at all.
+fn bytes_of(value: &JsValue) -> Result<Vec<u8>, JsError> {
+    if let Some(array) = value.dyn_ref::<Uint8Array>() {
+        return Ok(array.to_vec());
+    }
+    if let Some(buffer) = value.dyn_ref::<ArrayBuffer>() {
+        return Ok(Uint8Array::new(buffer).to_vec());
+    }
+    Err(JsError::new("bytes must be a Uint8Array or an ArrayBuffer"))
 }
 
 fn to_js_error(e: jetdb::FileError) -> JsError {
