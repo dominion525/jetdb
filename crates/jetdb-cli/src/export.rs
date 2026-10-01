@@ -27,14 +27,14 @@ pub struct ExportArgs {
     pub delimiter: String,
 
     /// Date format (strftime subset, default: "%Y-%m-%d")
-    #[arg(short = 'D', long = "date-format", default_value = "%Y-%m-%d")]
+    #[arg(short = 'D', long = "date-format", default_value = timestamp::DEFAULT_DATE_FORMAT)]
     pub date_format: String,
 
     /// Date-time format (strftime subset, default: "%Y-%m-%d %H:%M:%S")
     #[arg(
         short = 'T',
         long = "datetime-format",
-        default_value = "%Y-%m-%d %H:%M:%S"
+        default_value = timestamp::DEFAULT_DATETIME_FORMAT
     )]
     pub datetime_format: String,
 
@@ -261,8 +261,8 @@ mod tests {
     fn default_opts() -> FormatOptions {
         FormatOptions {
             delimiter: ',',
-            date_format: "%Y-%m-%d".to_string(),
-            datetime_format: "%Y-%m-%d %H:%M:%S".to_string(),
+            date_format: timestamp::DEFAULT_DATE_FORMAT.to_string(),
+            datetime_format: timestamp::DEFAULT_DATETIME_FORMAT.to_string(),
             bin_mode: BinMode::Hex,
             null_string: String::new(),
             boolean_words: false,

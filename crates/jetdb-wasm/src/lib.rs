@@ -98,7 +98,7 @@ impl From<Value> for Cell {
             | Value::Float(_)
             | Value::Double(_)) => Cell::Number(number_value(&number)),
             Value::BigInt(v) => Cell::BigInt(v),
-            Value::Timestamp(ts) => Cell::String(timestamp_string(ts)),
+            Value::Timestamp(ts) => Cell::String(timestamp::format_default(ts)),
             Value::Text(s)
             | Value::Money(s)
             | Value::Numeric(s)
@@ -122,17 +122,6 @@ fn number_value(value: &Value) -> f64 {
         Value::Double(v) => v,
         _ => unreachable!("not a number value: {value:?}"),
     }
-}
-
-/// A Timestamp as `jetdb export` writes it by default: the date alone when
-/// the time is midnight, and the date and time otherwise.
-fn timestamp_string(ts: f64) -> String {
-    let format = if timestamp::is_date_only(ts) {
-        "%Y-%m-%d"
-    } else {
-        "%Y-%m-%d %H:%M:%S"
-    };
-    timestamp::format_timestamp(ts, format)
 }
 
 impl Database {

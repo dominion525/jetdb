@@ -43,6 +43,26 @@ pub fn timestamp_to_parts(ts: f64) -> (i32, u32, u32, u32, u32, u32) {
     (year, month, day, hour, minute, second)
 }
 
+/// The format of a timestamp whose time is midnight, as `jetdb export` writes
+/// it by default.
+pub const DEFAULT_DATE_FORMAT: &str = "%Y-%m-%d";
+
+/// The format of a timestamp with a time of day, as `jetdb export` writes it
+/// by default.
+pub const DEFAULT_DATETIME_FORMAT: &str = "%Y-%m-%d %H:%M:%S";
+
+/// Format an Access timestamp as `jetdb export` writes it by default: the
+/// date alone ([`DEFAULT_DATE_FORMAT`]) when the time is midnight, and the
+/// date and time ([`DEFAULT_DATETIME_FORMAT`]) otherwise.
+pub fn format_default(ts: f64) -> String {
+    let format = if is_date_only(ts) {
+        DEFAULT_DATE_FORMAT
+    } else {
+        DEFAULT_DATETIME_FORMAT
+    };
+    format_timestamp(ts, format)
+}
+
 /// Format an Access timestamp using a strftime-like format string.
 ///
 /// Supported directives: `%Y`, `%m`, `%d`, `%H`, `%M`, `%S`, `%%`.
@@ -180,6 +200,13 @@ mod tests {
         let ts = -1.0;
         let (y, m, d, _, _, _) = timestamp_to_parts(ts);
         assert_eq!((y, m, d), (1899, 12, 29));
+    }
+
+    #[test]
+    fn format_default_date_alone_at_midnight() {
+        assert_eq!(format_default(37623.0), "2003-01-02");
+        assert_eq!(format_default(37623.5), "2003-01-02 12:00:00");
+        assert_eq!(format_default(-1.1), "1899-12-29 02:24:00");
     }
 
     #[test]
