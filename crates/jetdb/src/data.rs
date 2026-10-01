@@ -1742,6 +1742,33 @@ mod tests {
         );
     }
 
+    /// Timestamps before 1899-12-30 in Table6 of testIndexCodesV2003.mdb, as
+    /// Access for Microsoft 365 shows them in its datasheet.
+    #[test]
+    fn timestamps_before_the_epoch_as_access_shows_them() {
+        let path = skip_if_missing!("V2003/testIndexCodesV2003.mdb");
+        let mut reader = PageReader::open(&path).unwrap();
+        let catalog = crate::catalog::read_catalog(&mut reader).unwrap();
+        let entry = catalog.iter().find(|e| e.name == "Table6").unwrap();
+        let table =
+            crate::table::read_table_def(&mut reader, &entry.name, entry.table_page).unwrap();
+        let rows = read_table_rows(&mut reader, &table).unwrap().rows;
+        let shown = |name: &str| {
+            let row = rows
+                .iter()
+                .find(|r| r[0] == Value::Text(name.to_string()))
+                .unwrap();
+            let Value::Timestamp(ts) = row[1] else {
+                panic!("{name}: {:?}", row[1]);
+            };
+            timestamp::format_timestamp(ts, "%Y-%m-%d %H:%M:%S")
+        };
+        assert_eq!(shown("row10"), "1899-12-30 00:00:30");
+        assert_eq!(shown("row19"), "1899-12-29 02:24:00");
+        assert_eq!(shown("row14"), "1899-09-27 10:19:15");
+        assert_eq!(shown("row3"), "1899-12-07 00:00:00");
+    }
+
     #[test]
     fn numeric_scale_and_precision_not_swapped() {
         // Regression test for `format::JET4::coldef_scale_pos` /

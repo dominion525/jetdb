@@ -3,7 +3,10 @@
 /// Microsoft Access stores date/time values as IEEE 754 double-precision
 /// floating-point numbers representing fractional days since the epoch
 /// 1899-12-30 00:00:00.  The integer part is the day count and the
-/// fractional part is the time of day.
+/// fractional part is the time of day.  Before the epoch the value is
+/// negative, and the time of day is the absolute value of the fractional
+/// part: -1.25 is 1899-12-29 06:00:00, a day before the epoch at 6 a.m., as
+/// Access shows it (not 1899-12-28 18:00:00, 1.25 days before the epoch).
 /// Access epoch expressed as Julian Day Number (1899-12-30).
 const ACCESS_EPOCH_JDN: i64 = 2_415_019;
 
@@ -17,10 +20,15 @@ pub fn timestamp_to_parts(ts: f64) -> (i32, u32, u32, u32, u32, u32) {
     if !ts.is_finite() {
         return (1899, 12, 30, 0, 0, 0); // epoch
     }
-    let mut days = ts.floor() as i64;
-    let frac = (ts - ts.floor()).abs();
+    // The day is the integer part toward zero and the time of day the
+    // absolute value of the fraction, also for a negative value (see the
+    // module comment).
+    let mut days = ts.trunc() as i64;
+    let frac = ts.fract().abs();
     let mut total_secs = (frac * SECS_PER_DAY + 0.5) as u32; // round
     if total_secs >= SECS_PER_DAY as u32 {
+        // Rounded up to midnight: the time of day runs forward from the
+        // date, so this is the next date for a negative value too.
         days += 1;
         total_secs = 0;
     }
@@ -172,6 +180,24 @@ mod tests {
         let ts = -1.0;
         let (y, m, d, _, _, _) = timestamp_to_parts(ts);
         assert_eq!((y, m, d), (1899, 12, 29));
+    }
+
+    #[test]
+    fn negative_value_with_time() {
+        // Before the epoch the time of day is the absolute value of the
+        // fraction, as Access's CDate shows it.
+        assert_eq!(timestamp_to_parts(-1.25), (1899, 12, 29, 6, 0, 0));
+        assert_eq!(timestamp_to_parts(-0.5), (1899, 12, 30, 12, 0, 0));
+        assert_eq!(timestamp_to_parts(-1.1), (1899, 12, 29, 2, 24, 0));
+        assert_eq!(timestamp_to_parts(-94.430034345), (1899, 9, 27, 10, 19, 15));
+        assert_eq!(timestamp_to_parts(-0.00035134), (1899, 12, 30, 0, 0, 30));
+    }
+
+    #[test]
+    fn negative_value_rounded_up_to_the_next_date() {
+        // 23:59:59.9 on 1899-12-29 rounds to midnight of 1899-12-30.
+        let ts = -(1.0 + (86_399.9 / 86_400.0));
+        assert_eq!(timestamp_to_parts(ts), (1899, 12, 30, 0, 0, 0));
     }
 
     #[test]
