@@ -9,8 +9,12 @@ mod js;
 
 use std::io::Cursor;
 
-use jetdb::format::{catalog_flags, column_flags, ColumnType, JetVersion, ObjectType};
-use jetdb::{read_catalog, read_table_def, ColumnDef, FileError, PageReader, TableDef};
+use jetdb::format::{
+    catalog_flags, column_flags, index_flags, index_type, ColumnType, JetVersion, ObjectType,
+};
+use jetdb::{
+    read_catalog, read_table_def, ColumnDef, FileError, IndexColumnOrder, PageReader, TableDef,
+};
 
 /// A database opened from bytes in memory.
 pub struct Database {
@@ -34,6 +38,27 @@ pub struct Column {
     pub auto_number: bool,
     /// A calculated column (Access 2010 and later).
     pub calculated: bool,
+}
+
+/// An index of a table, as `Database::indexes` returns it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Index {
+    pub name: String,
+    pub primary_key: bool,
+    pub columns: Vec<IndexColumn>,
+    /// No two rows have the same values in the index columns.
+    pub unique: bool,
+    /// Rows whose index columns are all NULL are left out of the index.
+    pub ignore_nulls: bool,
+    /// The index columns cannot be NULL.
+    pub required: bool,
+}
+
+/// A column of an index.
+#[derive(Debug, Clone, PartialEq)]
+pub struct IndexColumn {
+    pub name: String,
+    pub descending: bool,
 }
 
 impl Database {
@@ -98,6 +123,39 @@ impl Database {
                 },
                 auto_number: c.flags & (column_flags::AUTO_LONG | column_flags::AUTO_UUID) != 0,
                 calculated: c.is_calculated,
+            })
+            .collect())
+    }
+
+    /// The indexes of `table`, as `jetdb schema` lists them: without the
+    /// foreign key references, which Access keeps as indexes of their own.
+    pub fn indexes(&mut self, table: &str) -> Result<Vec<Index>, FileError> {
+        let (tdef, _) = self.table_def(table)?;
+        let column_name = |col_num: u16| {
+            tdef.columns
+                .iter()
+                .find(|c| c.col_num == col_num)
+                .map_or("?", |c| c.name.as_str())
+                .to_string()
+        };
+        Ok(tdef
+            .indexes
+            .iter()
+            .filter(|i| i.index_type != index_type::FOREIGN_KEY)
+            .map(|i| Index {
+                name: i.name.clone(),
+                primary_key: i.index_type == index_type::PRIMARY,
+                columns: i
+                    .columns
+                    .iter()
+                    .map(|c| IndexColumn {
+                        name: column_name(c.col_num),
+                        descending: matches!(c.order, IndexColumnOrder::Descending),
+                    })
+                    .collect(),
+                unique: i.flags & index_flags::UNIQUE != 0,
+                ignore_nulls: i.flags & index_flags::IGNORE_NULLS != 0,
+                required: i.flags & index_flags::REQUIRED != 0,
             })
             .collect())
     }
@@ -283,6 +341,82 @@ mod tests {
         let mut db = Database::open(bytes, None).unwrap();
         assert!(matches!(
             db.columns("NoSuchTable"),
+            Err(FileError::TableNotFound { name }) if name == "NoSuchTable"
+        ));
+    }
+
+    fn index_column(name: &str, descending: bool) -> IndexColumn {
+        IndexColumn {
+            name: name.to_string(),
+            descending,
+        }
+    }
+
+    #[test]
+    fn indexes_with_their_columns_and_flags() {
+        let bytes = skip_if_missing!("V2003/testIndexPropertiesV2003.mdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        assert_eq!(
+            db.indexes("TableIgnoreNulls2").unwrap(),
+            [
+                Index {
+                    name: "DataIndex".to_string(),
+                    primary_key: false,
+                    columns: vec![index_column("data1", false), index_column("data2", false)],
+                    unique: false,
+                    ignore_nulls: true,
+                    required: false,
+                },
+                Index {
+                    name: "PrimaryKey".to_string(),
+                    primary_key: true,
+                    columns: vec![index_column("row", false)],
+                    unique: true,
+                    ignore_nulls: false,
+                    required: true,
+                },
+            ]
+        );
+        let unique = &db.indexes("TableUnique2_temp").unwrap()[0];
+        assert_eq!(unique.name, "DataIndex");
+        assert!(unique.unique && !unique.primary_key && !unique.ignore_nulls);
+    }
+
+    #[test]
+    fn indexes_descending_column() {
+        let bytes = skip_if_missing!("V2003/compIndexTestV2003.mdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        let indexes = db.indexes("Table1").unwrap();
+        assert_eq!(indexes.len(), 1);
+        assert_eq!(indexes[0].columns, [index_column("CD_AGENTE", true)]);
+    }
+
+    #[test]
+    fn indexes_leave_out_foreign_key_references() {
+        let bytes = skip_if_missing!("V2003/indexTestV2003.mdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        let (tdef, _) = db.table_def("Table1").unwrap();
+        assert!(
+            tdef.indexes
+                .iter()
+                .any(|i| i.index_type == index_type::FOREIGN_KEY),
+            "Table1 has foreign key references to leave out"
+        );
+        let names: Vec<String> = db
+            .indexes("Table1")
+            .unwrap()
+            .into_iter()
+            .map(|i| i.name)
+            .collect();
+        assert_eq!(names, ["id", "PrimaryKey"]);
+    }
+
+    #[test]
+    fn indexes_of_a_missing_table() {
+        let bytes = skip_if_missing!("V2003/testV2003.mdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        assert!(matches!(
+            db.indexes("NoSuchTable"),
             Err(FileError::TableNotFound { name }) if name == "NoSuchTable"
         ));
     }

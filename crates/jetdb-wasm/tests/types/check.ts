@@ -6,7 +6,7 @@
 // under @ts-expect-error must fail to type-check, and tsc reports it when it
 // does not.
 
-import { Database, type Column, type ColumnType } from "jetdb-wasm";
+import { Database, type Column, type ColumnType, type Index } from "jetdb-wasm";
 
 declare const bytes: Uint8Array;
 
@@ -44,5 +44,19 @@ if (column.type === "Integer") {
 }
 // @ts-expect-error: the table name is required.
 db.columns();
+
+export const indexes: Index[] = db.indexes("Table1");
+export const index: {
+  name: string;
+  primaryKey: boolean;
+  columns: { name: string; descending: boolean }[];
+  unique: boolean;
+  ignoreNulls: boolean;
+  required: boolean;
+} = indexes[0];
+// @ts-expect-error: an index has no type property.
+indexes[0].type;
+// @ts-expect-error: the table name is required.
+db.indexes();
 
 db.free();

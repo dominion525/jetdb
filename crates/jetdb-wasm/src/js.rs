@@ -3,7 +3,7 @@
 use js_sys::{Array, Object, Reflect};
 use wasm_bindgen::prelude::*;
 
-use crate::{Column, Database};
+use crate::{Column, Database, Index};
 
 // Types for the TypeScript declarations. Version and Column are used through
 // unchecked_return_type. TablesOptions is an extern type rather than
@@ -42,6 +42,25 @@ export interface Column {
     autoNumber: boolean;
     /** A calculated column (Access 2010 and later). */
     calculated: boolean;
+}
+
+/** An index of a table. */
+export interface Index {
+    name: string;
+    primaryKey: boolean;
+    columns: IndexColumn[];
+    /** No two rows have the same values in the index columns. */
+    unique: boolean;
+    /** Rows whose index columns are all NULL are left out of the index. */
+    ignoreNulls: boolean;
+    /** The index columns cannot be NULL. */
+    required: boolean;
+}
+
+/** A column of an index. */
+export interface IndexColumn {
+    name: string;
+    descending: boolean;
 }
 "#;
 
@@ -87,6 +106,14 @@ impl JsDatabase {
         let columns = self.inner.columns(table).map_err(to_js_error)?;
         Ok(columns.iter().map(column_object).collect())
     }
+
+    /// The indexes of a table, without the foreign key references, which
+    /// Access keeps as indexes of their own.
+    #[wasm_bindgen(unchecked_return_type = "Index[]")]
+    pub fn indexes(&mut self, table: &str) -> Result<Array, JsError> {
+        let indexes = self.inner.indexes(table).map_err(to_js_error)?;
+        Ok(indexes.iter().map(index_object).collect())
+    }
 }
 
 fn to_js_error(e: jetdb::FileError) -> JsError {
@@ -102,6 +129,27 @@ fn column_object(column: &Column) -> Object {
     set(&object, "scale", column.scale.into());
     set(&object, "autoNumber", column.auto_number.into());
     set(&object, "calculated", column.calculated.into());
+    object
+}
+
+fn index_object(index: &Index) -> Object {
+    let columns: Array = index
+        .columns
+        .iter()
+        .map(|c| {
+            let object = Object::new();
+            set(&object, "name", c.name.as_str().into());
+            set(&object, "descending", c.descending.into());
+            object
+        })
+        .collect();
+    let object = Object::new();
+    set(&object, "name", index.name.as_str().into());
+    set(&object, "primaryKey", index.primary_key.into());
+    set(&object, "columns", columns.into());
+    set(&object, "unique", index.unique.into());
+    set(&object, "ignoreNulls", index.ignore_nulls.into());
+    set(&object, "required", index.required.into());
     object
 }
 

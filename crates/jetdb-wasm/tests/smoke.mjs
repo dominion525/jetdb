@@ -47,6 +47,30 @@ function check(Database, build) {
   );
   assert.throws(() => db.columns("NoSuchTable"), /table not found: NoSuchTable/, build);
 
+  assert.deepEqual(
+    db.indexes("Table1"),
+    [
+      {
+        name: "B",
+        primaryKey: false,
+        columns: [{ name: "B", descending: false }],
+        unique: false,
+        ignoreNulls: false,
+        required: false,
+      },
+      {
+        name: "PrimaryKey",
+        primaryKey: true,
+        columns: [{ name: "A", descending: false }],
+        unique: true,
+        ignoreNulls: false,
+        required: true,
+      },
+    ],
+    build,
+  );
+  assert.throws(() => db.indexes("NoSuchTable"), /table not found: NoSuchTable/, build);
+
   const encrypted = read("db2007-enc.accdb");
   assert.throws(() => Database.open(encrypted), /password-protected/, build);
   assert.throws(() => Database.open(encrypted, "wrong"), /invalid password/, build);
