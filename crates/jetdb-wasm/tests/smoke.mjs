@@ -22,6 +22,7 @@ function check(Database, build) {
   checkIndexes(Database, build);
   checkRows(Database, build);
   checkSkippedRows(Database, build);
+  checkErrors(Database, build);
   checkPassword(Database, build);
   console.log(`ok: ${build}`);
 }
@@ -35,8 +36,8 @@ function checkTables(Database, build) {
   assert.ok(tables.includes("Table1"), `${build}: ${tables}`);
   assert.ok(!tables.some((name) => name.startsWith("MSys")), `${build}: ${tables}`);
   assert.ok(db.tables({ system: true }).includes("MSysObjects"), build);
-  assert.throws(() => db.tables({ system: "yes" }), /option system must be a boolean/, build);
-  assert.throws(() => db.tables(5), /cannot read option system/, build);
+  assert.throws(() => db.tables({ system: "yes" }), { name: "JetdbError", code: "INVALID_ARGUMENT" }, build);
+  assert.throws(() => db.tables(5), { name: "JetdbError", code: "INVALID_ARGUMENT" }, build);
 }
 
 function checkColumns(Database, build) {
@@ -62,7 +63,7 @@ function checkColumns(Database, build) {
     { name: "A", type: "Text", size: 100, precision: 0, scale: 0, autoNumber: false, calculated: false },
     build,
   );
-  assert.throws(() => db.columns("NoSuchTable"), /table not found: NoSuchTable/, build);
+  assert.throws(() => db.columns("NoSuchTable"), { name: "JetdbError", code: "TABLE_NOT_FOUND" }, build);
 }
 
 function checkIndexes(Database, build) {
@@ -89,7 +90,7 @@ function checkIndexes(Database, build) {
     ],
     build,
   );
-  assert.throws(() => db.indexes("NoSuchTable"), /table not found: NoSuchTable/, build);
+  assert.throws(() => db.indexes("NoSuchTable"), { name: "JetdbError", code: "TABLE_NOT_FOUND" }, build);
 }
 
 function checkRows(Database, build) {
@@ -105,7 +106,7 @@ function checkRows(Database, build) {
     },
     build,
   );
-  assert.throws(() => db.rows("NoSuchTable"), /table not found: NoSuchTable/, build);
+  assert.throws(() => db.rows("NoSuchTable"), { name: "JetdbError", code: "TABLE_NOT_FOUND" }, build);
 
   const binary = Database.open(read("V2010/binIdxTestV2010.accdb")).rows("Test").rows;
   assert.deepEqual(binary.find((row) => row.ID === 1).BinAsc, new Uint8Array([0x61, 0x62]), build);
@@ -148,13 +149,23 @@ function checkOpen(Database, build) {
   const arrayBuffer = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
   assert.equal(Database.open(arrayBuffer).version(), "JET4", build);
   assert.equal(Database.open(new Uint8Array(arrayBuffer)).version(), "JET4", build);
-  assert.throws(() => Database.open("testV2003.mdb"), /bytes must be a Uint8Array or an ArrayBuffer/, build);
+  assert.throws(() => Database.open("testV2003.mdb"), { name: "JetdbError", code: "INVALID_ARGUMENT" }, build);
+}
+
+function checkErrors(Database, build) {
+  // The other checks match each error by its code; this one checks that an
+  // error is an Error, and the code of bytes that are not a database.
+  assert.throws(
+    () => Database.open(new Uint8Array(10)),
+    (e) => e instanceof Error && e.name === "JetdbError" && e.code === "INVALID_FILE",
+    build,
+  );
 }
 
 function checkPassword(Database, build) {
   const encrypted = read("db2007-enc.accdb");
-  assert.throws(() => Database.open(encrypted), /password-protected/, build);
-  assert.throws(() => Database.open(encrypted, "wrong"), /invalid password/, build);
+  assert.throws(() => Database.open(encrypted), { name: "JetdbError", code: "PASSWORD_REQUIRED" }, build);
+  assert.throws(() => Database.open(encrypted, "wrong"), { name: "JetdbError", code: "INVALID_PASSWORD" }, build);
   assert.deepEqual(Database.open(encrypted, "Test123").tables(), ["Table1"], build);
 }
 

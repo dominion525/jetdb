@@ -294,6 +294,47 @@ fn type_name(column_type: &ColumnType) -> String {
     }
 }
 
+/// The stable code of an error, which JavaScript gets as the `code` of the
+/// error it catches: one code for each thing a caller may do about it, so the
+/// ways a file can be broken all share `INVALID_FILE`, their message telling
+/// them apart.
+pub fn error_code(error: &FileError) -> &'static str {
+    match error {
+        FileError::PasswordRequired => "PASSWORD_REQUIRED",
+        FileError::InvalidPassword => "INVALID_PASSWORD",
+        FileError::UnsupportedEncryption { .. } => "UNSUPPORTED_ENCRYPTION",
+        not_found @ (FileError::TableNotFound { .. }
+        | FileError::QueryNotFound { .. }
+        | FileError::ModuleNotFound { .. }
+        | FileError::FormNotFound { .. }
+        | FileError::MacroNotFound { .. }) => not_found_code(not_found),
+        FileError::Format(_)
+        | FileError::FileTooSmall { .. }
+        | FileError::PageOutOfRange { .. }
+        | FileError::InvalidRow { .. }
+        | FileError::InvalidUsageMap { .. }
+        | FileError::InvalidTableDef { .. }
+        | FileError::InvalidProperty { .. }
+        | FileError::InvalidVbaProject { .. }
+        | FileError::InvalidFormData { .. }
+        | FileError::InvalidMacroData { .. } => "INVALID_FILE",
+        FileError::Io(_) => "IO",
+    }
+}
+
+/// The code of an error for an object that is not in the database, which is
+/// all that `error_code` passes here.
+fn not_found_code(error: &FileError) -> &'static str {
+    match error {
+        FileError::TableNotFound { .. } => "TABLE_NOT_FOUND",
+        FileError::QueryNotFound { .. } => "QUERY_NOT_FOUND",
+        FileError::ModuleNotFound { .. } => "MODULE_NOT_FOUND",
+        FileError::FormNotFound { .. } => "FORM_NOT_FOUND",
+        FileError::MacroNotFound { .. } => "MACRO_NOT_FOUND",
+        _ => unreachable!("not a not-found error: {error}"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -750,6 +791,60 @@ mod tests {
         assert_eq!(
             Cell::from(Value::Float(f32::INFINITY)),
             Cell::Number(f64::INFINITY)
+        );
+    }
+
+    #[test]
+    fn error_codes_of_each_kind() {
+        let name = || "x".to_string();
+        let codes = [
+            (FileError::PasswordRequired, "PASSWORD_REQUIRED"),
+            (FileError::InvalidPassword, "INVALID_PASSWORD"),
+            (
+                FileError::UnsupportedEncryption { reason: name() },
+                "UNSUPPORTED_ENCRYPTION",
+            ),
+            (FileError::TableNotFound { name: name() }, "TABLE_NOT_FOUND"),
+            (FileError::QueryNotFound { name: name() }, "QUERY_NOT_FOUND"),
+            (
+                FileError::ModuleNotFound { name: name() },
+                "MODULE_NOT_FOUND",
+            ),
+            (FileError::FormNotFound { name: name() }, "FORM_NOT_FOUND"),
+            (FileError::MacroNotFound { name: name() }, "MACRO_NOT_FOUND"),
+            (
+                FileError::FileTooSmall {
+                    expected: 21,
+                    actual: 0,
+                },
+                "INVALID_FILE",
+            ),
+            (FileError::InvalidTableDef { reason: "x" }, "INVALID_FILE"),
+            (FileError::Io(std::io::Error::other("x")), "IO"),
+        ];
+        for (error, code) in codes {
+            assert_eq!(error_code(&error), code, "{error}");
+        }
+    }
+
+    #[test]
+    fn error_codes_from_real_files() {
+        let bytes = skip_if_missing!("db2007-enc.accdb");
+        let code = |r: Result<Database, FileError>| error_code(&r.err().unwrap());
+        assert_eq!(
+            code(Database::open(bytes.clone(), None)),
+            "PASSWORD_REQUIRED"
+        );
+        assert_eq!(
+            code(Database::open(bytes, Some("wrong"))),
+            "INVALID_PASSWORD"
+        );
+        assert_eq!(code(Database::open(vec![0; 10], None)), "INVALID_FILE");
+        let bytes = skip_if_missing!("V2003/testV2003.mdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        assert_eq!(
+            error_code(&db.columns("NoSuchTable").unwrap_err()),
+            "TABLE_NOT_FOUND"
         );
     }
 

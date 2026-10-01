@@ -4,7 +4,7 @@ use js_sys::{Array, ArrayBuffer, BigInt, Object, Reflect, Uint8Array};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 
-use crate::{Cell, Column, Database, Index};
+use crate::{error_code, Cell, Column, Database, Index};
 
 // Types for the TypeScript declarations. Version, Column, Index and Rows are
 // used through unchecked_return_type. TablesOptions is an extern type rather
@@ -99,6 +99,34 @@ export interface Rows {
     /** The number of rows that could not be read and were left out. */
     skipped: number;
 }
+
+/**
+ * The kind of a `JetdbError`, one for each thing a caller may do about it:
+ *
+ * - `PASSWORD_REQUIRED`: the file is password-protected and no password was
+ *   given.
+ * - `INVALID_PASSWORD`: the password is wrong.
+ * - `UNSUPPORTED_ENCRYPTION`: the file is encrypted in a way jetdb cannot
+ *   read.
+ * - `TABLE_NOT_FOUND`, `QUERY_NOT_FOUND`, `MODULE_NOT_FOUND`,
+ *   `FORM_NOT_FOUND`, `MACRO_NOT_FOUND`: no object of that name.
+ * - `INVALID_FILE`: not an Access database, or a broken one; the message
+ *   says what is wrong.
+ * - `INVALID_ARGUMENT`: a method was called with an argument of the wrong
+ *   kind.
+ * - `IO`: reading the bytes failed.
+ */
+export type ErrorCode =
+    | "PASSWORD_REQUIRED" | "INVALID_PASSWORD" | "UNSUPPORTED_ENCRYPTION"
+    | "TABLE_NOT_FOUND" | "QUERY_NOT_FOUND" | "MODULE_NOT_FOUND"
+    | "FORM_NOT_FOUND" | "MACRO_NOT_FOUND"
+    | "INVALID_FILE" | "INVALID_ARGUMENT" | "IO";
+
+/** The error that the methods of `Database` throw. */
+export interface JetdbError extends Error {
+    name: "JetdbError";
+    code: ErrorCode;
+}
 "#;
 
 #[wasm_bindgen]
@@ -121,7 +149,7 @@ impl JsDatabase {
     pub fn open(
         #[wasm_bindgen(unchecked_param_type = "Uint8Array | ArrayBuffer")] bytes: JsValue,
         password: Option<String>,
-    ) -> Result<JsDatabase, JsError> {
+    ) -> Result<JsDatabase, JsValue> {
         let inner = Database::open(bytes_of(&bytes)?, password.as_deref()).map_err(to_js_error)?;
         Ok(JsDatabase { inner })
     }
@@ -135,7 +163,7 @@ impl JsDatabase {
 
     /// The names of the user tables, sorted. With `{ system: true }`, the
     /// system and hidden tables are included too.
-    pub fn tables(&mut self, options: Option<TablesOptions>) -> Result<Vec<String>, JsError> {
+    pub fn tables(&mut self, options: Option<TablesOptions>) -> Result<Vec<String>, JsValue> {
         let include_system = option_bool(options.as_deref(), "system")?;
         self.inner.tables(include_system).map_err(to_js_error)
     }
@@ -143,7 +171,7 @@ impl JsDatabase {
     /// The columns of a table in the order Access shows them, without the
     /// columns Access maintains and hides in user tables.
     #[wasm_bindgen(unchecked_return_type = "Column[]")]
-    pub fn columns(&mut self, table: &str) -> Result<Array, JsError> {
+    pub fn columns(&mut self, table: &str) -> Result<Array, JsValue> {
         let columns = self.inner.columns(table).map_err(to_js_error)?;
         Ok(columns.iter().map(column_object).collect())
     }
@@ -151,7 +179,7 @@ impl JsDatabase {
     /// The indexes of a table, without the foreign key references, which
     /// Access keeps as indexes of their own.
     #[wasm_bindgen(unchecked_return_type = "Index[]")]
-    pub fn indexes(&mut self, table: &str) -> Result<Array, JsError> {
+    pub fn indexes(&mut self, table: &str) -> Result<Array, JsValue> {
         let indexes = self.inner.indexes(table).map_err(to_js_error)?;
         Ok(indexes.iter().map(index_object).collect())
     }
@@ -160,7 +188,7 @@ impl JsDatabase {
     /// the columns that `columns` returns, and the number of rows that could
     /// not be read and were left out.
     #[wasm_bindgen(unchecked_return_type = "Rows")]
-    pub fn rows(&mut self, table: &str) -> Result<Object, JsError> {
+    pub fn rows(&mut self, table: &str) -> Result<Object, JsValue> {
         let rows = self.inner.rows(table).map_err(to_js_error)?;
         let names: Vec<JsValue> = rows.columns.iter().map(|c| JsValue::from_str(c)).collect();
         let objects: Array = rows
@@ -186,18 +214,30 @@ impl JsDatabase {
 
 /// The bytes of a Uint8Array or an ArrayBuffer. A `Vec<u8>` parameter would
 /// take any other value, an ArrayBuffer included, as no bytes at all.
-fn bytes_of(value: &JsValue) -> Result<Vec<u8>, JsError> {
+fn bytes_of(value: &JsValue) -> Result<Vec<u8>, JsValue> {
     if let Some(array) = value.dyn_ref::<Uint8Array>() {
         return Ok(array.to_vec());
     }
     if let Some(buffer) = value.dyn_ref::<ArrayBuffer>() {
         return Ok(Uint8Array::new(buffer).to_vec());
     }
-    Err(JsError::new("bytes must be a Uint8Array or an ArrayBuffer"))
+    Err(jetdb_error(
+        "INVALID_ARGUMENT",
+        "bytes must be a Uint8Array or an ArrayBuffer",
+    ))
 }
 
-fn to_js_error(e: jetdb::FileError) -> JsError {
-    JsError::new(&e.to_string())
+fn to_js_error(e: jetdb::FileError) -> JsValue {
+    jetdb_error(error_code(&e), &e.to_string())
+}
+
+/// A JavaScript Error named JetdbError, with the stable `code` of the error
+/// for a caller to tell the kinds apart without reading the message.
+fn jetdb_error(code: &str, message: &str) -> JsValue {
+    let error = js_sys::Error::new(message);
+    error.set_name("JetdbError");
+    set(&error, "code", code.into());
+    error.into()
 }
 
 fn column_object(column: &Column) -> Object {
@@ -250,16 +290,19 @@ fn set(object: &Object, key: &str, value: JsValue) {
 }
 
 /// Reads the boolean option `name`, which is `false` when absent.
-fn option_bool(options: Option<&JsValue>, name: &str) -> Result<bool, JsError> {
+fn option_bool(options: Option<&JsValue>, name: &str) -> Result<bool, JsValue> {
     let Some(options) = options else {
         return Ok(false);
     };
     let value = Reflect::get(options, &JsValue::from_str(name))
-        .map_err(|_| JsError::new(&format!("cannot read option {name}")))?;
+        .map_err(|_| jetdb_error("INVALID_ARGUMENT", &format!("cannot read option {name}")))?;
     if value.is_undefined() || value.is_null() {
         return Ok(false);
     }
-    value
-        .as_bool()
-        .ok_or_else(|| JsError::new(&format!("option {name} must be a boolean")))
+    value.as_bool().ok_or_else(|| {
+        jetdb_error(
+            "INVALID_ARGUMENT",
+            &format!("option {name} must be a boolean"),
+        )
+    })
 }
