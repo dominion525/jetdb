@@ -1,11 +1,11 @@
 //! The JavaScript interface: thin `wasm-bindgen` wrappers over [`crate::Database`].
 
-use js_sys::Reflect;
+use js_sys::{Array, Object, Reflect};
 use wasm_bindgen::prelude::*;
 
-use crate::Database;
+use crate::{Column, Database};
 
-// Types for the TypeScript declarations. Version is used through
+// Types for the TypeScript declarations. Version and Column are used through
 // unchecked_return_type. TablesOptions is an extern type rather than
 // unchecked_param_type, which would make the parameter required.
 #[wasm_bindgen(typescript_custom_section)]
@@ -17,6 +17,31 @@ export type Version = "JET3" | "JET4" | "ACE12" | "ACE14" | "ACE15" | "ACE16" | 
 export interface TablesOptions {
     /** Include the system and hidden tables too. */
     system?: boolean;
+}
+
+/** The type of a column, `Unknown` for a type jetdb does not know. */
+export type ColumnType =
+    | "Boolean" | "Byte" | "Int" | "Long" | "Money" | "Float" | "Double"
+    | "Timestamp" | "Binary" | "Text" | "Ole" | "Memo" | "Guid" | "Numeric"
+    | "ComplexType" | "BigInt" | "DateTimeExtended" | "Unknown";
+
+/** A column of a table. */
+export interface Column {
+    name: string;
+    type: ColumnType;
+    /**
+     * The size in bytes as stored, such as 100 for a Text column of 50
+     * characters in Jet4 and later, which store two bytes a character.
+     */
+    size: number;
+    /** Precision of a Numeric column; 0 for the other types. */
+    precision: number;
+    /** Scale of a Numeric column; 0 for the other types. */
+    scale: number;
+    /** An AutoNumber column: a Long or a GUID that Access fills in. */
+    autoNumber: boolean;
+    /** A calculated column (Access 2010 and later). */
+    calculated: boolean;
 }
 "#;
 
@@ -54,10 +79,35 @@ impl JsDatabase {
         let include_system = option_bool(options.as_deref(), "system")?;
         self.inner.tables(include_system).map_err(to_js_error)
     }
+
+    /// The columns of a table in the order Access shows them, without the
+    /// columns Access maintains and hides in user tables.
+    #[wasm_bindgen(unchecked_return_type = "Column[]")]
+    pub fn columns(&mut self, table: &str) -> Result<Array, JsError> {
+        let columns = self.inner.columns(table).map_err(to_js_error)?;
+        Ok(columns.iter().map(column_object).collect())
+    }
 }
 
 fn to_js_error(e: jetdb::FileError) -> JsError {
     JsError::new(&e.to_string())
+}
+
+fn column_object(column: &Column) -> Object {
+    let object = Object::new();
+    set(&object, "name", column.name.as_str().into());
+    set(&object, "type", column.type_name.into());
+    set(&object, "size", column.size.into());
+    set(&object, "precision", column.precision.into());
+    set(&object, "scale", column.scale.into());
+    set(&object, "autoNumber", column.auto_number.into());
+    set(&object, "calculated", column.calculated.into());
+    object
+}
+
+/// Sets a property on an object made here, which cannot fail.
+fn set(object: &Object, key: &str, value: JsValue) {
+    Reflect::set(object, &JsValue::from_str(key), &value).expect("set a property");
 }
 
 /// Reads the boolean option `name`, which is `false` when absent.

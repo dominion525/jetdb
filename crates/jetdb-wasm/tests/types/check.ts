@@ -6,7 +6,7 @@
 // under @ts-expect-error must fail to type-check, and tsc reports it when it
 // does not.
 
-import { Database } from "jetdb-wasm";
+import { Database, type Column, type ColumnType } from "jetdb-wasm";
 
 declare const bytes: Uint8Array;
 
@@ -28,5 +28,21 @@ db.tables({ system: true });
 db.tables({ sytem: true });
 // @ts-expect-error: system is a boolean.
 db.tables({ system: "yes" });
+
+export const columns: Column[] = db.columns("Table1");
+export const column: {
+  name: string;
+  type: ColumnType;
+  size: number;
+  precision: number;
+  scale: number;
+  autoNumber: boolean;
+  calculated: boolean;
+} = columns[0];
+// @ts-expect-error: Integer is not a column type.
+if (column.type === "Integer") {
+}
+// @ts-expect-error: the table name is required.
+db.columns();
 
 db.free();

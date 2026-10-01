@@ -24,6 +24,29 @@ function check(Database, build) {
   assert.ok(db.tables({ system: true }).includes("MSysObjects"), build);
   assert.throws(() => db.tables({ system: "yes" }), /option system must be a boolean/, build);
 
+  const columns = db.columns("Table1");
+  assert.deepEqual(
+    columns.map((c) => [c.name, c.type, c.size]),
+    [
+      ["A", "Text", 100],
+      ["B", "Text", 200],
+      ["C", "Byte", 1],
+      ["D", "Int", 2],
+      ["E", "Long", 4],
+      ["F", "Double", 8],
+      ["G", "Timestamp", 8],
+      ["H", "Money", 8],
+      ["I", "Boolean", 1],
+    ],
+    build,
+  );
+  assert.deepEqual(
+    columns[0],
+    { name: "A", type: "Text", size: 100, precision: 0, scale: 0, autoNumber: false, calculated: false },
+    build,
+  );
+  assert.throws(() => db.columns("NoSuchTable"), /table not found: NoSuchTable/, build);
+
   const encrypted = read("db2007-enc.accdb");
   assert.throws(() => Database.open(encrypted), /password-protected/, build);
   assert.throws(() => Database.open(encrypted, "wrong"), /invalid password/, build);
