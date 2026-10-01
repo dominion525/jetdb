@@ -70,6 +70,14 @@ cargo metadata --format-version 1 --filter-platform wasm32-unknown-unknown | jq 
 
 The browser tests also need Node.js, and the package build and test need jq and npm. For wasmtime, see https://wasmtime.dev/ (on macOS, `brew install wasmtime`).
 
+The Wasm package job in CI also runs `scripts/test-wasm-browser.sh`, which drives the developer page `crates/jetdb-wasm/examples/index.html` with Playwright in Chromium, Firefox and WebKit. `scripts/quality-check.sh` does not run it. To run it locally, build the package and install the browsers for the Playwright version pinned by `crates/jetdb-wasm/tests/browser/package-lock.json` first:
+
+```bash
+npm ci --prefix crates/jetdb-wasm/tests/browser
+(cd crates/jetdb-wasm/tests/browser && npx playwright install)
+scripts/test-wasm-browser.sh
+```
+
 ### 4. cargo audit — Vulnerability Check
 
 Check dependency crates for known security vulnerabilities.
