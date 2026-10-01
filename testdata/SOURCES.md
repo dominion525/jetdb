@@ -167,6 +167,16 @@ The `macroGenerated*` files were made with the VBA modules in `macro-generators/
 3. `macro-probe.bas` (`ProbeMacroActions`)
 4. `macro-datamacro-order.bas` (`ProbeDataMacroOrder`)
 
+## Created independently: BigInt test database
+
+This file was created by the jetdb project using Microsoft Access for Microsoft 365 MSO (Version 2609 Build 16.0.20430.20092, 64-bit). jetdb reads it as the ACE16 format.
+
+| File | Purpose |
+|------|---------|
+| V2016/bigIntTestV2016.accdb | `BigIntTable`, with a Long column `ID` and a Large Number (BigInt) column `Big` holding 9007199254740993 (2^53 + 1, which a Double cannot hold exactly), -9007199254740993, 0, and NULL |
+
+It was made with the VBA module `bigint-generators/bigint-generator.bas` (`CreateBigIntTestTable`), imported into a new, empty `.accdb` and run once from the Immediate window.
+
 ## Created independently
 
 These files were created by the jetdb project using Microsoft Access for Microsoft 365 MSO (Version 2602 Build 16.0.19725.20014, 64-bit).

@@ -1713,6 +1713,35 @@ mod tests {
         );
     }
 
+    /// BigIntTable in bigIntTestV2016.accdb, made by
+    /// testdata/bigint-generators/bigint-generator.bas. 2^53 + 1 is not
+    /// exactly a Double, so it shows that every digit is kept.
+    #[test]
+    fn ace16_bigint() {
+        let path = skip_if_missing!("V2016/bigIntTestV2016.accdb");
+        let mut reader = PageReader::open(&path).unwrap();
+        let catalog = crate::catalog::read_catalog(&mut reader).unwrap();
+        let entry = catalog
+            .iter()
+            .find(|e| e.name == "BigIntTable")
+            .expect("BigIntTable entry in catalog");
+        let table =
+            crate::table::read_table_def(&mut reader, &entry.name, entry.table_page).unwrap();
+        assert_eq!(table.columns[1].name, "Big");
+        assert_eq!(table.columns[1].col_type, ColumnType::BigInt);
+        let result = read_table_rows(&mut reader, &table).unwrap();
+        assert_eq!(result.skipped_rows, 0);
+        assert_eq!(
+            result.rows,
+            [
+                vec![Value::Long(1), Value::BigInt(9007199254740993)],
+                vec![Value::Long(2), Value::BigInt(-9007199254740993)],
+                vec![Value::Long(3), Value::BigInt(0)],
+                vec![Value::Long(4), Value::Null],
+            ]
+        );
+    }
+
     #[test]
     fn numeric_scale_and_precision_not_swapped() {
         // Regression test for `format::JET4::coldef_scale_pos` /
