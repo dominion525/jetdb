@@ -91,14 +91,12 @@ impl From<Value> for Cell {
         match value {
             Value::Null => Cell::Null,
             Value::Bool(v) => Cell::Bool(v),
-            Value::Byte(v) => Cell::Number(v.into()),
-            Value::Int(v) => Cell::Number(v.into()),
-            Value::Long(v) => Cell::Number(v.into()),
+            number @ (Value::Byte(_)
+            | Value::Int(_)
+            | Value::Long(_)
+            | Value::Float(_)
+            | Value::Double(_)) => Cell::Number(number_value(&number)),
             Value::BigInt(v) => Cell::BigInt(v),
-            // Through the shortest decimal of the f32, so that 1.1 stays 1.1
-            // rather than becoming 1.100000023841858.
-            Value::Float(v) => Cell::Number(v.to_string().parse().unwrap_or(v.into())),
-            Value::Double(v) => Cell::Number(v),
             Value::Timestamp(ts) => Cell::String(timestamp_string(ts)),
             Value::Text(s)
             | Value::Money(s)
@@ -107,6 +105,21 @@ impl From<Value> for Cell {
             | Value::DateTimeExtended(s) => Cell::String(s),
             Value::Binary(bytes) => Cell::Bytes(bytes),
         }
+    }
+}
+
+/// The number of a Byte, Int, Long, Float or Double value, which is all that
+/// `Cell::from` passes here.
+fn number_value(value: &Value) -> f64 {
+    match *value {
+        Value::Byte(v) => v.into(),
+        Value::Int(v) => v.into(),
+        Value::Long(v) => v.into(),
+        // Through the shortest decimal of the f32, so that 1.1 stays 1.1
+        // rather than becoming 1.100000023841858.
+        Value::Float(v) => v.to_string().parse().unwrap_or(v.into()),
+        Value::Double(v) => v,
+        _ => unreachable!("not a number value: {value:?}"),
     }
 }
 
