@@ -34,6 +34,7 @@ function checkTables(Database, build) {
   assert.ok(!tables.some((name) => name.startsWith("MSys")), `${build}: ${tables}`);
   assert.ok(db.tables({ system: true }).includes("MSysObjects"), build);
   assert.throws(() => db.tables({ system: "yes" }), /option system must be a boolean/, build);
+  assert.throws(() => db.tables(5), /cannot read option system/, build);
 }
 
 function checkColumns(Database, build) {
