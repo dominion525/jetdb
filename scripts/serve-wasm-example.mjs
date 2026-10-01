@@ -29,7 +29,15 @@ if (!existsSync(join(root, "pkg", "web"))) {
 }
 
 createServer(async (request, response) => {
-  const path = decodeURIComponent(new URL(request.url, "http://localhost").pathname);
+  let path;
+  try {
+    path = decodeURIComponent(new URL(request.url, "http://localhost").pathname);
+  } catch {
+    // A malformed percent-encoding such as /%E0 would otherwise throw out of
+    // this async handler and stop the server.
+    response.writeHead(400).end();
+    return;
+  }
   let file = normalize(join(root, path));
   if (file !== root && !file.startsWith(root + sep)) {
     response.writeHead(403).end();
