@@ -14,8 +14,8 @@ use jetdb::format::{
     catalog_flags, column_flags, index_flags, index_type, ColumnType, JetVersion, ObjectType,
 };
 use jetdb::{
-    read_catalog, read_relationships, read_table_def, relationship_flags, CatalogEntry, ColumnDef,
-    IndexColumnOrder, IndexDef, PageReader, Relationship, TableDef,
+    calculated_column_types, read_catalog, read_relationships, read_table_def, relationship_flags,
+    CatalogEntry, ColumnDef, IndexColumnOrder, IndexDef, PageReader, Relationship, TableDef,
 };
 
 // ---------------------------------------------------------------------------
@@ -271,11 +271,13 @@ fn run_schema(args: &SchemaArgs, password: Option<&str>) -> Result<(), jetdb::Fi
         Vec::new()
     };
 
-    // Read all target table definitions
+    // Read all target table definitions. A calculated column is shown, and
+    // written in DDL, with the type of its result, which its values have.
     let mut tables: Vec<TableDef> = Vec::new();
     for entry in &targets {
         let tdef = read_table_def(&mut reader, &entry.name, entry.table_page)?;
-        tables.push(tdef);
+        let calculated = calculated_column_types(&mut reader, &tdef);
+        tables.push(jetdb::ddl::with_calculated_column_types(&tdef, &calculated));
     }
 
     // DDL mode or human-readable mode
@@ -307,6 +309,8 @@ fn format_col_type(col: &ColumnDef) -> String {
     match col.col_type {
         ColumnType::Text => format!("Text({})", col.col_size),
         ColumnType::Binary => format!("Binary({})", col.col_size),
+        // A calculated column has no fixed precision, given as 0.
+        ColumnType::Numeric if col.precision == 0 => "Numeric".to_string(),
         ColumnType::Numeric => format!("Numeric({},{})", col.precision, col.scale),
         ColumnType::Memo => "Memo".to_string(),
         ColumnType::Ole => "Ole".to_string(),
@@ -321,6 +325,9 @@ fn format_col_attrs(col: &ColumnDef) -> String {
     }
     if (col.flags & column_flags::AUTO_LONG) != 0 || (col.flags & column_flags::AUTO_UUID) != 0 {
         attrs.push("AUTO");
+    }
+    if col.is_calculated {
+        attrs.push("CALC");
     }
     attrs.join("  ")
 }
@@ -789,6 +796,19 @@ mod tests {
             0,
         );
         assert_eq!(format_col_attrs(&c), "NOT NULL  AUTO");
+    }
+
+    #[test]
+    fn format_col_attrs_calculated() {
+        let mut c = col("x", ColumnType::Money, 0, column_flags::NULLABLE, 0, 0);
+        c.is_calculated = true;
+        assert_eq!(format_col_attrs(&c), "CALC");
+    }
+
+    #[test]
+    fn format_col_type_numeric_without_a_fixed_precision() {
+        let c = col("x", ColumnType::Numeric, 17, column_flags::NULLABLE, 0, 0);
+        assert_eq!(format_col_type(&c), "Numeric");
     }
 
     // -- format_index_flags tests ---------------------------------------------

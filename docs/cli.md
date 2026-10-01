@@ -112,6 +112,8 @@ jetdb schema [OPTIONS] <FILE>
 Display column definitions, indexes, and relationships of tables.
 When the `--ddl` option is specified, output as SQL DDL (CREATE TABLE, etc.).
 
+A calculated column (Access 2010 and later) is marked `CALC` and shown with the type of its result, which its values have, rather than the type Access declares for it. In DDL it is a plain column of that type, so that the table can hold the values `export` writes. A Numeric result has no fixed precision; it is shown as `Numeric` and written as the widest Numeric type of the dialect (`DECIMAL(28,10)` for Access, `NUMERIC` for PostgreSQL and SQLite, `DECIMAL(65,30)` for MySQL).
+
 #### Options
 
 - `-T`, `--table <NAME>` — Show only the specified table
