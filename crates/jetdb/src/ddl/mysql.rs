@@ -28,6 +28,8 @@ impl DdlDialect for Mysql {
             ColumnType::Memo => "LONGTEXT".to_string(),
             ColumnType::Ole => "LONGBLOB".to_string(),
             ColumnType::Guid => "CHAR(36)".to_string(),
+            // No fixed precision (a calculated column): the largest DECIMAL MySQL allows.
+            ColumnType::Numeric if col.precision == 0 => "DECIMAL(65,30)".to_string(),
             ColumnType::Numeric => format!("DECIMAL({},{})", col.precision, col.scale),
             ColumnType::ComplexType => "INT".to_string(),
             ColumnType::BigInt => "BIGINT".to_string(),

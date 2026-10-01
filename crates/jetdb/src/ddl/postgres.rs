@@ -28,6 +28,8 @@ impl DdlDialect for Postgres {
             ColumnType::Memo => "TEXT".to_string(),
             ColumnType::Ole => "BYTEA".to_string(),
             ColumnType::Guid => "UUID".to_string(),
+            // No fixed precision (a calculated column): NUMERIC without a precision holds any value exactly.
+            ColumnType::Numeric if col.precision == 0 => "NUMERIC".to_string(),
             ColumnType::Numeric => format!("NUMERIC({},{})", col.precision, col.scale),
             ColumnType::ComplexType => "INTEGER".to_string(),
             ColumnType::BigInt => "BIGINT".to_string(),
