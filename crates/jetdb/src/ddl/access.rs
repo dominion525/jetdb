@@ -30,7 +30,7 @@ impl DdlDialect for Access {
             ColumnType::Guid => "UNIQUEIDENTIFIER".to_string(),
             ColumnType::Numeric => format!("DECIMAL({},{})", col.precision, col.scale),
             ColumnType::ComplexType => "LONG".to_string(),
-            ColumnType::BigInt => "LONG".to_string(),
+            ColumnType::BigInt => "BIGINT".to_string(),
             ColumnType::DateTimeExtended => "DATETIME".to_string(),
             ColumnType::Unknown(_) => "BINARY".to_string(),
         }
