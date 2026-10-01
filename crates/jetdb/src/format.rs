@@ -543,7 +543,15 @@ pub mod column_flags {
     pub const NULLABLE: u8 = 0x02;
     /// Column is an auto-increment long integer.
     pub const AUTO_LONG: u8 = 0x04;
-    /// Column is used for replication.
+    /// Column Access maintains and hides from users, such as every column of
+    /// a system table.
+    pub const HIDDEN: u8 = 0x10;
+    /// Former name of `HIDDEN`. It keeps its value, so existing checks
+    /// against it still match the same columns.
+    #[deprecated(
+        since = "0.4.0",
+        note = "the flag marks columns Access maintains and hides, which are not only replication columns; use `HIDDEN`"
+    )]
     pub const REPLICATION: u8 = 0x10;
     /// Column is an auto-generated UUID.
     pub const AUTO_UUID: u8 = 0x40;

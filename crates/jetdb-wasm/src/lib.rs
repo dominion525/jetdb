@@ -265,7 +265,7 @@ impl Database {
 /// `--system-columns`: columns flagged as maintained and hidden by Access are
 /// left out, except in system tables, where every column has that flag.
 fn is_shown_column(column: &ColumnDef, system_table: bool) -> bool {
-    system_table || !jetdb::is_replication_column(column)
+    system_table || !column.is_hidden()
 }
 
 /// The name of a column type, as `jetdb schema` prints it but without the
@@ -848,7 +848,7 @@ mod tests {
             is_calculated: false,
             display_index: 0,
         };
-        let hidden = column(column_flags::REPLICATION);
+        let hidden = column(column_flags::HIDDEN);
         assert!(!is_shown_column(&hidden, false));
         assert!(is_shown_column(&hidden, true));
         assert!(is_shown_column(&column(0), false));

@@ -104,9 +104,22 @@ pub struct TableDef {
     pub data_pages: Vec<u32>,
 }
 
-/// Return `true` if the column has the REPLICATION flag set.
+impl ColumnDef {
+    /// `true` for a column Access maintains and hides from users
+    /// ([`column_flags::HIDDEN`](crate::format::column_flags::HIDDEN)), such as
+    /// every column of a system table.
+    pub fn is_hidden(&self) -> bool {
+        self.flags & crate::format::column_flags::HIDDEN != 0
+    }
+}
+
+/// Former name of [`ColumnDef::is_hidden`].
+#[deprecated(
+    since = "0.4.0",
+    note = "the flag marks columns Access maintains and hides, which are not only replication columns; use `ColumnDef::is_hidden`"
+)]
 pub fn is_replication_column(col: &ColumnDef) -> bool {
-    (col.flags & crate::format::column_flags::REPLICATION) != 0
+    col.is_hidden()
 }
 
 // ---------------------------------------------------------------------------
@@ -929,10 +942,10 @@ mod tests {
         }
     }
 
-    // -- is_replication_column tests ----------------------------------------
+    // -- is_hidden tests ----------------------------------------------------
 
     #[test]
-    fn is_replication_true() {
+    fn is_hidden_true() {
         let col = ColumnDef {
             name: "s_GUID".to_string(),
             col_type: ColumnType::Guid,
@@ -940,18 +953,22 @@ mod tests {
             var_col_num: 0,
             fixed_offset: 0,
             col_size: 16,
-            flags: column_flags::REPLICATION | column_flags::NULLABLE,
+            flags: column_flags::HIDDEN | column_flags::NULLABLE,
             is_fixed: false,
             precision: 0,
             scale: 0,
             is_calculated: false,
             display_index: 1,
         };
-        assert!(is_replication_column(&col));
+        assert!(col.is_hidden());
+        // The former name gives the same answer.
+        #[allow(deprecated)]
+        let former = is_replication_column(&col);
+        assert!(former);
     }
 
     #[test]
-    fn is_replication_false() {
+    fn is_hidden_false() {
         let col = ColumnDef {
             name: "ID".to_string(),
             col_type: ColumnType::Long,
@@ -966,7 +983,7 @@ mod tests {
             is_calculated: false,
             display_index: 1,
         };
-        assert!(!is_replication_column(&col));
+        assert!(!col.is_hidden());
     }
 
     #[test]
