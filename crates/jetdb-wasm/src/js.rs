@@ -28,15 +28,19 @@ export type ColumnType =
 /** A column of a table. */
 export interface Column {
     name: string;
+    /** For a calculated column, the type of its result, which its values have. */
     type: ColumnType;
     /**
      * The size in bytes as stored, such as 100 for a Text column of 50
      * characters in Jet4 and later, which store two bytes a character.
      */
     size: number;
-    /** Precision of a Numeric column; 0 for the other types. */
+    /**
+     * Precision of a Numeric column; 0 for the other types and for calculated
+     * columns, whose values each carry their own scale.
+     */
     precision: number;
-    /** Scale of a Numeric column; 0 for the other types. */
+    /** Scale of a Numeric column; 0 for the other types and for calculated columns. */
     scale: number;
     /** An AutoNumber column: a Long or a GUID that Access fills in. */
     autoNumber: boolean;

@@ -13,8 +13,8 @@ use jetdb::format::{
     catalog_flags, column_flags, index_flags, index_type, ColumnType, JetVersion, ObjectType,
 };
 use jetdb::{
-    read_catalog, read_table_def, read_table_rows, timestamp, ColumnDef, FileError,
-    IndexColumnOrder, PageReader, TableDef, Value,
+    calculated_column_types, read_catalog, read_table_def, read_table_rows, timestamp, ColumnDef,
+    FileError, IndexColumnOrder, PageReader, TableDef, Value,
 };
 
 /// A database opened from bytes in memory.
@@ -26,14 +26,17 @@ pub struct Database {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Column {
     pub name: String,
-    /// The type name, such as `Long` or `Text` (see [`type_name`]).
+    /// The type name, such as `Long` or `Text` (see [`type_name`]). For a
+    /// calculated column, the type of its result, which its values have.
     pub type_name: String,
     /// The size in bytes as stored, such as 100 for a Text column of 50
     /// characters in Jet4 and later, which store two bytes a character.
     pub size: u16,
-    /// Precision of a Numeric column; 0 for the other types.
+    /// Precision of a Numeric column; 0 for the other types and for calculated
+    /// columns, whose values each carry their own scale.
     pub precision: u8,
-    /// Scale of a Numeric column; 0 for the other types.
+    /// Scale of a Numeric column; 0 for the other types and for calculated
+    /// columns.
     pub scale: u8,
     /// An AutoNumber column: a Long or a GUID that Access fills in.
     pub auto_number: bool,
@@ -176,26 +179,27 @@ impl Database {
     /// columns Access maintains and hides, as `jetdb export` leaves them out.
     pub fn columns(&mut self, table: &str) -> Result<Vec<Column>, FileError> {
         let (tdef, system_table) = self.table_def(table)?;
+        let calculated = calculated_column_types(&mut self.reader, &tdef);
         Ok(tdef
             .columns
             .iter()
             .filter(|c| is_shown_column(c, system_table))
-            .map(|c| Column {
-                name: c.name.clone(),
-                type_name: type_name(&c.col_type),
-                size: c.col_size,
-                precision: if c.col_type == ColumnType::Numeric {
-                    c.precision
-                } else {
-                    0
-                },
-                scale: if c.col_type == ColumnType::Numeric {
-                    c.scale
-                } else {
-                    0
-                },
-                auto_number: c.flags & (column_flags::AUTO_LONG | column_flags::AUTO_UUID) != 0,
-                calculated: c.is_calculated,
+            .map(|c| {
+                // The declared type of a calculated column is a placeholder;
+                // its values have the type of its result, as rows reads them.
+                let col_type = calculated
+                    .get(&c.name.to_ascii_lowercase())
+                    .unwrap_or(&c.col_type);
+                let fixed_numeric = *col_type == ColumnType::Numeric && !c.is_calculated;
+                Column {
+                    name: c.name.clone(),
+                    type_name: type_name(col_type),
+                    size: c.col_size,
+                    precision: if fixed_numeric { c.precision } else { 0 },
+                    scale: if fixed_numeric { c.scale } else { 0 },
+                    auto_number: c.flags & (column_flags::AUTO_LONG | column_flags::AUTO_UUID) != 0,
+                    calculated: c.is_calculated,
+                }
             })
             .collect())
     }
@@ -455,6 +459,29 @@ mod tests {
         );
         assert!(!column("FirstName").calculated);
         assert!(column("LastFirst").calculated);
+    }
+
+    #[test]
+    fn columns_calculated_have_the_type_of_their_values() {
+        // Access declares most numeric results as Double; rows reads the
+        // values as the result type, and columns says the same.
+        let bytes = skip_if_missing!("V2010/calcFieldTestV2010.accdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        let columns = db.columns("Table1").unwrap();
+        let summary = |name: &str| {
+            let c = columns.iter().find(|c| c.name == name).unwrap();
+            (c.type_name.as_str(), c.precision, c.scale)
+        };
+        assert_eq!(summary("MonthlySalary"), ("Money", 0, 0));
+        assert_eq!(summary("IsRich"), ("Boolean", 0, 0));
+        assert_eq!(summary("FloatTest"), ("Float", 0, 0));
+        assert_eq!(summary("DecimalTest"), ("Numeric", 0, 0));
+        assert_eq!(summary("LastFirstLen"), ("Long", 0, 0));
+        let rows = db.rows("Table1").unwrap();
+        let first =
+            |name: &str| rows.rows[0][rows.columns.iter().position(|c| c == name).unwrap()].clone();
+        assert_eq!(first("MonthlySalary"), string("83333.3333"));
+        assert_eq!(first("IsRich"), Cell::Bool(true));
     }
 
     #[test]

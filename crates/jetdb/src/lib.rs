@@ -33,7 +33,7 @@ pub use table::{
     IndexColumnOrder, IndexDef, TableDef,
 };
 
-pub use data::{read_table_rows, ReadResult, Value};
+pub use data::{calculated_column_types, read_table_rows, ReadResult, Value};
 pub use form::{
     control_type_name, list_forms, read_form_properties, read_form_stream, read_form_type_info,
     BlobProperty, BlobValue, ControlInfo, ControlProperties, FormEntry, FormObjectType,

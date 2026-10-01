@@ -85,16 +85,30 @@ impl ReadResult {
 /// Returns a `ReadResult` containing the successfully parsed rows and a count
 /// of rows that were skipped due to errors (e.g. corrupt row data).
 pub fn read_table_rows(reader: &mut PageReader, table: &TableDef) -> Result<ReadResult, FileError> {
-    let has_calculated = table.columns.iter().any(|c| c.is_calculated);
-    let calculated = if !has_calculated || table.name.starts_with("MSys") {
-        HashMap::new()
-    } else {
-        crate::prop::read_object_properties(reader, &table.name)
-            .ok()
-            .map(|props| calculated_result_types(&props))
-            .unwrap_or_default()
-    };
+    let calculated = calculated_column_types(reader, table);
     read_table_rows_impl(reader, table, &calculated)
+}
+
+/// The result types of the calculated columns of `table`, keyed by
+/// lowercased column name, as [`read_table_rows`] reads their values.
+///
+/// A calculated column's [`ColumnDef::col_type`] is only a placeholder:
+/// Access declares most numeric result types as `Double`. The type its values
+/// have is the column's `ResultType` property, which this returns. Columns
+/// that are not calculated are not in the map, and the map is empty when the
+/// table's properties cannot be read.
+pub fn calculated_column_types(
+    reader: &mut PageReader,
+    table: &TableDef,
+) -> HashMap<String, ColumnType> {
+    let has_calculated = table.columns.iter().any(|c| c.is_calculated);
+    if !has_calculated || table.name.starts_with("MSys") {
+        return HashMap::new();
+    }
+    crate::prop::read_object_properties(reader, &table.name)
+        .ok()
+        .map(|props| calculated_result_types(&props))
+        .unwrap_or_default()
 }
 
 fn read_table_rows_impl(
@@ -3130,6 +3144,35 @@ mod tests {
         let result = calculated_result_types(&props);
         assert_eq!(result.get("fullnamefnln"), Some(&ColumnType::Text));
         assert_eq!(result.get("employeeid"), None);
+    }
+
+    /// The ResultType properties of Table1 in calcFieldTestV2010.accdb, where
+    /// most numeric results are declared as Double.
+    #[test]
+    fn calculated_column_types_of_a_table() {
+        let path = skip_if_missing!("V2010/calcFieldTestV2010.accdb");
+        let mut reader = PageReader::open(&path).unwrap();
+        let catalog = crate::catalog::read_catalog(&mut reader).unwrap();
+        let entry = catalog.iter().find(|e| e.name == "Table1").unwrap();
+        let table =
+            crate::table::read_table_def(&mut reader, &entry.name, entry.table_page).unwrap();
+        let types = calculated_column_types(&mut reader, &table);
+        let declared = |name: &str| {
+            table
+                .columns
+                .iter()
+                .find(|c| c.name == name)
+                .unwrap()
+                .col_type
+        };
+        assert_eq!(declared("MonthlySalary"), ColumnType::Double);
+        assert_eq!(types.get("monthlysalary"), Some(&ColumnType::Money));
+        assert_eq!(types.get("isrich"), Some(&ColumnType::Boolean));
+        assert_eq!(types.get("floattest"), Some(&ColumnType::Float));
+        assert_eq!(types.get("decimaltest"), Some(&ColumnType::Numeric));
+        assert_eq!(types.get("lastfirst"), Some(&ColumnType::Text));
+        assert_eq!(types.get("firstname"), None);
+        assert_eq!(types.len(), 11);
     }
 
     /// Calculated columns of Table1 in calcFieldTestV2010.accdb. Expected
