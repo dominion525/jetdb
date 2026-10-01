@@ -104,6 +104,18 @@ function checkRows(Database, build) {
   const binary = Database.open(read("V2010/binIdxTestV2010.accdb")).rows("Test");
   assert.deepEqual(binary.find((row) => row.ID === 1).BinAsc, new Uint8Array([0x61, 0x62]), build);
   assert.equal(binary.find((row) => row.ID === 200).BinAsc, null, build);
+
+  // 9007199254740993 is 2^53 + 1, which a number cannot hold exactly.
+  assert.deepEqual(
+    Database.open(read("V2016/bigIntTestV2016.accdb")).rows("BigIntTable"),
+    [
+      { ID: 1, Big: 9007199254740993n },
+      { ID: 2, Big: -9007199254740993n },
+      { ID: 3, Big: 0n },
+      { ID: 4, Big: null },
+    ],
+    build,
+  );
 }
 
 function checkPassword(Database, build) {

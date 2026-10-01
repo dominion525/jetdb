@@ -670,6 +670,22 @@ mod tests {
     }
 
     #[test]
+    fn rows_bigint() {
+        let bytes = skip_if_missing!("V2016/bigIntTestV2016.accdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        let rows = db.rows("BigIntTable").unwrap();
+        assert_eq!(
+            rows.rows,
+            [
+                vec![Cell::Number(1.0), Cell::BigInt(9007199254740993)],
+                vec![Cell::Number(2.0), Cell::BigInt(-9007199254740993)],
+                vec![Cell::Number(3.0), Cell::BigInt(0)],
+                vec![Cell::Number(4.0), Cell::Null],
+            ]
+        );
+    }
+
+    #[test]
     fn rows_of_a_missing_table() {
         let bytes = skip_if_missing!("V2003/testV2003.mdb");
         let mut db = Database::open(bytes, None).unwrap();
@@ -681,7 +697,8 @@ mod tests {
 
     #[test]
     fn cells_of_values_without_test_data() {
-        // No test database has a BigInt column.
+        // Values no test database holds: the largest BigInt, and a Float
+        // that is not finite.
         assert_eq!(Cell::from(Value::BigInt(i64::MAX)), Cell::BigInt(i64::MAX));
         assert_eq!(Cell::from(Value::Float(1.1)), Cell::Number(1.1));
         assert!(matches!(Cell::from(Value::Float(f32::NAN)), Cell::Number(v) if v.is_nan()));
