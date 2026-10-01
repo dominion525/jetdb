@@ -6,9 +6,9 @@ use wasm_bindgen::JsCast;
 
 use crate::{Cell, Column, Database, Index};
 
-// Types for the TypeScript declarations. Version and Column are used through
-// unchecked_return_type. TablesOptions is an extern type rather than
-// unchecked_param_type, which would make the parameter required.
+// Types for the TypeScript declarations. Version, Column, Index and Rows are
+// used through unchecked_return_type. TablesOptions is an extern type rather
+// than unchecked_param_type, which would make the parameter required.
 #[wasm_bindgen(typescript_custom_section)]
 const TYPES: &str = r#"
 /** The database engine version. */
@@ -78,15 +78,19 @@ export type Value = null | boolean | number | bigint | string | Uint8Array;
 
 /** A row, keyed by the column names. */
 export type Row = Record<string, Value>;
+
+/** The rows of a table, as `Database.rows` returns them. */
+export interface Rows {
+    rows: Row[];
+    /** The number of rows that could not be read and were left out. */
+    skipped: number;
+}
 "#;
 
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(typescript_type = "TablesOptions")]
     pub type TablesOptions;
-
-    #[wasm_bindgen(js_namespace = console)]
-    fn warn(message: &str);
 }
 
 /// A Microsoft Access database opened from its bytes.
@@ -139,19 +143,13 @@ impl JsDatabase {
     }
 
     /// The rows of a table, each an object keyed by the column names, with
-    /// the columns that `columns` returns. Rows that cannot be read are left
-    /// out with a warning on the console, as `jetdb export` warns of them.
-    #[wasm_bindgen(unchecked_return_type = "Row[]")]
-    pub fn rows(&mut self, table: &str) -> Result<Array, JsError> {
+    /// the columns that `columns` returns, and the number of rows that could
+    /// not be read and were left out.
+    #[wasm_bindgen(unchecked_return_type = "Rows")]
+    pub fn rows(&mut self, table: &str) -> Result<Object, JsError> {
         let rows = self.inner.rows(table).map_err(to_js_error)?;
-        if rows.skipped > 0 {
-            warn(&format!(
-                "{table}: {} row(s) skipped due to parse errors",
-                rows.skipped
-            ));
-        }
         let names: Vec<JsValue> = rows.columns.iter().map(|c| JsValue::from_str(c)).collect();
-        Ok(rows
+        let objects: Array = rows
             .rows
             .into_iter()
             .map(|row| {
@@ -164,7 +162,11 @@ impl JsDatabase {
                 // column named __proto__, which assigning would not.
                 Object::from_entries(&entries).expect("an object from entries")
             })
-            .collect())
+            .collect();
+        let object = Object::new();
+        set(&object, "rows", objects.into());
+        set(&object, "skipped", (rows.skipped as f64).into());
+        Ok(object)
     }
 }
 

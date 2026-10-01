@@ -96,21 +96,24 @@ function checkRows(Database, build) {
   const db = openTest(Database);
   assert.deepEqual(
     db.rows("Table1"),
-    [
-      { A: "abcdefg", B: "hijklmnop", C: 2, D: 222, E: 333333333, F: 444.555, G: "1974-09-21", H: "3.5000", I: true },
-      { A: "a", B: "b", C: 0, D: 0, E: 0, F: 0, G: "1981-12-12", H: "0.0000", I: false },
-    ],
+    {
+      rows: [
+        { A: "abcdefg", B: "hijklmnop", C: 2, D: 222, E: 333333333, F: 444.555, G: "1974-09-21", H: "3.5000", I: true },
+        { A: "a", B: "b", C: 0, D: 0, E: 0, F: 0, G: "1981-12-12", H: "0.0000", I: false },
+      ],
+      skipped: 0,
+    },
     build,
   );
   assert.throws(() => db.rows("NoSuchTable"), /table not found: NoSuchTable/, build);
 
-  const binary = Database.open(read("V2010/binIdxTestV2010.accdb")).rows("Test");
+  const binary = Database.open(read("V2010/binIdxTestV2010.accdb")).rows("Test").rows;
   assert.deepEqual(binary.find((row) => row.ID === 1).BinAsc, new Uint8Array([0x61, 0x62]), build);
   assert.equal(binary.find((row) => row.ID === 200).BinAsc, null, build);
 
   // 9007199254740993 is 2^53 + 1, which a number cannot hold exactly.
   assert.deepEqual(
-    Database.open(read("V2016/bigIntTestV2016.accdb")).rows("BigIntTable"),
+    Database.open(read("V2016/bigIntTestV2016.accdb")).rows("BigIntTable").rows,
     [
       { ID: 1, Big: 9007199254740993n },
       { ID: 2, Big: -9007199254740993n },
@@ -130,21 +133,13 @@ function checkSkippedRows(Database, build) {
   assert.equal(damaged[pos] | (damaged[pos + 1] << 8), 0x0f89, build);
   damaged.set([0xb8, 0x0f], pos);
 
-  const warnings = [];
-  const warn = console.warn;
-  console.warn = (message) => warnings.push(message);
-  let rows;
-  try {
-    rows = Database.open(damaged).rows("Table1");
-  } finally {
-    console.warn = warn;
-  }
+  const { rows, skipped } = Database.open(damaged).rows("Table1");
   assert.deepEqual(
     rows.map((row) => row.A),
     ["abcdefg"],
     build,
   );
-  assert.deepEqual(warnings, ["Table1: 1 row(s) skipped due to parse errors"], build);
+  assert.equal(skipped, 1, build);
 }
 
 function checkOpen(Database, build) {

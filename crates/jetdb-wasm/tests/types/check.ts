@@ -69,7 +69,10 @@ indexes[0].type;
 // @ts-expect-error: the table name is required.
 db.indexes();
 
-export const rows: Row[] = db.rows("Table1");
+export const result: { rows: Row[]; skipped: number } = db.rows("Table1");
+export const rows: Row[] = result.rows;
+// @ts-expect-error: the rows are in the rows property.
+export const notRows: Row[] = db.rows("Table1");
 export const value: null | boolean | number | bigint | string | Uint8Array =
   rows[0]["A"];
 export const values: Value[] = Object.values(rows[0]);
