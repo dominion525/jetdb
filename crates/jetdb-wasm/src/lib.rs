@@ -9,7 +9,7 @@ mod js;
 
 use std::io::Cursor;
 
-use jetdb::format::{catalog_flags, column_flags, index_flags, index_type, ColumnType, ObjectType};
+use jetdb::format::{column_flags, index_flags, index_type, ColumnType, ObjectType};
 use jetdb::{
     calculated_column_types, read_catalog, read_table_def, read_table_rows, timestamp, ColumnDef,
     FileError, IndexColumnOrder, PageReader, TableDef, Value,
@@ -155,9 +155,7 @@ impl Database {
         let mut names: Vec<String> = read_catalog(&mut self.reader)?
             .into_iter()
             .filter(|e| {
-                e.object_type == ObjectType::Table
-                    && (include_system
-                        || e.flags & (catalog_flags::SYSTEM | catalog_flags::HIDDEN) == 0)
+                e.object_type == ObjectType::Table && (include_system || !e.is_system_or_hidden())
             })
             .map(|e| e.name)
             .collect();
@@ -263,7 +261,7 @@ impl Database {
                 name: table.to_string(),
             })?;
         let tdef = read_table_def(&mut self.reader, &entry.name, entry.table_page)?;
-        Ok((tdef, entry.flags & catalog_flags::SYSTEM != 0))
+        Ok((tdef, entry.is_system()))
     }
 }
 

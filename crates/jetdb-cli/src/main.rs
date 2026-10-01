@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
-use jetdb::format::{catalog_flags, column_flags, index_flags, index_type, ColumnType, ObjectType};
+use jetdb::format::{column_flags, index_flags, index_type, ColumnType, ObjectType};
 use jetdb::{
     calculated_column_types, read_catalog, read_relationships, read_table_def, relationship_flags,
     CatalogEntry, ColumnDef, IndexColumnOrder, IndexDef, PageReader, Relationship, TableDef,
@@ -177,13 +177,11 @@ fn should_show(entry: &CatalogEntry, include_system: bool) -> bool {
     if include_system {
         return true;
     }
-    (entry.flags & (catalog_flags::SYSTEM | catalog_flags::HIDDEN)) == 0
+    !entry.is_system_or_hidden()
 }
 
 fn resolve_type_name(entry: &CatalogEntry) -> &'static str {
-    if entry.object_type == ObjectType::Table
-        && (entry.flags & (catalog_flags::SYSTEM | catalog_flags::HIDDEN)) != 0
-    {
+    if entry.object_type == ObjectType::Table && entry.is_system_or_hidden() {
         "systable"
     } else {
         object_type_name(entry.object_type)
@@ -236,10 +234,7 @@ fn run_schema(args: &SchemaArgs, password: Option<&str>) -> Result<(), jetdb::Fi
     } else {
         catalog
             .iter()
-            .filter(|e| {
-                e.object_type == ObjectType::Table
-                    && (e.flags & (catalog_flags::SYSTEM | catalog_flags::HIDDEN)) == 0
-            })
+            .filter(|e| e.object_type == ObjectType::Table && !e.is_system_or_hidden())
             .collect()
     };
 
@@ -550,6 +545,7 @@ Details: https://github.com/dominion525/agent-skills"
 #[cfg(test)]
 mod tests {
     use super::*;
+    use jetdb::format::catalog_flags;
 
     // -- tables helpers -------------------------------------------------------
 

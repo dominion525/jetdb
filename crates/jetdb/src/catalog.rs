@@ -20,6 +20,20 @@ pub struct CatalogEntry {
     pub flags: u32,
 }
 
+impl CatalogEntry {
+    /// `true` for a system object, such as the `MSys*` tables.
+    pub fn is_system(&self) -> bool {
+        self.flags & catalog_flags::SYSTEM != 0
+    }
+
+    /// `true` for an object Access keeps from users: a system object or one
+    /// marked hidden. The `jetdb tables` command and [`table_names`] leave
+    /// these out unless asked for them.
+    pub fn is_system_or_hidden(&self) -> bool {
+        self.flags & (catalog_flags::SYSTEM | catalog_flags::HIDDEN) != 0
+    }
+}
+
 // ---------------------------------------------------------------------------
 // read_catalog
 // ---------------------------------------------------------------------------
@@ -106,10 +120,7 @@ pub fn table_names(reader: &mut PageReader) -> Result<Vec<String>, FileError> {
     let catalog = read_catalog(reader)?;
     let names = catalog
         .into_iter()
-        .filter(|e| {
-            e.object_type == ObjectType::Table
-                && (e.flags & (catalog_flags::SYSTEM | catalog_flags::HIDDEN)) == 0
-        })
+        .filter(|e| e.object_type == ObjectType::Table && !e.is_system_or_hidden())
         .map(|e| e.name)
         .collect();
     Ok(names)
@@ -300,10 +311,7 @@ mod tests {
     fn filter_user_tables(catalog: Vec<CatalogEntry>) -> Vec<String> {
         catalog
             .into_iter()
-            .filter(|e| {
-                e.object_type == ObjectType::Table
-                    && (e.flags & (catalog_flags::SYSTEM | catalog_flags::HIDDEN)) == 0
-            })
+            .filter(|e| e.object_type == ObjectType::Table && !e.is_system_or_hidden())
             .map(|e| e.name)
             .collect()
     }
@@ -315,6 +323,16 @@ mod tests {
             table_page: 100,
             flags,
         }
+    }
+
+    #[test]
+    fn system_and_hidden_flags() {
+        let user = entry("Table1", ObjectType::Table, 0);
+        let system = entry("MSysObjects", ObjectType::Table, catalog_flags::SYSTEM);
+        let hidden = entry("Hidden", ObjectType::Table, catalog_flags::HIDDEN);
+        assert!(!user.is_system() && !user.is_system_or_hidden());
+        assert!(system.is_system() && system.is_system_or_hidden());
+        assert!(!hidden.is_system() && hidden.is_system_or_hidden());
     }
 
     #[test]

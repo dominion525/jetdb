@@ -4,7 +4,7 @@ use std::process::ExitCode;
 
 use clap::{Args, ValueEnum};
 use jetdb::timestamp;
-use jetdb::{catalog_flags, read_catalog, read_table_def, read_table_rows, PageReader, Value};
+use jetdb::{read_catalog, read_table_def, read_table_rows, PageReader, Value};
 
 // ---------------------------------------------------------------------------
 // CLI definition
@@ -215,7 +215,7 @@ fn run_export(args: &ExportArgs, password: Option<&str>) -> Result<(), jetdb::Fi
     // Column filtering: build indices of columns to include. The flag
     // `is_replication_column` checks marks columns Access maintains and hides,
     // which in a system table is every column, so system tables keep them all.
-    let is_system_table = entry.flags & catalog_flags::SYSTEM != 0;
+    let is_system_table = entry.is_system();
     let col_indices: Vec<usize> = tdef
         .columns
         .iter()
