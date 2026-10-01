@@ -28,6 +28,8 @@ impl DdlDialect for Access {
             ColumnType::Memo => "MEMO".to_string(),
             ColumnType::Ole => "OLEOBJECT".to_string(),
             ColumnType::Guid => "UNIQUEIDENTIFIER".to_string(),
+            // No fixed precision (a calculated column): the precision of Access's Decimal is at most 28.
+            ColumnType::Numeric if col.precision == 0 => "DECIMAL(28,10)".to_string(),
             ColumnType::Numeric => format!("DECIMAL({},{})", col.precision, col.scale),
             ColumnType::ComplexType => "LONG".to_string(),
             ColumnType::BigInt => "BIGINT".to_string(),

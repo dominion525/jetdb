@@ -10,6 +10,8 @@ pub use mysql::Mysql;
 pub use postgres::Postgres;
 pub use sqlite::Sqlite;
 
+use std::collections::HashMap;
+
 use crate::format::{column_flags, index_flags, index_type, ColumnType};
 use crate::{ColumnDef, IndexDef, Relationship, TableDef};
 
@@ -23,6 +25,8 @@ pub trait DdlDialect {
 
     /// Map a column definition to a SQL type string.
     /// When `is_auto` is true, include auto-increment syntax.
+    /// A Numeric column with precision 0 has no fixed precision or scale (see
+    /// [`with_calculated_column_types`]) and maps to the widest Numeric type.
     fn map_column_type(&self, col: &ColumnDef, is_auto: bool) -> String;
 
     /// Whether auto-increment columns absorb the PRIMARY KEY constraint
@@ -68,6 +72,30 @@ fn is_complex_column_index(tdef: &TableDef, idx: &IndexDef) -> bool {
             .iter()
             .any(|c| c.col_num == ic.col_num && c.col_type == ColumnType::ComplexType)
     })
+}
+
+/// A copy of `tdef` in which each calculated column has the type of its
+/// result, from [`crate::calculated_column_types`], in place of the
+/// placeholder type Access declares (most numeric results as Double). This is
+/// the type of the values [`crate::read_table_rows`] reads, so a table made
+/// from the DDL holds the exported values.
+///
+/// A calculated column has no fixed precision or scale: each Numeric value
+/// carries its own. Its precision and scale are set to 0, which each dialect
+/// writes as its widest Numeric type.
+pub fn with_calculated_column_types(
+    tdef: &TableDef,
+    calculated: &HashMap<String, ColumnType>,
+) -> TableDef {
+    let mut out = tdef.clone();
+    for col in &mut out.columns {
+        if let Some(&result_type) = calculated.get(&col.name.to_ascii_lowercase()) {
+            col.col_type = result_type;
+            col.precision = 0;
+            col.scale = 0;
+        }
+    }
+    out
 }
 
 /// Resolve an index column number to a column name.
@@ -1644,6 +1672,46 @@ mod tests {
         let path = skip_if_missing!("V2016/bigIntTestV2016.accdb");
         let ddl = create_table_ddl(&path, "BigIntTable");
         assert!(ddl.contains("[Big] BIGINT"), "got:\n{ddl}");
+    }
+
+    #[test]
+    fn numeric_without_a_fixed_precision_in_each_dialect() {
+        let c = col("x", ColumnType::Numeric, 17, 0, 0, 0);
+        assert_eq!(access().map_column_type(&c, false), "DECIMAL(28,10)");
+        assert_eq!(postgres().map_column_type(&c, false), "NUMERIC");
+        assert_eq!(mysql().map_column_type(&c, false), "DECIMAL(65,30)");
+        assert_eq!(sqlite().map_column_type(&c, false), "NUMERIC");
+    }
+
+    #[test]
+    fn calculated_columns_have_the_type_of_their_result() {
+        // Table1 of calcFieldTestV2010.accdb declares MonthlySalary (Currency
+        // result) and FloatTest (Single result) as Double, IsRich (Yes/No
+        // result) as Int, and DecimalTest (Decimal result) as Numeric(0,0).
+        let path = skip_if_missing!("V2010/calcFieldTestV2010.accdb");
+        let mut reader = crate::file::PageReader::open(&path).unwrap();
+        let entry = crate::catalog::read_catalog(&mut reader)
+            .unwrap()
+            .into_iter()
+            .find(|e| e.name == "Table1")
+            .unwrap();
+        let tdef =
+            crate::table::read_table_def(&mut reader, &entry.name, entry.table_page).unwrap();
+        let calculated = crate::calculated_column_types(&mut reader, &tdef);
+        let tdef = with_calculated_column_types(&tdef, &calculated);
+
+        let ddl = generate_create_table(&Access, &tdef, &[]);
+        for expected in [
+            "[MonthlySalary] CURRENCY",
+            "[FloatTest] SINGLE",
+            "[IsRich] YESNO",
+            "[DecimalTest] DECIMAL(28,10)",
+            "[Popularity] DECIMAL(18,6)",
+        ] {
+            assert!(ddl.contains(expected), "{expected} in:\n{ddl}");
+        }
+        let ddl = generate_create_table(&Postgres, &tdef, &[]);
+        assert!(ddl.contains("\"DecimalTest\" NUMERIC,"), "got:\n{ddl}");
     }
 
     #[test]

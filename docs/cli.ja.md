@@ -112,6 +112,8 @@ jetdb schema [OPTIONS] <FILE>
 テーブルのカラム定義・インデックス・リレーションシップを表示する。
 `--ddl` オプション指定時は SQL の DDL (CREATE TABLE 等) として出力する。
 
+計算列（Access 2010 以降）には `CALC` の印を付け、Access が宣言している型ではなく、値が持つ計算結果の型で表示する。DDL では、その型の普通の列として出力するので、`export` が書き出す値をそのテーブルに入れられる。結果が Numeric の計算列には決まった精度が無いので、表示は `Numeric`、DDL は方言ごとに一番広い Numeric の型（Access は `DECIMAL(28,10)`、PostgreSQL と SQLite は `NUMERIC`、MySQL は `DECIMAL(65,30)`）になる。
+
 #### オプション
 
 - `-T`, `--table <NAME>` — 指定テーブルのみ表示

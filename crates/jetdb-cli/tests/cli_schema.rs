@@ -420,3 +420,46 @@ fn ddl_sqlite_inline_fk() {
         "SQLite should not use ALTER TABLE for FK, got:\n{stdout}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Calculated columns: shown and written in DDL with the type of their result
+// ---------------------------------------------------------------------------
+
+#[test]
+fn schema_calculated_columns() {
+    // Access declares MonthlySalary (a Currency result) as Double.
+    let path = skip_if_missing!("V2010/calcFieldTestV2010.accdb");
+    let output = jetdb_bin()
+        .args(["schema", path.to_str().unwrap(), "-T", "Table1"])
+        .output()
+        .expect("failed to run jetdb");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let line = stdout
+        .lines()
+        .find(|l| l.trim_start().starts_with("MonthlySalary "))
+        .unwrap_or_else(|| panic!("no MonthlySalary line in:\n{stdout}"));
+    assert_eq!(
+        line.split_whitespace().collect::<Vec<_>>(),
+        ["MonthlySalary", "Money", "CALC"],
+        "got:\n{stdout}"
+    );
+
+    let output = jetdb_bin()
+        .args([
+            "schema",
+            path.to_str().unwrap(),
+            "--ddl",
+            "postgres",
+            "-T",
+            "Table1",
+        ])
+        .output()
+        .expect("failed to run jetdb");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("\"DecimalTest\" NUMERIC,"),
+        "got:\n{stdout}"
+    );
+}
