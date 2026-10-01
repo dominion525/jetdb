@@ -11,8 +11,8 @@ use std::io::Cursor;
 
 use jetdb::format::{column_flags, index_flags, index_type, ColumnType, ObjectType};
 use jetdb::{
-    calculated_column_types, read_catalog, read_table_def, read_table_rows, timestamp, ColumnDef,
-    FileError, IndexColumnOrder, PageReader, TableDef, Value,
+    calculated_column_types, find_table, read_catalog, read_table_def, read_table_rows, timestamp,
+    ColumnDef, FileError, IndexColumnOrder, PageReader, TableDef, Value,
 };
 
 /// A database opened from bytes in memory.
@@ -254,12 +254,8 @@ impl Database {
 
     /// The definition of `table`, and whether it is a system table.
     fn table_def(&mut self, table: &str) -> Result<(TableDef, bool), FileError> {
-        let entry = read_catalog(&mut self.reader)?
-            .into_iter()
-            .find(|e| e.object_type == ObjectType::Table && e.name == table)
-            .ok_or_else(|| FileError::TableNotFound {
-                name: table.to_string(),
-            })?;
+        let catalog = read_catalog(&mut self.reader)?;
+        let entry = find_table(&catalog, table)?;
         let tdef = read_table_def(&mut self.reader, &entry.name, entry.table_page)?;
         Ok((tdef, entry.is_system()))
     }

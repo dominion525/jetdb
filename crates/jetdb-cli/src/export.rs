@@ -4,7 +4,7 @@ use std::process::ExitCode;
 
 use clap::{Args, ValueEnum};
 use jetdb::timestamp;
-use jetdb::{read_catalog, read_table_def, read_table_rows, PageReader, Value};
+use jetdb::{find_table, read_catalog, read_table_def, read_table_rows, PageReader, Value};
 
 // ---------------------------------------------------------------------------
 // CLI definition
@@ -203,12 +203,7 @@ fn run_export(args: &ExportArgs, password: Option<&str>) -> Result<(), jetdb::Fi
     let mut reader = PageReader::open_with_password(&args.file, password)?;
     let catalog = read_catalog(&mut reader)?;
 
-    let entry = catalog
-        .iter()
-        .find(|e| e.object_type == jetdb::format::ObjectType::Table && e.name == args.table)
-        .ok_or(jetdb::FileError::TableNotFound {
-            name: args.table.clone(),
-        })?;
+    let entry = find_table(&catalog, &args.table)?;
 
     let tdef = read_table_def(&mut reader, &entry.name, entry.table_page)?;
 

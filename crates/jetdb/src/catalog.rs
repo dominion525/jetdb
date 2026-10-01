@@ -112,6 +112,20 @@ pub fn read_catalog(reader: &mut PageReader) -> Result<Vec<CatalogEntry>, FileEr
 // table_names
 // ---------------------------------------------------------------------------
 
+/// Find the table named `name` in `catalog`, system and hidden tables
+/// included, or return [`FileError::TableNotFound`].
+pub fn find_table<'a>(
+    catalog: &'a [CatalogEntry],
+    name: &str,
+) -> Result<&'a CatalogEntry, FileError> {
+    catalog
+        .iter()
+        .find(|e| e.object_type == ObjectType::Table && e.name == name)
+        .ok_or_else(|| FileError::TableNotFound {
+            name: name.to_string(),
+        })
+}
+
 /// Return the names of user-visible tables in the database.
 ///
 /// Filters out system objects (`MSys*`) and hidden tables based on the
@@ -323,6 +337,29 @@ mod tests {
             table_page: 100,
             flags,
         }
+    }
+
+    #[test]
+    fn find_table_by_name() {
+        let catalog = vec![
+            entry("Table1", ObjectType::Table, 0),
+            entry("Query1", ObjectType::Query, 0),
+            entry("MSysObjects", ObjectType::Table, catalog_flags::SYSTEM),
+        ];
+        assert_eq!(find_table(&catalog, "Table1").unwrap().name, "Table1");
+        assert_eq!(
+            find_table(&catalog, "MSysObjects").unwrap().name,
+            "MSysObjects"
+        );
+        // A query of that name is not a table.
+        assert!(matches!(
+            find_table(&catalog, "Query1"),
+            Err(FileError::TableNotFound { name }) if name == "Query1"
+        ));
+        assert!(matches!(
+            find_table(&catalog, "NoSuchTable"),
+            Err(FileError::TableNotFound { name }) if name == "NoSuchTable"
+        ));
     }
 
     #[test]

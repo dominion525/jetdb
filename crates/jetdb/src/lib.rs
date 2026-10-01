@@ -21,7 +21,7 @@ pub mod table;
 pub mod timestamp;
 pub mod vba;
 
-pub use catalog::{read_catalog, table_names, CatalogEntry};
+pub use catalog::{find_table, read_catalog, table_names, CatalogEntry};
 pub use file::{find_row, DbHeader, FileError, PageReader};
 pub use format::{
     catalog_flags, column_flags, index_flags, index_type, ColumnType, FormatError, JetFormat,

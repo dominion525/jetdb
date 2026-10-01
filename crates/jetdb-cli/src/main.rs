@@ -226,11 +226,7 @@ fn run_schema(args: &SchemaArgs, password: Option<&str>) -> Result<(), jetdb::Fi
 
     // Collect target tables
     let targets: Vec<&CatalogEntry> = if let Some(ref name) = args.table_name {
-        let entry = catalog
-            .iter()
-            .find(|e| e.object_type == ObjectType::Table && e.name == *name)
-            .ok_or(jetdb::FileError::TableNotFound { name: name.clone() })?;
-        vec![entry]
+        vec![jetdb::find_table(&catalog, name)?]
     } else {
         catalog
             .iter()
