@@ -27,7 +27,7 @@ pub struct Database {
 pub struct Column {
     pub name: String,
     /// The type name, such as `Long` or `Text` (see [`type_name`]).
-    pub type_name: &'static str,
+    pub type_name: String,
     /// The size in bytes as stored, such as 100 for a Text column of 50
     /// characters in Jet4 and later, which store two bytes a character.
     pub size: u16,
@@ -268,27 +268,12 @@ fn is_shown_column(column: &ColumnDef, system_table: bool) -> bool {
 }
 
 /// The name of a column type, as `jetdb schema` prints it but without the
-/// size, and `Unknown` for a type jetdb does not know.
-fn type_name(column_type: &ColumnType) -> &'static str {
+/// size, and `Unknown` for a type jetdb does not know, which `jetdb schema`
+/// prints with its code.
+fn type_name(column_type: &ColumnType) -> String {
     match column_type {
-        ColumnType::Boolean => "Boolean",
-        ColumnType::Byte => "Byte",
-        ColumnType::Int => "Int",
-        ColumnType::Long => "Long",
-        ColumnType::Money => "Money",
-        ColumnType::Float => "Float",
-        ColumnType::Double => "Double",
-        ColumnType::Timestamp => "Timestamp",
-        ColumnType::Binary => "Binary",
-        ColumnType::Text => "Text",
-        ColumnType::Ole => "Ole",
-        ColumnType::Memo => "Memo",
-        ColumnType::Guid => "Guid",
-        ColumnType::Numeric => "Numeric",
-        ColumnType::ComplexType => "ComplexType",
-        ColumnType::BigInt => "BigInt",
-        ColumnType::DateTimeExtended => "DateTimeExtended",
-        ColumnType::Unknown(_) => "Unknown",
+        ColumnType::Unknown(_) => "Unknown".to_string(),
+        known => known.to_string(),
     }
 }
 
@@ -367,7 +352,7 @@ mod tests {
         let columns = db.columns("Table1").unwrap();
         let summary: Vec<(&str, &str, u16)> = columns
             .iter()
-            .map(|c| (c.name.as_str(), c.type_name, c.size))
+            .map(|c| (c.name.as_str(), c.type_name.as_str(), c.size))
             .collect();
         assert_eq!(
             summary,
@@ -389,6 +374,55 @@ mod tests {
     }
 
     #[test]
+    fn type_names_match_the_typescript_column_type() {
+        // These names are the ColumnType union declared in js.rs.
+        let types = [
+            ColumnType::Boolean,
+            ColumnType::Byte,
+            ColumnType::Int,
+            ColumnType::Long,
+            ColumnType::Money,
+            ColumnType::Float,
+            ColumnType::Double,
+            ColumnType::Timestamp,
+            ColumnType::Binary,
+            ColumnType::Text,
+            ColumnType::Ole,
+            ColumnType::Memo,
+            ColumnType::Guid,
+            ColumnType::Numeric,
+            ColumnType::ComplexType,
+            ColumnType::BigInt,
+            ColumnType::DateTimeExtended,
+            ColumnType::Unknown(0x99),
+        ];
+        let names: Vec<String> = types.iter().map(type_name).collect();
+        assert_eq!(
+            names,
+            [
+                "Boolean",
+                "Byte",
+                "Int",
+                "Long",
+                "Money",
+                "Float",
+                "Double",
+                "Timestamp",
+                "Binary",
+                "Text",
+                "Ole",
+                "Memo",
+                "Guid",
+                "Numeric",
+                "ComplexType",
+                "BigInt",
+                "DateTimeExtended",
+                "Unknown",
+            ]
+        );
+    }
+
+    #[test]
     fn columns_auto_number_numeric_and_calculated() {
         let bytes = skip_if_missing!("V2010/calcFieldTestV2010.accdb");
         let mut db = Database::open(bytes, None).unwrap();
@@ -399,7 +433,11 @@ mod tests {
         assert!(!column("FirstName").auto_number);
         let popularity = column("Popularity");
         assert_eq!(
-            (popularity.type_name, popularity.precision, popularity.scale),
+            (
+                popularity.type_name.as_str(),
+                popularity.precision,
+                popularity.scale
+            ),
             ("Numeric", 18, 6)
         );
         assert!(!column("FirstName").calculated);

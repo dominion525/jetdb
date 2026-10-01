@@ -166,7 +166,7 @@ fn to_js_error(e: jetdb::FileError) -> JsError {
 fn column_object(column: &Column) -> Object {
     let object = Object::new();
     set(&object, "name", column.name.as_str().into());
-    set(&object, "type", column.type_name.into());
+    set(&object, "type", column.type_name.as_str().into());
     set(&object, "size", column.size.into());
     set(&object, "precision", column.precision.into());
     set(&object, "scale", column.scale.into());
