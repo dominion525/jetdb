@@ -71,6 +71,20 @@ function check(Database, build) {
   );
   assert.throws(() => db.indexes("NoSuchTable"), /table not found: NoSuchTable/, build);
 
+  assert.deepEqual(
+    db.rows("Table1"),
+    [
+      { A: "abcdefg", B: "hijklmnop", C: 2, D: 222, E: 333333333, F: 444.555, G: "1974-09-21", H: "3.5000", I: true },
+      { A: "a", B: "b", C: 0, D: 0, E: 0, F: 0, G: "1981-12-12", H: "0.0000", I: false },
+    ],
+    build,
+  );
+  assert.throws(() => db.rows("NoSuchTable"), /table not found: NoSuchTable/, build);
+
+  const binary = Database.open(read("V2010/binIdxTestV2010.accdb")).rows("Test");
+  assert.deepEqual(binary.find((row) => row.ID === 1).BinAsc, new Uint8Array([0x61, 0x62]), build);
+  assert.equal(binary.find((row) => row.ID === 200).BinAsc, null, build);
+
   const encrypted = read("db2007-enc.accdb");
   assert.throws(() => Database.open(encrypted), /password-protected/, build);
   assert.throws(() => Database.open(encrypted, "wrong"), /invalid password/, build);

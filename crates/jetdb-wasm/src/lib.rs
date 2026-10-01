@@ -13,7 +13,8 @@ use jetdb::format::{
     catalog_flags, column_flags, index_flags, index_type, ColumnType, JetVersion, ObjectType,
 };
 use jetdb::{
-    read_catalog, read_table_def, ColumnDef, FileError, IndexColumnOrder, PageReader, TableDef,
+    read_catalog, read_table_def, read_table_rows, timestamp, ColumnDef, FileError,
+    IndexColumnOrder, PageReader, TableDef, Value,
 };
 
 /// A database opened from bytes in memory.
@@ -59,6 +60,65 @@ pub struct Index {
 pub struct IndexColumn {
     pub name: String,
     pub descending: bool,
+}
+
+/// The rows of a table, as `Database::rows` returns them.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Rows {
+    /// The names of the columns, in the order of the values in each row.
+    pub columns: Vec<String>,
+    pub rows: Vec<Vec<Cell>>,
+    /// The number of rows that could not be read and were left out.
+    pub skipped: usize,
+}
+
+/// A value of a row, in the JavaScript type it becomes.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Cell {
+    Null,
+    Bool(bool),
+    Number(f64),
+    BigInt(i64),
+    String(String),
+    Bytes(Vec<u8>),
+}
+
+impl From<Value> for Cell {
+    /// Money, Numeric and DateTimeExtended stay strings so that no digits are
+    /// lost, and Timestamp becomes the string `jetdb export` writes by
+    /// default.
+    fn from(value: Value) -> Self {
+        match value {
+            Value::Null => Cell::Null,
+            Value::Bool(v) => Cell::Bool(v),
+            Value::Byte(v) => Cell::Number(v.into()),
+            Value::Int(v) => Cell::Number(v.into()),
+            Value::Long(v) => Cell::Number(v.into()),
+            Value::BigInt(v) => Cell::BigInt(v),
+            // Through the shortest decimal of the f32, so that 1.1 stays 1.1
+            // rather than becoming 1.100000023841858.
+            Value::Float(v) => Cell::Number(v.to_string().parse().unwrap_or(v.into())),
+            Value::Double(v) => Cell::Number(v),
+            Value::Timestamp(ts) => Cell::String(timestamp_string(ts)),
+            Value::Text(s)
+            | Value::Money(s)
+            | Value::Numeric(s)
+            | Value::Guid(s)
+            | Value::DateTimeExtended(s) => Cell::String(s),
+            Value::Binary(bytes) => Cell::Bytes(bytes),
+        }
+    }
+}
+
+/// A Timestamp as `jetdb export` writes it by default: the date alone when
+/// the time is midnight, and the date and time otherwise.
+fn timestamp_string(ts: f64) -> String {
+    let format = if timestamp::is_date_only(ts) {
+        "%Y-%m-%d"
+    } else {
+        "%Y-%m-%d %H:%M:%S"
+    };
+    timestamp::format_timestamp(ts, format)
 }
 
 impl Database {
@@ -158,6 +218,33 @@ impl Database {
                 required: i.flags & index_flags::REQUIRED != 0,
             })
             .collect())
+    }
+
+    /// The rows of `table`, with the columns that [`Database::columns`]
+    /// returns, as `jetdb export` reads them.
+    pub fn rows(&mut self, table: &str) -> Result<Rows, FileError> {
+        let (tdef, system_table) = self.table_def(table)?;
+        let shown: Vec<usize> = (0..tdef.columns.len())
+            .filter(|&i| is_shown_column(&tdef.columns[i], system_table))
+            .collect();
+        let result = read_table_rows(&mut self.reader, &tdef)?;
+        Ok(Rows {
+            columns: shown
+                .iter()
+                .map(|&i| tdef.columns[i].name.clone())
+                .collect(),
+            rows: result
+                .rows
+                .into_iter()
+                .map(|mut row| {
+                    shown
+                        .iter()
+                        .map(|&i| std::mem::replace(&mut row[i], Value::Null).into())
+                        .collect()
+                })
+                .collect(),
+            skipped: result.skipped_rows,
+        })
     }
 
     /// The definition of `table`, and whether it is a system table.
@@ -419,6 +506,138 @@ mod tests {
             db.indexes("NoSuchTable"),
             Err(FileError::TableNotFound { name }) if name == "NoSuchTable"
         ));
+    }
+
+    fn string(s: &str) -> Cell {
+        Cell::String(s.to_string())
+    }
+
+    /// The value in `column` of the row whose first value is `key`.
+    fn cell(rows: &Rows, key: Cell, column: &str) -> Cell {
+        let i = rows.columns.iter().position(|c| c == column).unwrap();
+        let row = rows.rows.iter().find(|r| r[0] == key).unwrap();
+        row[i].clone()
+    }
+
+    #[test]
+    fn rows_text_numbers_money_timestamp_and_boolean() {
+        let bytes = skip_if_missing!("V2003/testV2003.mdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        let rows = db.rows("Table1").unwrap();
+        assert_eq!(rows.columns, ["A", "B", "C", "D", "E", "F", "G", "H", "I"]);
+        assert_eq!(
+            rows.rows,
+            [
+                vec![
+                    string("abcdefg"),
+                    string("hijklmnop"),
+                    Cell::Number(2.0),
+                    Cell::Number(222.0),
+                    Cell::Number(333333333.0),
+                    Cell::Number(444.555),
+                    string("1974-09-21"),
+                    string("3.5000"),
+                    Cell::Bool(true),
+                ],
+                vec![
+                    string("a"),
+                    string("b"),
+                    Cell::Number(0.0),
+                    Cell::Number(0.0),
+                    Cell::Number(0.0),
+                    Cell::Number(0.0),
+                    string("1981-12-12"),
+                    string("0.0000"),
+                    Cell::Bool(false),
+                ],
+            ]
+        );
+        assert_eq!(rows.skipped, 0);
+    }
+
+    #[test]
+    fn rows_single_timestamp_numeric_and_guid() {
+        let bytes = skip_if_missing!("V2003/testIndexCodesV2003.mdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        let single = db.rows("Table5").unwrap();
+        assert_eq!(cell(&single, string("row1"), "data"), Cell::Number(3245.0));
+        assert_eq!(
+            cell(&single, string("row10"), "data"),
+            Cell::Number(-0.00035134)
+        );
+        assert_eq!(
+            cell(&single, string("row11"), "data"),
+            Cell::Number(804983.4)
+        );
+        assert_eq!(cell(&single, string("row5"), "data"), Cell::Null);
+        let timestamp = db.rows("Table6").unwrap();
+        assert_eq!(
+            cell(&timestamp, string("row0"), "data"),
+            string("1899-12-30")
+        );
+        assert_eq!(
+            cell(&timestamp, string("row10"), "data"),
+            string("1899-12-29 23:59:30")
+        );
+        let numeric = db.rows("Table7").unwrap();
+        assert_eq!(
+            cell(&numeric, string("row11"), "data"),
+            string("804983.3458740000")
+        );
+        let guid = db.rows("Table13").unwrap();
+        assert_eq!(
+            cell(&guid, string("row0"), "data"),
+            string("{BC96303A-53B8-474D-ACC1-D2EB8D0B09D5}")
+        );
+    }
+
+    #[test]
+    fn rows_binary() {
+        let bytes = skip_if_missing!("V2010/binIdxTestV2010.accdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        let rows = db.rows("Test").unwrap();
+        assert_eq!(
+            cell(&rows, Cell::Number(1.0), "BinAsc"),
+            Cell::Bytes(b"ab".to_vec())
+        );
+        assert_eq!(cell(&rows, Cell::Number(200.0), "BinAsc"), Cell::Null);
+    }
+
+    #[test]
+    fn rows_date_time_extended() {
+        let bytes = skip_if_missing!("V2019/extDateTestV2019.accdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        let rows = db.rows("Table1").unwrap();
+        assert_eq!(
+            cell(&rows, Cell::Number(6.0), "DateExt"),
+            string("2021-06-14 22:45:12.3456789")
+        );
+        assert_eq!(
+            cell(&rows, Cell::Number(6.0), "DateNormal"),
+            string("2021-06-14 22:45:12")
+        );
+    }
+
+    #[test]
+    fn rows_of_a_missing_table() {
+        let bytes = skip_if_missing!("V2003/testV2003.mdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        assert!(matches!(
+            db.rows("NoSuchTable"),
+            Err(FileError::TableNotFound { name }) if name == "NoSuchTable"
+        ));
+    }
+
+    #[test]
+    fn cells_of_values_without_test_data() {
+        // No test database has a BigInt column.
+        assert_eq!(Cell::from(Value::BigInt(i64::MAX)), Cell::BigInt(i64::MAX));
+        assert_eq!(Cell::from(Value::Float(1.1)), Cell::Number(1.1));
+        assert!(matches!(Cell::from(Value::Float(f32::NAN)), Cell::Number(v) if v.is_nan()));
+        assert_eq!(
+            Cell::from(Value::Float(f32::INFINITY)),
+            Cell::Number(f64::INFINITY)
+        );
     }
 
     #[test]

@@ -6,7 +6,14 @@
 // under @ts-expect-error must fail to type-check, and tsc reports it when it
 // does not.
 
-import { Database, type Column, type ColumnType, type Index } from "jetdb-wasm";
+import {
+  Database,
+  type Column,
+  type ColumnType,
+  type Index,
+  type Row,
+  type Value,
+} from "jetdb-wasm";
 
 declare const bytes: Uint8Array;
 
@@ -58,5 +65,16 @@ export const index: {
 indexes[0].type;
 // @ts-expect-error: the table name is required.
 db.indexes();
+
+export const rows: Row[] = db.rows("Table1");
+export const value: null | boolean | number | bigint | string | Uint8Array =
+  rows[0]["A"];
+export const values: Value[] = Object.values(rows[0]);
+// @ts-expect-error: a value is not always a string.
+export const text: string = rows[0]["A"];
+// @ts-expect-error: a value is never a Date.
+export const date: Date = rows[0]["G"];
+// @ts-expect-error: the table name is required.
+db.rows();
 
 db.free();

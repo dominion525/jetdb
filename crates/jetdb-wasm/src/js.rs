@@ -1,9 +1,9 @@
 //! The JavaScript interface: thin `wasm-bindgen` wrappers over [`crate::Database`].
 
-use js_sys::{Array, Object, Reflect};
+use js_sys::{Array, BigInt, Object, Reflect, Uint8Array};
 use wasm_bindgen::prelude::*;
 
-use crate::{Column, Database, Index};
+use crate::{Cell, Column, Database, Index};
 
 // Types for the TypeScript declarations. Version and Column are used through
 // unchecked_return_type. TablesOptions is an extern type rather than
@@ -62,12 +62,26 @@ export interface IndexColumn {
     name: string;
     descending: boolean;
 }
+
+/**
+ * A value in a row. Byte, Int, Long, Float and Double are numbers, BigInt is
+ * a bigint, Text, Memo, GUID, Money, Numeric and DateTimeExtended are strings,
+ * a Timestamp is a string such as `2021-06-14` or `2021-06-14 22:45:12`, and
+ * Binary and OLE are bytes.
+ */
+export type Value = null | boolean | number | bigint | string | Uint8Array;
+
+/** A row, keyed by the column names. */
+export type Row = Record<string, Value>;
 "#;
 
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(typescript_type = "TablesOptions")]
     pub type TablesOptions;
+
+    #[wasm_bindgen(js_namespace = console)]
+    fn warn(message: &str);
 }
 
 /// A Microsoft Access database opened from its bytes.
@@ -114,6 +128,35 @@ impl JsDatabase {
         let indexes = self.inner.indexes(table).map_err(to_js_error)?;
         Ok(indexes.iter().map(index_object).collect())
     }
+
+    /// The rows of a table, each an object keyed by the column names, with
+    /// the columns that `columns` returns. Rows that cannot be read are left
+    /// out with a warning on the console, as `jetdb export` warns of them.
+    #[wasm_bindgen(unchecked_return_type = "Row[]")]
+    pub fn rows(&mut self, table: &str) -> Result<Array, JsError> {
+        let rows = self.inner.rows(table).map_err(to_js_error)?;
+        if rows.skipped > 0 {
+            warn(&format!(
+                "{table}: {} row(s) skipped due to parse errors",
+                rows.skipped
+            ));
+        }
+        let names: Vec<JsValue> = rows.columns.iter().map(|c| JsValue::from_str(c)).collect();
+        Ok(rows
+            .rows
+            .into_iter()
+            .map(|row| {
+                let entries: Array = names
+                    .iter()
+                    .zip(row)
+                    .map(|(name, cell)| Array::of2(name, &cell_value(cell)))
+                    .collect();
+                // fromEntries defines each key as an own property, even a
+                // column named __proto__, which assigning would not.
+                Object::from_entries(&entries).expect("an object from entries")
+            })
+            .collect())
+    }
 }
 
 fn to_js_error(e: jetdb::FileError) -> JsError {
@@ -151,6 +194,17 @@ fn index_object(index: &Index) -> Object {
     set(&object, "ignoreNulls", index.ignore_nulls.into());
     set(&object, "required", index.required.into());
     object
+}
+
+fn cell_value(cell: Cell) -> JsValue {
+    match cell {
+        Cell::Null => JsValue::NULL,
+        Cell::Bool(v) => v.into(),
+        Cell::Number(v) => v.into(),
+        Cell::BigInt(v) => BigInt::from(v).into(),
+        Cell::String(s) => s.into(),
+        Cell::Bytes(bytes) => Uint8Array::from(bytes.as_slice()).into(),
+    }
 }
 
 /// Sets a property on an object made here, which cannot fail.
