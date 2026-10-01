@@ -50,7 +50,7 @@ pub struct ExportArgs {
     #[arg(short = 'B', long = "boolean-words")]
     pub boolean_words: bool,
 
-    /// Include replication system columns
+    /// Include the columns Access maintains and hides
     #[arg(short = 's', long = "system-columns")]
     pub system_columns: bool,
 }
