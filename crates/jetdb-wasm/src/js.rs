@@ -4,11 +4,12 @@ use js_sys::{Array, ArrayBuffer, BigInt, Object, Reflect, Uint8Array};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 
-use crate::{error_code, Cell, Column, Database, Index};
+use crate::{error_code, Cell, Column, Database, Index, Relationship};
 
-// Types for the TypeScript declarations. Version, Column, Index and Rows are
-// used through unchecked_return_type. TablesOptions is an extern type rather
-// than unchecked_param_type, which would make the parameter required.
+// Types for the TypeScript declarations. Version, Column, Index, Relationship
+// and Rows are used through unchecked_return_type. TablesOptions and
+// RelationshipsOptions are extern types rather than unchecked_param_type,
+// which would make the parameter required.
 #[wasm_bindgen(typescript_custom_section)]
 const TYPES: &str = r#"
 /** The database engine version. */
@@ -66,6 +67,34 @@ export interface Index {
 export interface IndexColumn {
     name: string;
     descending: boolean;
+}
+
+/** The options of `Database.relationships`. */
+export interface RelationshipsOptions {
+    /** Include the relationships of system and hidden tables too. */
+    system?: boolean;
+}
+
+/** A relationship between two tables. */
+export interface Relationship {
+    name: string;
+    /** The table whose columns refer to the other table. */
+    fromTable: string;
+    /** The table referred to. */
+    toTable: string;
+    columns: RelationshipColumn[];
+    /** Access keeps the rows of the two tables consistent. */
+    referentialIntegrity: boolean;
+    cascadeUpdate: boolean;
+    cascadeDelete: boolean;
+}
+
+/** A pair of columns of a relationship. */
+export interface RelationshipColumn {
+    /** The column of `fromTable`. */
+    from: string;
+    /** The column of `toTable` it refers to. */
+    to: string;
 }
 
 /**
@@ -134,6 +163,9 @@ extern "C" {
     #[wasm_bindgen(typescript_type = "TablesOptions")]
     pub type TablesOptions;
 
+    #[wasm_bindgen(typescript_type = "RelationshipsOptions")]
+    pub type RelationshipsOptions;
+
     #[wasm_bindgen(js_namespace = console, js_name = error)]
     fn console_error(message: &str);
 }
@@ -197,6 +229,22 @@ impl JsDatabase {
     pub fn indexes(&mut self, table: &str) -> Result<Array, JsValue> {
         let indexes = self.inner.indexes(table).map_err(to_js_error)?;
         Ok(indexes.iter().map(index_object).collect())
+    }
+
+    /// The relationships between tables, sorted by name, without those of
+    /// system and hidden tables. With `{ system: true }`, those are included
+    /// too.
+    #[wasm_bindgen(unchecked_return_type = "Relationship[]")]
+    pub fn relationships(
+        &mut self,
+        options: Option<RelationshipsOptions>,
+    ) -> Result<Array, JsValue> {
+        let include_system = option_bool(options.as_deref(), "system")?;
+        let relationships = self
+            .inner
+            .relationships(include_system)
+            .map_err(to_js_error)?;
+        Ok(relationships.iter().map(relationship_object).collect())
     }
 
     /// The rows of a table, each an object keyed by the column names, with
@@ -285,6 +333,36 @@ fn index_object(index: &Index) -> Object {
     set(&object, "unique", index.unique.into());
     set(&object, "ignoreNulls", index.ignore_nulls.into());
     set(&object, "required", index.required.into());
+    object
+}
+
+fn relationship_object(relationship: &Relationship) -> Object {
+    let columns: Array = relationship
+        .columns
+        .iter()
+        .map(|c| {
+            let object = Object::new();
+            set(&object, "from", c.from.as_str().into());
+            set(&object, "to", c.to.as_str().into());
+            object
+        })
+        .collect();
+    let object = Object::new();
+    set(&object, "name", relationship.name.as_str().into());
+    set(
+        &object,
+        "fromTable",
+        relationship.from_table.as_str().into(),
+    );
+    set(&object, "toTable", relationship.to_table.as_str().into());
+    set(&object, "columns", columns.into());
+    set(
+        &object,
+        "referentialIntegrity",
+        relationship.referential_integrity.into(),
+    );
+    set(&object, "cascadeUpdate", relationship.cascade_update.into());
+    set(&object, "cascadeDelete", relationship.cascade_delete.into());
     object
 }
 

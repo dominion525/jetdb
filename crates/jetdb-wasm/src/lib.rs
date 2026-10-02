@@ -11,8 +11,9 @@ use std::io::Cursor;
 
 use jetdb::format::{column_flags, index_flags, index_type, ColumnType, ObjectType};
 use jetdb::{
-    calculated_column_types, find_table, read_catalog, read_table_def, read_table_rows, timestamp,
-    CatalogEntry, FileError, IndexColumnOrder, PageReader, TableDef, Value,
+    calculated_column_types, find_table, read_catalog, read_relationships, read_table_def,
+    read_table_rows, relationship_flags, timestamp, CatalogEntry, FileError, IndexColumnOrder,
+    PageReader, TableDef, Value,
 };
 
 /// A database opened from bytes in memory.
@@ -64,6 +65,30 @@ pub struct Index {
 pub struct IndexColumn {
     pub name: String,
     pub descending: bool,
+}
+
+/// A relationship between two tables, as `Database::relationships` returns it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Relationship {
+    pub name: String,
+    /// The table whose columns refer to the other table.
+    pub from_table: String,
+    /// The table referred to.
+    pub to_table: String,
+    pub columns: Vec<RelationshipColumn>,
+    /// Access keeps the rows of the two tables consistent.
+    pub referential_integrity: bool,
+    pub cascade_update: bool,
+    pub cascade_delete: bool,
+}
+
+/// A pair of columns of a relationship.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RelationshipColumn {
+    /// The column of `from_table`.
+    pub from: String,
+    /// The column of `to_table` it refers to.
+    pub to: String,
 }
 
 /// The rows of a table, as `Database::rows` returns them.
@@ -246,6 +271,44 @@ impl Database {
                 .collect(),
             skipped: result.skipped_rows,
         })
+    }
+
+    /// The relationships between tables, sorted by name: without those of
+    /// system and hidden tables, as `tables` leaves them out, and with
+    /// `include_system` all of them.
+    pub fn relationships(&mut self, include_system: bool) -> Result<Vec<Relationship>, FileError> {
+        let relationships = read_relationships(&mut self.reader)?;
+        let catalog = self.catalog()?;
+        let system_or_hidden = |name: &str| {
+            catalog.iter().any(|e| {
+                e.object_type == ObjectType::Table && e.name == name && e.is_system_or_hidden()
+            })
+        };
+        let mut out: Vec<Relationship> = relationships
+            .into_iter()
+            .filter(|r| {
+                include_system
+                    || !(system_or_hidden(&r.from_table) || system_or_hidden(&r.to_table))
+            })
+            .map(|r| Relationship {
+                referential_integrity: r.flags & relationship_flags::NO_REFERENTIAL_INTEGRITY == 0,
+                cascade_update: r.flags & relationship_flags::CASCADE_UPDATE != 0,
+                cascade_delete: r.flags & relationship_flags::CASCADE_DELETE != 0,
+                columns: r
+                    .columns
+                    .into_iter()
+                    .map(|c| RelationshipColumn {
+                        from: c.from_column,
+                        to: c.to_column,
+                    })
+                    .collect(),
+                name: r.name,
+                from_table: r.from_table,
+                to_table: r.to_table,
+            })
+            .collect();
+        out.sort_unstable_by(|a, b| a.name.cmp(&b.name));
+        Ok(out)
     }
 
     /// The definition of `table`, and whether it is a system table.
@@ -654,6 +717,126 @@ mod tests {
             db.indexes("NoSuchTable"),
             Err(FileError::TableNotFound { name }) if name == "NoSuchTable"
         ));
+    }
+
+    fn relationship(
+        name: &str,
+        (from_table, from): (&str, &str),
+        (to_table, to): (&str, &str),
+        (cascade_update, cascade_delete): (bool, bool),
+    ) -> Relationship {
+        Relationship {
+            name: name.to_string(),
+            from_table: from_table.to_string(),
+            to_table: to_table.to_string(),
+            columns: vec![RelationshipColumn {
+                from: from.to_string(),
+                to: to.to_string(),
+            }],
+            referential_integrity: true,
+            cascade_update,
+            cascade_delete,
+        }
+    }
+
+    #[test]
+    fn relationships_with_their_columns_and_cascades() {
+        let bytes = skip_if_missing!("V1997/nwind.mdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        let relationships = db.relationships(false).unwrap();
+        let names: Vec<&str> = relationships.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "CategoriesProducts",
+                "CustomersOrders",
+                "EmployeesOrders",
+                "OrdersOrder Details",
+                "ProductsOrder Details",
+                "ShippersOrders",
+                "SuppliersProducts",
+            ]
+        );
+        let by_name = |name: &str| relationships.iter().find(|r| r.name == name).unwrap();
+        assert_eq!(
+            *by_name("CustomersOrders"),
+            relationship(
+                "CustomersOrders",
+                ("Orders", "CustomerID"),
+                ("Customers", "CustomerID"),
+                (true, false)
+            )
+        );
+        assert_eq!(
+            *by_name("OrdersOrder Details"),
+            relationship(
+                "OrdersOrder Details",
+                ("Order Details", "OrderID"),
+                ("Orders", "OrderID"),
+                (false, true)
+            )
+        );
+        // The columns of the two tables have different names here.
+        assert_eq!(
+            *by_name("ShippersOrders"),
+            relationship(
+                "ShippersOrders",
+                ("Orders", "ShipVia"),
+                ("Shippers", "ShipperID"),
+                (false, false)
+            )
+        );
+    }
+
+    #[test]
+    fn relationships_of_system_tables_only_with_system() {
+        let bytes = skip_if_missing!("V2003/indexTestV2003.mdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        let names =
+            |rels: Vec<Relationship>| -> Vec<String> { rels.into_iter().map(|r| r.name).collect() };
+        assert_eq!(
+            names(db.relationships(false).unwrap()),
+            ["Table2Table1", "Table3Table1"]
+        );
+
+        let bytes = skip_if_missing!("V2000/indexTestV2000.mdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        assert_eq!(
+            names(db.relationships(false).unwrap()),
+            ["Table2Table1", "Table3Table1"]
+        );
+        assert_eq!(
+            names(db.relationships(true).unwrap()),
+            [
+                "MSysNavPaneGroupCategoriesMSysNavPaneGroups",
+                "MSysNavPaneGroupsMSysNavPaneGroupToObjects",
+                "Table2Table1",
+                "Table3Table1",
+            ]
+        );
+    }
+
+    #[test]
+    fn relationships_without_referential_integrity() {
+        // Table2 is a linked table, on which Access cannot enforce
+        // referential integrity.
+        let bytes = skip_if_missing!("V2007/linkerTestV2007.accdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        let mut expected = relationship(
+            "Table1Table2",
+            ("Table2", "Field1"),
+            ("Table1", "Field1"),
+            (false, false),
+        );
+        expected.referential_integrity = false;
+        assert_eq!(db.relationships(false).unwrap(), [expected]);
+    }
+
+    #[test]
+    fn relationships_none() {
+        let bytes = skip_if_missing!("V2003/testV2003.mdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        assert_eq!(db.relationships(true).unwrap(), []);
     }
 
     fn string(s: &str) -> Cell {
