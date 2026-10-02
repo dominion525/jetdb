@@ -12,12 +12,15 @@ use std::io::Cursor;
 use jetdb::format::{column_flags, index_flags, index_type, ColumnType, ObjectType};
 use jetdb::{
     calculated_column_types, find_table, read_catalog, read_table_def, read_table_rows, timestamp,
-    FileError, IndexColumnOrder, PageReader, TableDef, Value,
+    CatalogEntry, FileError, IndexColumnOrder, PageReader, TableDef, Value,
 };
 
 /// A database opened from bytes in memory.
 pub struct Database {
     reader: PageReader,
+    /// The catalog, read when it is first needed. The bytes never change, so
+    /// it stays as read.
+    catalog: Option<Vec<CatalogEntry>>,
 }
 
 /// A column of a table, as `Database::columns` returns it.
@@ -129,7 +132,10 @@ impl Database {
     /// password-protected `.accdb`.
     pub fn open(bytes: Vec<u8>, password: Option<&str>) -> Result<Self, FileError> {
         let reader = PageReader::open_reader_with_password(Cursor::new(bytes), password)?;
-        Ok(Self { reader })
+        Ok(Self {
+            reader,
+            catalog: None,
+        })
     }
 
     /// The database engine version, as the `jetdb ver` command prints it
@@ -141,12 +147,13 @@ impl Database {
     /// The table names, sorted, as the `jetdb tables` command lists them:
     /// user tables, and with `include_system` also system and hidden tables.
     pub fn tables(&mut self, include_system: bool) -> Result<Vec<String>, FileError> {
-        let mut names: Vec<String> = read_catalog(&mut self.reader)?
-            .into_iter()
+        let mut names: Vec<String> = self
+            .catalog()?
+            .iter()
             .filter(|e| {
                 e.object_type == ObjectType::Table && (include_system || !e.is_system_or_hidden())
             })
-            .map(|e| e.name)
+            .map(|e| e.name.clone())
             .collect();
         names.sort_unstable();
         Ok(names)
@@ -243,10 +250,19 @@ impl Database {
 
     /// The definition of `table`, and whether it is a system table.
     fn table_def(&mut self, table: &str) -> Result<(TableDef, bool), FileError> {
-        let catalog = read_catalog(&mut self.reader)?;
-        let entry = find_table(&catalog, table)?;
-        let tdef = read_table_def(&mut self.reader, &entry.name, entry.table_page)?;
-        Ok((tdef, entry.is_system()))
+        let entry = find_table(self.catalog()?, table)?;
+        let (name, page, system_table) = (entry.name.clone(), entry.table_page, entry.is_system());
+        let tdef = read_table_def(&mut self.reader, &name, page)?;
+        Ok((tdef, system_table))
+    }
+
+    /// The catalog, read on the first call. A file whose catalog cannot be
+    /// read still opens, and the error comes from each call that needs it.
+    fn catalog(&mut self) -> Result<&[CatalogEntry], FileError> {
+        if self.catalog.is_none() {
+            self.catalog = Some(read_catalog(&mut self.reader)?);
+        }
+        Ok(self.catalog.as_deref().expect("the catalog was just read"))
     }
 }
 
@@ -352,6 +368,53 @@ mod tests {
         let all = db.tables(true).unwrap();
         assert!(all.contains(&"MSysObjects".to_string()), "{all:?}");
         assert!(all.len() > user.len());
+    }
+
+    #[test]
+    fn catalog_read_once_and_reused() {
+        let bytes = skip_if_missing!("V2003/testV2003.mdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        assert!(db.catalog.is_none());
+        let user = db.tables(false).unwrap();
+        let other = user.iter().find(|n| *n != "Table1").unwrap().clone();
+
+        // Put a catalog of only Table1 in its place: the calls that follow
+        // see it, rather than reading the catalog again.
+        let table1 = db
+            .catalog
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|e| e.name == "Table1")
+            .unwrap()
+            .clone();
+        db.catalog = Some(vec![table1]);
+        assert_eq!(db.tables(false).unwrap(), ["Table1"]);
+        assert!(!db.columns("Table1").unwrap().is_empty());
+        assert!(matches!(
+            db.columns(&other),
+            Err(FileError::TableNotFound { .. })
+        ));
+    }
+
+    #[test]
+    fn catalog_unreadable_after_open() {
+        let mut bytes = skip_if_missing!("V2003/testV2003.mdb");
+        // Blank the page of the catalog's table definition (page 2; Jet4
+        // pages are 4096 bytes).
+        bytes[2 * 4096..3 * 4096].fill(0);
+
+        // The file still opens and gives its version, and each call that
+        // needs the catalog fails, as before the catalog was kept.
+        let mut db = Database::open(bytes, None).unwrap();
+        assert_eq!(db.version(), "JET4");
+        for _ in 0..2 {
+            let error = db.tables(false).unwrap_err();
+            assert_eq!(error_code(&error), "INVALID_FILE", "{error}");
+        }
+        let error = db.columns("Table1").unwrap_err();
+        assert_eq!(error_code(&error), "INVALID_FILE", "{error}");
+        assert!(db.catalog.is_none());
     }
 
     #[test]
