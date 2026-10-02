@@ -133,6 +133,21 @@ export interface JetdbError extends Error {
 extern "C" {
     #[wasm_bindgen(typescript_type = "TablesOptions")]
     pub type TablesOptions;
+
+    #[wasm_bindgen(js_namespace = console, js_name = error)]
+    fn console_error(message: &str);
+}
+
+/// Prints a panic to the console before the Wasm traps, as JavaScript sees no
+/// more of it than `RuntimeError: unreachable`.
+#[wasm_bindgen(start)]
+fn start() {
+    std::panic::set_hook(Box::new(|info| console_error(&panic_message(info))));
+}
+
+/// Where and why the panic happened.
+fn panic_message(info: &std::panic::PanicHookInfo) -> String {
+    format!("jetdb-wasm {info}")
 }
 
 /// A Microsoft Access database opened from its bytes.
@@ -305,4 +320,31 @@ fn option_bool(options: Option<&JsValue>, name: &str) -> Result<bool, JsValue> {
             &format!("option {name} must be a boolean"),
         )
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::panic;
+    use std::sync::{Arc, Mutex};
+
+    use super::panic_message;
+
+    #[test]
+    fn panic_message_has_the_location_and_the_message() {
+        let printed = Arc::new(Mutex::new(String::new()));
+        let sink = printed.clone();
+        let previous = panic::take_hook();
+        panic::set_hook(Box::new(move |info| {
+            *sink.lock().unwrap() = panic_message(info);
+        }));
+        let line = line!() + 1;
+        let result = panic::catch_unwind(|| panic!("broken page {}", 42));
+        panic::set_hook(previous);
+
+        assert!(result.is_err());
+        let printed = printed.lock().unwrap();
+        assert!(printed.starts_with("jetdb-wasm panicked at "), "{printed}");
+        assert!(printed.contains(&format!("js.rs:{line}:")), "{printed}");
+        assert!(printed.ends_with("broken page 42"), "{printed}");
+    }
 }
