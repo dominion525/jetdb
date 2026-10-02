@@ -12,8 +12,47 @@ pub use sqlite::Sqlite;
 
 use std::collections::HashMap;
 
-use crate::format::{column_flags, index_flags, index_type, ColumnType};
-use crate::{ColumnDef, IndexDef, Relationship, TableDef};
+use crate::format::{column_flags, index_flags, index_type, ColumnType, ObjectType};
+use crate::{CatalogEntry, ColumnDef, FileError, IndexDef, PageReader, Relationship, TableDef};
+
+/// The names of the dialects, as `jetdb schema --ddl` takes them.
+pub const DIALECT_NAMES: [&str; 4] = ["sqlite", "postgres", "mysql", "access"];
+
+/// The dialect named `name`, one of [`DIALECT_NAMES`].
+pub fn dialect(name: &str) -> Option<&'static dyn DdlDialect> {
+    match name {
+        "sqlite" => Some(&Sqlite),
+        "postgres" => Some(&Postgres),
+        "mysql" => Some(&Mysql),
+        "access" => Some(&Access),
+        _ => None,
+    }
+}
+
+/// The definitions of the tables `jetdb schema` shows: the user tables in
+/// catalog order, or `table` alone, which may be a system table. Each
+/// calculated column has the type of its result (see
+/// [`with_calculated_column_types`]), which its values have.
+pub fn schema_tables(
+    reader: &mut PageReader,
+    catalog: &[CatalogEntry],
+    table: Option<&str>,
+) -> Result<Vec<TableDef>, FileError> {
+    let targets: Vec<&CatalogEntry> = match table {
+        Some(name) => vec![crate::find_table(catalog, name)?],
+        None => catalog
+            .iter()
+            .filter(|e| e.object_type == ObjectType::Table && !e.is_system_or_hidden())
+            .collect(),
+    };
+    let mut tables = Vec::with_capacity(targets.len());
+    for entry in targets {
+        let tdef = crate::read_table_def(reader, &entry.name, entry.table_page)?;
+        let calculated = crate::calculated_column_types(reader, &tdef);
+        tables.push(with_calculated_column_types(&tdef, &calculated));
+    }
+    Ok(tables)
+}
 
 // ---------------------------------------------------------------------------
 // DdlDialect trait
@@ -1681,6 +1720,71 @@ mod tests {
         assert_eq!(postgres().map_column_type(&c, false), "NUMERIC");
         assert_eq!(mysql().map_column_type(&c, false), "DECIMAL(65,30)");
         assert_eq!(sqlite().map_column_type(&c, false), "NUMERIC");
+    }
+
+    #[test]
+    fn dialect_of_each_name() {
+        for name in DIALECT_NAMES {
+            let dialect = dialect(name).unwrap();
+            let quoted = dialect.quote_id("a");
+            let expected = match name {
+                "access" => "[a]",
+                "mysql" => "`a`",
+                _ => "\"a\"",
+            };
+            assert_eq!(quoted, expected, "{name}");
+        }
+        assert!(dialect("sqlite").unwrap().inline_foreign_keys());
+        assert!(dialect("oracle").is_none());
+        assert!(dialect("SQLite").is_none());
+    }
+
+    #[test]
+    fn schema_tables_user_tables_or_one_table() {
+        let path = skip_if_missing!("V2003/testV2003.mdb");
+        let mut reader = crate::file::PageReader::open(&path).unwrap();
+        let catalog = crate::catalog::read_catalog(&mut reader).unwrap();
+
+        let all = schema_tables(&mut reader, &catalog, None).unwrap();
+        let user: Vec<&str> = catalog
+            .iter()
+            .filter(|e| e.object_type == ObjectType::Table && !e.is_system_or_hidden())
+            .map(|e| e.name.as_str())
+            .collect();
+        let names: Vec<&str> = all.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(names, user);
+        assert!(names.contains(&"Table1"), "{names:?}");
+
+        let one = schema_tables(&mut reader, &catalog, Some("Table1")).unwrap();
+        assert_eq!(one.len(), 1);
+        assert_eq!(one[0].name, "Table1");
+        let system = schema_tables(&mut reader, &catalog, Some("MSysObjects")).unwrap();
+        assert_eq!(system[0].name, "MSysObjects");
+        assert!(matches!(
+            schema_tables(&mut reader, &catalog, Some("NoSuchTable")),
+            Err(FileError::TableNotFound { .. })
+        ));
+    }
+
+    #[test]
+    fn schema_tables_have_calculated_column_types() {
+        let path = skip_if_missing!("V2010/calcFieldTestV2010.accdb");
+        let mut reader = crate::file::PageReader::open(&path).unwrap();
+        let catalog = crate::catalog::read_catalog(&mut reader).unwrap();
+        let tables = schema_tables(&mut reader, &catalog, Some("Table1")).unwrap();
+        let column = |name: &str| {
+            tables[0]
+                .columns
+                .iter()
+                .find(|c| c.name == name)
+                .unwrap()
+                .clone()
+        };
+        assert_eq!(column("MonthlySalary").col_type, ColumnType::Money);
+        assert_eq!(column("IsRich").col_type, ColumnType::Boolean);
+        let decimal = column("DecimalTest");
+        assert_eq!(decimal.col_type, ColumnType::Numeric);
+        assert_eq!((decimal.precision, decimal.scale), (0, 0));
     }
 
     #[test]

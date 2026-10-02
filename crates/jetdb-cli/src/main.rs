@@ -1,4 +1,3 @@
-mod ddl;
 mod export;
 mod form;
 mod macro_cmd;
@@ -12,8 +11,8 @@ use std::process::ExitCode;
 use clap::{Args, Parser, Subcommand};
 use jetdb::format::{column_flags, index_flags, index_type, ColumnType, ObjectType};
 use jetdb::{
-    calculated_column_types, read_catalog, read_relationships, read_table_def, relationship_flags,
-    CatalogEntry, ColumnDef, IndexColumnOrder, IndexDef, PageReader, Relationship, TableDef,
+    read_catalog, read_relationships, relationship_flags, CatalogEntry, ColumnDef,
+    IndexColumnOrder, IndexDef, PageReader, Relationship, TableDef,
 };
 
 // ---------------------------------------------------------------------------
@@ -96,8 +95,8 @@ struct SchemaArgs {
     table_name: Option<String>,
 
     /// Generate DDL in the specified SQL dialect
-    #[arg(long = "ddl", value_enum)]
-    ddl_format: Option<ddl::DdlFormat>,
+    #[arg(long = "ddl", value_parser = clap::builder::PossibleValuesParser::new(jetdb::ddl::DIALECT_NAMES))]
+    ddl_format: Option<String>,
 
     /// Hide index definitions
     #[arg(long = "no-indexes")]
@@ -223,16 +222,9 @@ fn cmd_schema(args: SchemaArgs, password: Option<&str>) -> ExitCode {
 fn run_schema(args: &SchemaArgs, password: Option<&str>) -> Result<(), jetdb::FileError> {
     let mut reader = PageReader::open_with_password(&args.file, password)?;
     let catalog = read_catalog(&mut reader)?;
-
-    // Collect target tables
-    let targets: Vec<&CatalogEntry> = if let Some(ref name) = args.table_name {
-        vec![jetdb::find_table(&catalog, name)?]
-    } else {
-        catalog
-            .iter()
-            .filter(|e| e.object_type == ObjectType::Table && !e.is_system_or_hidden())
-            .collect()
-    };
+    // A calculated column is shown, and written in DDL, with the type of its
+    // result, which its values have.
+    let tables = jetdb::ddl::schema_tables(&mut reader, &catalog, args.table_name.as_deref())?;
 
     // Read relationships once if needed
     let need_relations = !args.no_relations;
@@ -248,20 +240,11 @@ fn run_schema(args: &SchemaArgs, password: Option<&str>) -> Result<(), jetdb::Fi
         Vec::new()
     };
 
-    // Read all target table definitions. A calculated column is shown, and
-    // written in DDL, with the type of its result, which its values have.
-    let mut tables: Vec<TableDef> = Vec::new();
-    for entry in &targets {
-        let tdef = read_table_def(&mut reader, &entry.name, entry.table_page)?;
-        let calculated = calculated_column_types(&mut reader, &tdef);
-        tables.push(jetdb::ddl::with_calculated_column_types(&tdef, &calculated));
-    }
-
     // DDL mode or human-readable mode
-    if let Some(format) = args.ddl_format {
-        let dialect = ddl::create_dialect(format);
+    if let Some(ref name) = args.ddl_format {
+        let dialect = jetdb::ddl::dialect(name).expect("clap accepts only the dialect names");
         let output = jetdb::ddl::generate_ddl(
-            &*dialect,
+            dialect,
             &tables,
             &relationships,
             !args.no_indexes,
