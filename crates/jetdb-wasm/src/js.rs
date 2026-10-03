@@ -6,11 +6,11 @@ use wasm_bindgen::JsCast;
 
 use crate::{error_code, Cell, Column, Database, Index, Relationship};
 
-// Types for the TypeScript declarations. Version, Column, Index, Relationship
-// and Rows are used through unchecked_return_type, and DdlDialect through
-// unchecked_param_type. TablesOptions, RelationshipsOptions and DdlOptions
-// are extern types rather than unchecked_param_type, which would make the
-// parameter required.
+// Types for the TypeScript declarations. Version, Column, Index, Relationship,
+// Query and Rows are used through unchecked_return_type, and DdlDialect
+// through unchecked_param_type. TablesOptions, RelationshipsOptions,
+// QueriesOptions and DdlOptions are extern types rather than
+// unchecked_param_type, which would make the parameter required.
 #[wasm_bindgen(typescript_custom_section)]
 const TYPES: &str = r#"
 /** The database engine version. */
@@ -96,6 +96,26 @@ export interface RelationshipColumn {
     from: string;
     /** The column of `toTable` it refers to. */
     to: string;
+}
+
+/** The options of `Database.queries`. */
+export interface QueriesOptions {
+    /**
+     * Include the system and hidden queries too, such as those Access makes
+     * for forms and reports.
+     */
+    system?: boolean;
+}
+
+/** The type of a saved query. `Ddl` is a data-definition query. */
+export type QueryType =
+    | "Select" | "MakeTable" | "Append" | "Update" | "Delete"
+    | "Crosstab" | "Ddl" | "Passthrough" | "Union";
+
+/** A saved query. */
+export interface Query {
+    name: string;
+    type: QueryType;
 }
 
 /** The SQL dialect of `Database.ddl`. */
@@ -184,6 +204,9 @@ extern "C" {
     #[wasm_bindgen(typescript_type = "RelationshipsOptions")]
     pub type RelationshipsOptions;
 
+    #[wasm_bindgen(typescript_type = "QueriesOptions")]
+    pub type QueriesOptions;
+
     #[wasm_bindgen(typescript_type = "DdlOptions")]
     pub type DdlOptions;
 
@@ -266,6 +289,30 @@ impl JsDatabase {
             .relationships(include_system)
             .map_err(to_js_error)?;
         Ok(relationships.iter().map(relationship_object).collect())
+    }
+
+    /// The saved queries, sorted by name, without the system and hidden
+    /// ones. With `{ system: true }`, those are included too.
+    #[wasm_bindgen(unchecked_return_type = "Query[]")]
+    pub fn queries(&mut self, options: Option<QueriesOptions>) -> Result<Array, JsValue> {
+        let include_system = option_bool(options.as_deref(), "system", false)?;
+        let queries = self.inner.queries(include_system).map_err(to_js_error)?;
+        Ok(queries
+            .iter()
+            .map(|q| {
+                let object = Object::new();
+                set(&object, "name", q.name.as_str().into());
+                set(&object, "type", q.type_name.into());
+                object
+            })
+            .collect())
+    }
+
+    /// The SQL of a saved query, system and hidden ones included, as Access
+    /// shows it in SQL view.
+    #[wasm_bindgen(js_name = querySql)]
+    pub fn query_sql(&mut self, name: &str) -> Result<String, JsValue> {
+        self.inner.query_sql(name).map_err(to_js_error)
     }
 
     /// The DDL of the user tables in a SQL dialect, as `jetdb schema --ddl`
