@@ -9,10 +9,12 @@ mod js;
 
 use std::io::Cursor;
 
+use jetdb::ddl::{self, DdlDialect};
 use jetdb::format::{column_flags, index_flags, index_type, ColumnType, ObjectType};
 use jetdb::{
-    calculated_column_types, find_table, read_catalog, read_table_def, read_table_rows, timestamp,
-    CatalogEntry, FileError, IndexColumnOrder, PageReader, TableDef, Value,
+    calculated_column_types, find_table, read_catalog, read_relationships, read_table_def,
+    read_table_rows, relationship_flags, timestamp, CatalogEntry, FileError, IndexColumnOrder,
+    PageReader, TableDef, Value,
 };
 
 /// A database opened from bytes in memory.
@@ -64,6 +66,30 @@ pub struct Index {
 pub struct IndexColumn {
     pub name: String,
     pub descending: bool,
+}
+
+/// A relationship between two tables, as `Database::relationships` returns it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Relationship {
+    pub name: String,
+    /// The table whose columns refer to the other table.
+    pub from_table: String,
+    /// The table referred to.
+    pub to_table: String,
+    pub columns: Vec<RelationshipColumn>,
+    /// Access keeps the rows of the two tables consistent.
+    pub referential_integrity: bool,
+    pub cascade_update: bool,
+    pub cascade_delete: bool,
+}
+
+/// A pair of columns of a relationship.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RelationshipColumn {
+    /// The column of `from_table`.
+    pub from: String,
+    /// The column of `to_table` it refers to.
+    pub to: String,
 }
 
 /// The rows of a table, as `Database::rows` returns them.
@@ -246,6 +272,71 @@ impl Database {
                 .collect(),
             skipped: result.skipped_rows,
         })
+    }
+
+    /// The relationships between tables, sorted by name: without those of
+    /// system and hidden tables, as `tables` leaves them out, and with
+    /// `include_system` all of them.
+    pub fn relationships(&mut self, include_system: bool) -> Result<Vec<Relationship>, FileError> {
+        let relationships = read_relationships(&mut self.reader)?;
+        let catalog = self.catalog()?;
+        let system_or_hidden = |name: &str| {
+            catalog.iter().any(|e| {
+                e.object_type == ObjectType::Table && e.name == name && e.is_system_or_hidden()
+            })
+        };
+        let mut out: Vec<Relationship> = relationships
+            .into_iter()
+            .filter(|r| {
+                include_system
+                    || !(system_or_hidden(&r.from_table) || system_or_hidden(&r.to_table))
+            })
+            .map(|r| Relationship {
+                referential_integrity: r.flags & relationship_flags::NO_REFERENTIAL_INTEGRITY == 0,
+                cascade_update: r.flags & relationship_flags::CASCADE_UPDATE != 0,
+                cascade_delete: r.flags & relationship_flags::CASCADE_DELETE != 0,
+                columns: r
+                    .columns
+                    .into_iter()
+                    .map(|c| RelationshipColumn {
+                        from: c.from_column,
+                        to: c.to_column,
+                    })
+                    .collect(),
+                name: r.name,
+                from_table: r.from_table,
+                to_table: r.to_table,
+            })
+            .collect();
+        out.sort_unstable_by(|a, b| a.name.cmp(&b.name));
+        Ok(out)
+    }
+
+    /// The DDL of the user tables, or of `table` alone, in `dialect`, as
+    /// `jetdb schema --ddl` writes it: with the indexes unless `indexes` is
+    /// false, and the foreign keys unless `relations` is false.
+    pub fn ddl(
+        &mut self,
+        dialect: &dyn DdlDialect,
+        table: Option<&str>,
+        indexes: bool,
+        relations: bool,
+    ) -> Result<String, FileError> {
+        self.catalog()?;
+        let catalog = self.catalog.as_deref().expect("the catalog was just read");
+        let tables = ddl::schema_tables(&mut self.reader, catalog, table)?;
+        let relationships = if relations {
+            read_relationships(&mut self.reader)?
+        } else {
+            Vec::new()
+        };
+        Ok(ddl::generate_ddl(
+            dialect,
+            &tables,
+            &relationships,
+            indexes,
+            relations,
+        ))
     }
 
     /// The definition of `table`, and whether it is a system table.
@@ -654,6 +745,206 @@ mod tests {
             db.indexes("NoSuchTable"),
             Err(FileError::TableNotFound { name }) if name == "NoSuchTable"
         ));
+    }
+
+    fn relationship(
+        name: &str,
+        (from_table, from): (&str, &str),
+        (to_table, to): (&str, &str),
+        (cascade_update, cascade_delete): (bool, bool),
+    ) -> Relationship {
+        Relationship {
+            name: name.to_string(),
+            from_table: from_table.to_string(),
+            to_table: to_table.to_string(),
+            columns: vec![RelationshipColumn {
+                from: from.to_string(),
+                to: to.to_string(),
+            }],
+            referential_integrity: true,
+            cascade_update,
+            cascade_delete,
+        }
+    }
+
+    #[test]
+    fn relationships_with_their_columns_and_cascades() {
+        let bytes = skip_if_missing!("V1997/nwind.mdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        let relationships = db.relationships(false).unwrap();
+        let names: Vec<&str> = relationships.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "CategoriesProducts",
+                "CustomersOrders",
+                "EmployeesOrders",
+                "OrdersOrder Details",
+                "ProductsOrder Details",
+                "ShippersOrders",
+                "SuppliersProducts",
+            ]
+        );
+        let by_name = |name: &str| relationships.iter().find(|r| r.name == name).unwrap();
+        assert_eq!(
+            *by_name("CustomersOrders"),
+            relationship(
+                "CustomersOrders",
+                ("Orders", "CustomerID"),
+                ("Customers", "CustomerID"),
+                (true, false)
+            )
+        );
+        assert_eq!(
+            *by_name("OrdersOrder Details"),
+            relationship(
+                "OrdersOrder Details",
+                ("Order Details", "OrderID"),
+                ("Orders", "OrderID"),
+                (false, true)
+            )
+        );
+        // The columns of the two tables have different names here.
+        assert_eq!(
+            *by_name("ShippersOrders"),
+            relationship(
+                "ShippersOrders",
+                ("Orders", "ShipVia"),
+                ("Shippers", "ShipperID"),
+                (false, false)
+            )
+        );
+    }
+
+    #[test]
+    fn relationships_of_system_tables_only_with_system() {
+        let bytes = skip_if_missing!("V2003/indexTestV2003.mdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        let names =
+            |rels: Vec<Relationship>| -> Vec<String> { rels.into_iter().map(|r| r.name).collect() };
+        assert_eq!(
+            names(db.relationships(false).unwrap()),
+            ["Table2Table1", "Table3Table1"]
+        );
+
+        let bytes = skip_if_missing!("V2000/indexTestV2000.mdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        assert_eq!(
+            names(db.relationships(false).unwrap()),
+            ["Table2Table1", "Table3Table1"]
+        );
+        assert_eq!(
+            names(db.relationships(true).unwrap()),
+            [
+                "MSysNavPaneGroupCategoriesMSysNavPaneGroups",
+                "MSysNavPaneGroupsMSysNavPaneGroupToObjects",
+                "Table2Table1",
+                "Table3Table1",
+            ]
+        );
+    }
+
+    #[test]
+    fn relationships_without_referential_integrity() {
+        // Table2 is a linked table, on which Access cannot enforce
+        // referential integrity.
+        let bytes = skip_if_missing!("V2007/linkerTestV2007.accdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        let mut expected = relationship(
+            "Table1Table2",
+            ("Table2", "Field1"),
+            ("Table1", "Field1"),
+            (false, false),
+        );
+        expected.referential_integrity = false;
+        assert_eq!(db.relationships(false).unwrap(), [expected]);
+    }
+
+    #[test]
+    fn relationships_none() {
+        let bytes = skip_if_missing!("V2003/testV2003.mdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        assert_eq!(db.relationships(true).unwrap(), []);
+    }
+
+    fn dialect(name: &str) -> &'static dyn DdlDialect {
+        ddl::dialect(name).unwrap()
+    }
+
+    #[test]
+    fn ddl_tables_indexes_and_foreign_keys() {
+        let bytes = skip_if_missing!("V2003/indexTestV2003.mdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        let sql = db.ddl(dialect("postgres"), None, true, true).unwrap();
+        for expected in [
+            "CREATE TABLE \"Table1\" (\n    \"id\" INTEGER,",
+            "CREATE TABLE \"Table2\" (",
+            "CREATE TABLE \"Table3\" (",
+            "CREATE INDEX \"id\" ON \"Table1\" (\"id\");",
+            "ALTER TABLE \"Table1\" ADD CONSTRAINT \"Table2Table1\"\n    \
+             FOREIGN KEY (\"otherfk1\") REFERENCES \"Table2\" (\"id\")\n    \
+             ON DELETE CASCADE;",
+            "ALTER TABLE \"Table1\" ADD CONSTRAINT \"Table3Table1\"\n    \
+             FOREIGN KEY (\"otherfk2\") REFERENCES \"Table3\" (\"id\")\n    \
+             ON UPDATE CASCADE;",
+        ] {
+            assert!(sql.contains(expected), "{expected} in:\n{sql}");
+        }
+        assert!(!sql.contains("MSys"), "{sql}");
+
+        let sql = db.ddl(dialect("postgres"), None, false, false).unwrap();
+        assert!(sql.contains("CREATE TABLE \"Table1\""), "{sql}");
+        assert!(!sql.contains("CREATE INDEX"), "{sql}");
+        assert!(!sql.contains("FOREIGN KEY"), "{sql}");
+    }
+
+    #[test]
+    fn ddl_of_one_table_in_each_dialect() {
+        let bytes = skip_if_missing!("V2003/indexTestV2003.mdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        // SQLite writes the foreign keys inside CREATE TABLE.
+        let sql = db
+            .ddl(dialect("sqlite"), Some("Table1"), true, true)
+            .unwrap();
+        assert!(sql.starts_with("CREATE TABLE \"Table1\" ("), "{sql}");
+        assert!(!sql.contains("CREATE TABLE \"Table2\""), "{sql}");
+        assert!(
+            sql.contains("    \"data\" TEXT,\n    \"otherfk3\" INTEGER,\n    PRIMARY KEY (\"id\"),\n    FOREIGN KEY (\"otherfk1\")"),
+            "{sql}"
+        );
+        for (name, expected) in [
+            ("mysql", "CREATE TABLE `Table1` ("),
+            ("access", "CREATE TABLE [Table1] ("),
+        ] {
+            let sql = db.ddl(dialect(name), Some("Table1"), true, true).unwrap();
+            assert!(sql.starts_with(expected), "{name}:\n{sql}");
+        }
+        assert!(matches!(
+            db.ddl(dialect("sqlite"), Some("NoSuchTable"), true, true),
+            Err(FileError::TableNotFound { .. })
+        ));
+    }
+
+    #[test]
+    fn ddl_without_relations_when_they_cannot_be_read() {
+        let mut bytes = skip_if_missing!("V2003/indexTestV2003.mdb");
+        let page = {
+            let mut db = Database::open(bytes.clone(), None).unwrap();
+            find_table(db.catalog().unwrap(), "MSysRelationships")
+                .unwrap()
+                .table_page as usize
+        };
+        // Blank the page of the definition of MSysRelationships (Jet4 pages
+        // are 4096 bytes).
+        bytes[page * 4096..(page + 1) * 4096].fill(0);
+
+        let mut db = Database::open(bytes, None).unwrap();
+        let error = db.relationships(false).unwrap_err();
+        assert_eq!(error_code(&error), "INVALID_FILE", "{error}");
+        let error = db.ddl(dialect("postgres"), None, true, true).unwrap_err();
+        assert_eq!(error_code(&error), "INVALID_FILE", "{error}");
+        let sql = db.ddl(dialect("postgres"), None, true, false).unwrap();
+        assert!(sql.contains("CREATE TABLE \"Table1\""), "{sql}");
     }
 
     fn string(s: &str) -> Cell {
