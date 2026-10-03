@@ -9,6 +9,7 @@ mod js;
 
 use std::io::Cursor;
 
+use jetdb::ddl::{self, DdlDialect};
 use jetdb::format::{column_flags, index_flags, index_type, ColumnType, ObjectType};
 use jetdb::{
     calculated_column_types, find_table, read_catalog, read_relationships, read_table_def,
@@ -309,6 +310,33 @@ impl Database {
             .collect();
         out.sort_unstable_by(|a, b| a.name.cmp(&b.name));
         Ok(out)
+    }
+
+    /// The DDL of the user tables, or of `table` alone, in `dialect`, as
+    /// `jetdb schema --ddl` writes it: with the indexes unless `indexes` is
+    /// false, and the foreign keys unless `relations` is false.
+    pub fn ddl(
+        &mut self,
+        dialect: &dyn DdlDialect,
+        table: Option<&str>,
+        indexes: bool,
+        relations: bool,
+    ) -> Result<String, FileError> {
+        self.catalog()?;
+        let catalog = self.catalog.as_deref().expect("the catalog was just read");
+        let tables = ddl::schema_tables(&mut self.reader, catalog, table)?;
+        let relationships = if relations {
+            read_relationships(&mut self.reader)?
+        } else {
+            Vec::new()
+        };
+        Ok(ddl::generate_ddl(
+            dialect,
+            &tables,
+            &relationships,
+            indexes,
+            relations,
+        ))
     }
 
     /// The definition of `table`, and whether it is a system table.
@@ -837,6 +865,86 @@ mod tests {
         let bytes = skip_if_missing!("V2003/testV2003.mdb");
         let mut db = Database::open(bytes, None).unwrap();
         assert_eq!(db.relationships(true).unwrap(), []);
+    }
+
+    fn dialect(name: &str) -> &'static dyn DdlDialect {
+        ddl::dialect(name).unwrap()
+    }
+
+    #[test]
+    fn ddl_tables_indexes_and_foreign_keys() {
+        let bytes = skip_if_missing!("V2003/indexTestV2003.mdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        let sql = db.ddl(dialect("postgres"), None, true, true).unwrap();
+        for expected in [
+            "CREATE TABLE \"Table1\" (\n    \"id\" INTEGER,",
+            "CREATE TABLE \"Table2\" (",
+            "CREATE TABLE \"Table3\" (",
+            "CREATE INDEX \"id\" ON \"Table1\" (\"id\");",
+            "ALTER TABLE \"Table1\" ADD CONSTRAINT \"Table2Table1\"\n    \
+             FOREIGN KEY (\"otherfk1\") REFERENCES \"Table2\" (\"id\")\n    \
+             ON DELETE CASCADE;",
+            "ALTER TABLE \"Table1\" ADD CONSTRAINT \"Table3Table1\"\n    \
+             FOREIGN KEY (\"otherfk2\") REFERENCES \"Table3\" (\"id\")\n    \
+             ON UPDATE CASCADE;",
+        ] {
+            assert!(sql.contains(expected), "{expected} in:\n{sql}");
+        }
+        assert!(!sql.contains("MSys"), "{sql}");
+
+        let sql = db.ddl(dialect("postgres"), None, false, false).unwrap();
+        assert!(sql.contains("CREATE TABLE \"Table1\""), "{sql}");
+        assert!(!sql.contains("CREATE INDEX"), "{sql}");
+        assert!(!sql.contains("FOREIGN KEY"), "{sql}");
+    }
+
+    #[test]
+    fn ddl_of_one_table_in_each_dialect() {
+        let bytes = skip_if_missing!("V2003/indexTestV2003.mdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        // SQLite writes the foreign keys inside CREATE TABLE.
+        let sql = db
+            .ddl(dialect("sqlite"), Some("Table1"), true, true)
+            .unwrap();
+        assert!(sql.starts_with("CREATE TABLE \"Table1\" ("), "{sql}");
+        assert!(!sql.contains("CREATE TABLE \"Table2\""), "{sql}");
+        assert!(
+            sql.contains("    \"data\" TEXT,\n    \"otherfk3\" INTEGER,\n    PRIMARY KEY (\"id\"),\n    FOREIGN KEY (\"otherfk1\")"),
+            "{sql}"
+        );
+        for (name, expected) in [
+            ("mysql", "CREATE TABLE `Table1` ("),
+            ("access", "CREATE TABLE [Table1] ("),
+        ] {
+            let sql = db.ddl(dialect(name), Some("Table1"), true, true).unwrap();
+            assert!(sql.starts_with(expected), "{name}:\n{sql}");
+        }
+        assert!(matches!(
+            db.ddl(dialect("sqlite"), Some("NoSuchTable"), true, true),
+            Err(FileError::TableNotFound { .. })
+        ));
+    }
+
+    #[test]
+    fn ddl_without_relations_when_they_cannot_be_read() {
+        let mut bytes = skip_if_missing!("V2003/indexTestV2003.mdb");
+        let page = {
+            let mut db = Database::open(bytes.clone(), None).unwrap();
+            find_table(db.catalog().unwrap(), "MSysRelationships")
+                .unwrap()
+                .table_page as usize
+        };
+        // Blank the page of the definition of MSysRelationships (Jet4 pages
+        // are 4096 bytes).
+        bytes[page * 4096..(page + 1) * 4096].fill(0);
+
+        let mut db = Database::open(bytes, None).unwrap();
+        let error = db.relationships(false).unwrap_err();
+        assert_eq!(error_code(&error), "INVALID_FILE", "{error}");
+        let error = db.ddl(dialect("postgres"), None, true, true).unwrap_err();
+        assert_eq!(error_code(&error), "INVALID_FILE", "{error}");
+        let sql = db.ddl(dialect("postgres"), None, true, false).unwrap();
+        assert!(sql.contains("CREATE TABLE \"Table1\""), "{sql}");
     }
 
     fn string(s: &str) -> Cell {

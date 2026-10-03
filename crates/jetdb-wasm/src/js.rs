@@ -7,9 +7,10 @@ use wasm_bindgen::JsCast;
 use crate::{error_code, Cell, Column, Database, Index, Relationship};
 
 // Types for the TypeScript declarations. Version, Column, Index, Relationship
-// and Rows are used through unchecked_return_type. TablesOptions and
-// RelationshipsOptions are extern types rather than unchecked_param_type,
-// which would make the parameter required.
+// and Rows are used through unchecked_return_type, and DdlDialect through
+// unchecked_param_type. TablesOptions, RelationshipsOptions and DdlOptions
+// are extern types rather than unchecked_param_type, which would make the
+// parameter required.
 #[wasm_bindgen(typescript_custom_section)]
 const TYPES: &str = r#"
 /** The database engine version. */
@@ -97,6 +98,23 @@ export interface RelationshipColumn {
     to: string;
 }
 
+/** The SQL dialect of `Database.ddl`. */
+export type DdlDialect = "sqlite" | "postgres" | "mysql" | "access";
+
+/** The options of `Database.ddl`. */
+export interface DdlOptions {
+    /** Only this table, which may be a system table. */
+    table?: string;
+    /** Include the indexes (CREATE INDEX). Default true. */
+    indexes?: boolean;
+    /**
+     * Include the foreign keys of the relationships. Default true. With false,
+     * the relationships are not read, so a file whose relationships cannot be
+     * read still gives the DDL of its tables.
+     */
+    relations?: boolean;
+}
+
 /**
  * A value in a row, by the type of its column:
  *
@@ -166,6 +184,9 @@ extern "C" {
     #[wasm_bindgen(typescript_type = "RelationshipsOptions")]
     pub type RelationshipsOptions;
 
+    #[wasm_bindgen(typescript_type = "DdlOptions")]
+    pub type DdlOptions;
+
     #[wasm_bindgen(js_namespace = console, js_name = error)]
     fn console_error(message: &str);
 }
@@ -211,7 +232,7 @@ impl JsDatabase {
     /// The names of the user tables, sorted. With `{ system: true }`, the
     /// system and hidden tables are included too.
     pub fn tables(&mut self, options: Option<TablesOptions>) -> Result<Vec<String>, JsValue> {
-        let include_system = option_bool(options.as_deref(), "system")?;
+        let include_system = option_bool(options.as_deref(), "system", false)?;
         self.inner.tables(include_system).map_err(to_js_error)
     }
 
@@ -239,12 +260,40 @@ impl JsDatabase {
         &mut self,
         options: Option<RelationshipsOptions>,
     ) -> Result<Array, JsValue> {
-        let include_system = option_bool(options.as_deref(), "system")?;
+        let include_system = option_bool(options.as_deref(), "system", false)?;
         let relationships = self
             .inner
             .relationships(include_system)
             .map_err(to_js_error)?;
         Ok(relationships.iter().map(relationship_object).collect())
+    }
+
+    /// The DDL of the user tables in a SQL dialect, as `jetdb schema --ddl`
+    /// writes it: CREATE TABLE, CREATE INDEX and the foreign keys.
+    pub fn ddl(
+        &mut self,
+        #[wasm_bindgen(unchecked_param_type = "DdlDialect")] dialect: JsValue,
+        options: Option<DdlOptions>,
+    ) -> Result<String, JsValue> {
+        let dialect = dialect
+            .as_string()
+            .and_then(|name| jetdb::ddl::dialect(&name))
+            .ok_or_else(|| {
+                jetdb_error(
+                    "INVALID_ARGUMENT",
+                    &format!(
+                        "dialect must be one of {}",
+                        jetdb::ddl::DIALECT_NAMES.join(", ")
+                    ),
+                )
+            })?;
+        let options = options.as_deref();
+        let table = option_string(options, "table")?;
+        let indexes = option_bool(options, "indexes", true)?;
+        let relations = option_bool(options, "relations", true)?;
+        self.inner
+            .ddl(dialect, table.as_deref(), indexes, relations)
+            .map_err(to_js_error)
     }
 
     /// The rows of a table, each an object keyed by the column names, with
@@ -382,20 +431,38 @@ fn set(object: &Object, key: &str, value: JsValue) {
     Reflect::set(object, &JsValue::from_str(key), &value).expect("set a property");
 }
 
-/// Reads the boolean option `name`, which is `false` when absent.
-fn option_bool(options: Option<&JsValue>, name: &str) -> Result<bool, JsValue> {
+/// Reads the option `name`, which is `None` when absent, undefined or null.
+fn option_value(options: Option<&JsValue>, name: &str) -> Result<Option<JsValue>, JsValue> {
     let Some(options) = options else {
-        return Ok(false);
+        return Ok(None);
     };
     let value = Reflect::get(options, &JsValue::from_str(name))
         .map_err(|_| jetdb_error("INVALID_ARGUMENT", &format!("cannot read option {name}")))?;
-    if value.is_undefined() || value.is_null() {
-        return Ok(false);
-    }
+    Ok((!value.is_undefined() && !value.is_null()).then_some(value))
+}
+
+/// Reads the boolean option `name`, which is `default` when absent.
+fn option_bool(options: Option<&JsValue>, name: &str, default: bool) -> Result<bool, JsValue> {
+    let Some(value) = option_value(options, name)? else {
+        return Ok(default);
+    };
     value.as_bool().ok_or_else(|| {
         jetdb_error(
             "INVALID_ARGUMENT",
             &format!("option {name} must be a boolean"),
+        )
+    })
+}
+
+/// Reads the string option `name`, which is `None` when absent.
+fn option_string(options: Option<&JsValue>, name: &str) -> Result<Option<String>, JsValue> {
+    let Some(value) = option_value(options, name)? else {
+        return Ok(None);
+    };
+    value.as_string().map(Some).ok_or_else(|| {
+        jetdb_error(
+            "INVALID_ARGUMENT",
+            &format!("option {name} must be a string"),
         )
     })
 }
