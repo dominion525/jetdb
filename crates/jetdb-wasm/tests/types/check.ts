@@ -11,6 +11,8 @@ import {
   type Column,
   type ColumnType,
   type Index,
+  type Relationship,
+  type DdlDialect,
   type Row,
   type Value,
   type ErrorCode,
@@ -84,6 +86,34 @@ export const text: string = rows[0]["A"];
 export const date: Date = rows[0]["G"];
 // @ts-expect-error: the table name is required.
 db.rows();
+
+export const relationships: Relationship[] = db.relationships();
+db.relationships({ system: true });
+export const relationship: {
+  name: string;
+  fromTable: string;
+  toTable: string;
+  columns: { from: string; to: string }[];
+  referentialIntegrity: boolean;
+  cascadeUpdate: boolean;
+  cascadeDelete: boolean;
+} = relationships[0];
+// @ts-expect-error: system is a boolean.
+db.relationships({ system: "yes" });
+
+export const sql: string = db.ddl("postgres");
+db.ddl("sqlite", { table: "Table1", indexes: false, relations: false });
+db.ddl("mysql", {});
+db.ddl("access", null);
+export const dialect: DdlDialect = "sqlite";
+// @ts-expect-error: oracle is not a dialect.
+db.ddl("oracle");
+// @ts-expect-error: the dialect is required.
+db.ddl();
+// @ts-expect-error: table is a name.
+db.ddl("postgres", { table: 1 });
+// @ts-expect-error: the option is indexes.
+db.ddl("postgres", { index: false });
 
 declare const caught: unknown;
 if (caught instanceof Error && caught.name === "JetdbError") {

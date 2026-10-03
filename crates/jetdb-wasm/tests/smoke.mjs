@@ -22,6 +22,8 @@ function check(Database, build) {
   checkIndexes(Database, build);
   checkRows(Database, build);
   checkSkippedRows(Database, build);
+  checkRelationships(Database, build);
+  checkDdl(Database, build);
   checkErrors(Database, build);
   checkPassword(Database, build);
   console.log(`ok: ${build}`);
@@ -141,6 +143,63 @@ function checkSkippedRows(Database, build) {
     build,
   );
   assert.equal(skipped, 1, build);
+}
+
+function checkRelationships(Database, build) {
+  const db = Database.open(read("V2003/indexTestV2003.mdb"));
+  assert.deepEqual(
+    db.relationships(),
+    [
+      {
+        name: "Table2Table1",
+        fromTable: "Table1",
+        toTable: "Table2",
+        columns: [{ from: "otherfk1", to: "id" }],
+        referentialIntegrity: true,
+        cascadeUpdate: false,
+        cascadeDelete: true,
+      },
+      {
+        name: "Table3Table1",
+        fromTable: "Table1",
+        toTable: "Table3",
+        columns: [{ from: "otherfk2", to: "id" }],
+        referentialIntegrity: true,
+        cascadeUpdate: true,
+        cascadeDelete: false,
+      },
+    ],
+    build,
+  );
+  assert.throws(() => db.relationships({ system: "yes" }), { name: "JetdbError", code: "INVALID_ARGUMENT" }, build);
+
+  // Access adds relationships between its own system tables from Access 2000.
+  const v2000 = Database.open(read("V2000/indexTestV2000.mdb"));
+  assert.equal(v2000.relationships().length, 2, build);
+  assert.equal(v2000.relationships({ system: true }).length, 4, build);
+  assert.deepEqual(openTest(Database).relationships(), [], build);
+}
+
+function checkDdl(Database, build) {
+  const db = Database.open(read("V2003/indexTestV2003.mdb"));
+  assert.equal(
+    db.ddl("postgres", { table: "Table2" }),
+    'CREATE TABLE "Table2" (\n    "id" INTEGER,\n    "data" VARCHAR(100),\n    PRIMARY KEY ("id")\n);\n\n' +
+      'CREATE INDEX "id" ON "Table2" ("id");\n',
+    build,
+  );
+  const all = db.ddl("postgres");
+  for (const expected of ['CREATE TABLE "Table1"', 'CREATE TABLE "Table3"', "ON DELETE CASCADE", "ON UPDATE CASCADE"]) {
+    assert.ok(all.includes(expected), `${build}: ${expected} in ${all}`);
+  }
+  const bare = db.ddl("postgres", { indexes: false, relations: false });
+  assert.ok(!bare.includes("CREATE INDEX") && !bare.includes("FOREIGN KEY"), `${build}: ${bare}`);
+  assert.ok(db.ddl("sqlite", { table: "Table1" }).includes("    FOREIGN KEY (\"otherfk1\")"), build);
+  assert.ok(db.ddl("mysql").startsWith("CREATE TABLE `Table1` ("), build);
+  assert.ok(db.ddl("access").startsWith("CREATE TABLE [Table1] ("), build);
+  assert.throws(() => db.ddl("oracle"), { name: "JetdbError", code: "INVALID_ARGUMENT" }, build);
+  assert.throws(() => db.ddl("mysql", { table: 2 }), { name: "JetdbError", code: "INVALID_ARGUMENT" }, build);
+  assert.throws(() => db.ddl("mysql", { table: "NoSuchTable" }), { name: "JetdbError", code: "TABLE_NOT_FOUND" }, build);
 }
 
 function checkOpen(Database, build) {
