@@ -4,8 +4,8 @@ use std::process::ExitCode;
 use clap::Args;
 use jetdb::format::ObjectType;
 use jetdb::{
-    read_catalog, read_object_properties, read_object_properties_of_type, PageReader, PropMapType,
-    Value,
+    read_catalog, read_object_properties, read_object_properties_of_type, ObjectProperties,
+    PageReader, PropMapType, Value,
 };
 
 use crate::{object_type_name, OBJECT_TYPES};
@@ -44,12 +44,7 @@ fn run_prop(args: &PropArgs, password: Option<&str>) -> Result<(), String> {
     let mut reader =
         PageReader::open_with_password(&args.file, password).map_err(|e| e.to_string())?;
     let object_type = match &args.object_type {
-        Some(name) => Some(
-            OBJECT_TYPES
-                .into_iter()
-                .find(|&t| object_type_name(t) == name)
-                .expect("clap accepts only the type names"),
-        ),
+        Some(name) => Some(object_type_named(name)),
         None => only_type_of(&mut reader, &args.object_name)?,
     };
     let props = match object_type {
@@ -57,9 +52,22 @@ fn run_prop(args: &PropArgs, password: Option<&str>) -> Result<(), String> {
         None => read_object_properties(&mut reader, &args.object_name),
     }
     .map_err(|e| e.to_string())?;
+    print_properties(&props);
+    Ok(())
+}
 
+/// The object type of a name `--type` takes.
+fn object_type_named(name: &str) -> ObjectType {
+    OBJECT_TYPES
+        .into_iter()
+        .find(|&t| object_type_name(t) == name)
+        .expect("clap accepts only the type names")
+}
+
+/// Prints the properties of an object, nothing when it has none.
+fn print_properties(props: &ObjectProperties) {
     if props.maps.is_empty() {
-        return Ok(());
+        return;
     }
 
     println!("Object: {}", props.object_name);
@@ -103,8 +111,6 @@ fn run_prop(args: &PropArgs, password: Option<&str>) -> Result<(), String> {
             );
         }
     }
-
-    Ok(())
 }
 
 /// The type of the object named `name`, `None` when there is none, or an

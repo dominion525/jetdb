@@ -111,47 +111,39 @@ fn read_properties(
         }
     };
 
-    // Find the matching row
-    for row in &result.rows {
-        let row_name = match row.get(name_idx) {
-            Some(Value::Text(s)) => s.as_str(),
-            _ => continue,
-        };
-        if row_name != object_name {
-            continue;
-        }
-        if let Some(wanted) = object_type {
-            let row_type = match row.get(type_idx) {
-                Some(Value::Int(v)) => ObjectType::try_from(i32::from(*v)).ok(),
-                _ => None,
-            };
-            if row_type != Some(wanted) {
-                continue;
-            }
-        }
-
-        let data = match row.get(lvprop_idx) {
-            Some(Value::Binary(b)) => b,
-            _ => {
-                return Ok(ObjectProperties {
-                    object_name: object_name.to_string(),
-                    maps: Vec::new(),
-                });
-            }
-        };
-
-        let maps = parse_lvprop(data, is_jet3)?;
-        return Ok(ObjectProperties {
-            object_name: object_name.to_string(),
-            maps,
+    // The object not found, or without properties, has none.
+    let data = result
+        .rows
+        .iter()
+        .find(|row| is_object(row, (name_idx, type_idx), object_name, object_type))
+        .and_then(|row| match row.get(lvprop_idx) {
+            Some(Value::Binary(b)) => Some(b),
+            _ => None,
         });
-    }
-
-    // Object not found — return empty
+    let maps = match data {
+        Some(data) => parse_lvprop(data, is_jet3)?,
+        None => Vec::new(),
+    };
     Ok(ObjectProperties {
         object_name: object_name.to_string(),
-        maps: Vec::new(),
+        maps,
     })
+}
+
+/// Whether `row` of MSysObjects, with its Name and Type at `name_idx` and
+/// `type_idx`, is the object named `object_name`, of `object_type` when it
+/// is given.
+fn is_object(
+    row: &[Value],
+    (name_idx, type_idx): (usize, usize),
+    object_name: &str,
+    object_type: Option<ObjectType>,
+) -> bool {
+    let name_matches = matches!(row.get(name_idx), Some(Value::Text(s)) if s == object_name);
+    let type_matches = object_type.is_none_or(|wanted| {
+        matches!(row.get(type_idx), Some(Value::Int(v)) if ObjectType::try_from(i32::from(*v)).ok() == Some(wanted))
+    });
+    name_matches && type_matches
 }
 
 // ---------------------------------------------------------------------------
