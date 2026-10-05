@@ -4,13 +4,16 @@ use js_sys::{Array, ArrayBuffer, BigInt, Object, Reflect, Uint8Array};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 
-use crate::{error_code, Cell, Column, Database, Index, Relationship};
+use crate::{
+    error_code, object_type_name, Cell, Column, Database, Index, PropertiesError, Property,
+    PropertyGroup, Relationship, OBJECT_TYPES,
+};
 
 // Types for the TypeScript declarations. Version, Column, Index, Relationship,
-// Query and Rows are used through unchecked_return_type, and DdlDialect
-// through unchecked_param_type. TablesOptions, RelationshipsOptions,
-// QueriesOptions and DdlOptions are extern types rather than
-// unchecked_param_type, which would make the parameter required.
+// Query, ObjectProperties and Rows are used through unchecked_return_type, and
+// DdlDialect through unchecked_param_type. TablesOptions, RelationshipsOptions,
+// QueriesOptions, PropertiesOptions and DdlOptions are extern types rather
+// than unchecked_param_type, which would make the parameter required.
 #[wasm_bindgen(typescript_custom_section)]
 const TYPES: &str = r#"
 /** The database engine version. */
@@ -118,6 +121,43 @@ export interface Query {
     type: QueryType;
 }
 
+/** The type of an object of a database. */
+export type ObjectType =
+    | "Table" | "Query" | "Form" | "Report" | "Macro" | "Module"
+    | "LinkedTable" | "LinkedOdbcTable" | "Relationship" | "Container"
+    | "Database" | "DatabaseProperty" | "UserInfo";
+
+/** The options of `Database.properties`. */
+export interface PropertiesOptions {
+    /**
+     * The type of the object, needed when objects of different types share
+     * the name, such as a table and a form both named `Customers`.
+     */
+    type?: ObjectType;
+}
+
+/** The properties of an object, as Access keeps them. */
+export interface ObjectProperties {
+    /** The properties of the object itself. */
+    object: Property[];
+    /** The properties of each column of a table. */
+    columns: PropertyGroup[];
+    /** The additional groups of properties. */
+    additional: PropertyGroup[];
+}
+
+/** A named group of properties, such as those of a column. */
+export interface PropertyGroup {
+    name: string;
+    properties: Property[];
+}
+
+/** A property, with its value of the types a row has. */
+export interface Property {
+    name: string;
+    value: Value;
+}
+
 /** The SQL dialect of `Database.ddl`. */
 export type DdlDialect = "sqlite" | "postgres" | "mysql" | "access";
 
@@ -176,7 +216,8 @@ export interface Rows {
  * - `UNSUPPORTED_ENCRYPTION`: the file is encrypted in a way jetdb cannot
  *   read.
  * - `TABLE_NOT_FOUND`, `QUERY_NOT_FOUND`, `MODULE_NOT_FOUND`,
- *   `FORM_NOT_FOUND`, `MACRO_NOT_FOUND`: no object of that name.
+ *   `FORM_NOT_FOUND`, `MACRO_NOT_FOUND`, `OBJECT_NOT_FOUND`: no object of
+ *   that name.
  * - `INVALID_FILE`: not an Access database, or a broken one; the message
  *   says what is wrong.
  * - `INVALID_ARGUMENT`: a method was called with an argument of the wrong
@@ -186,7 +227,7 @@ export interface Rows {
 export type ErrorCode =
     | "PASSWORD_REQUIRED" | "INVALID_PASSWORD" | "UNSUPPORTED_ENCRYPTION"
     | "TABLE_NOT_FOUND" | "QUERY_NOT_FOUND" | "MODULE_NOT_FOUND"
-    | "FORM_NOT_FOUND" | "MACRO_NOT_FOUND"
+    | "FORM_NOT_FOUND" | "MACRO_NOT_FOUND" | "OBJECT_NOT_FOUND"
     | "INVALID_FILE" | "INVALID_ARGUMENT" | "IO";
 
 /** The error that the methods of `Database` throw. */
@@ -211,6 +252,9 @@ extern "C" {
 
     #[wasm_bindgen(typescript_type = "QueriesOptions")]
     pub type QueriesOptions;
+
+    #[wasm_bindgen(typescript_type = "PropertiesOptions")]
+    pub type PropertiesOptions;
 
     #[wasm_bindgen(typescript_type = "DdlOptions")]
     pub type DdlOptions;
@@ -339,6 +383,46 @@ impl JsDatabase {
         self.inner
             .query_sql(&string_arg(&name, "name")?)
             .map_err(to_js_error)
+    }
+
+    /// The properties of an object, such as a table or a query, as Access
+    /// keeps them. When objects of different types share the name, the type
+    /// option chooses one.
+    #[wasm_bindgen(unchecked_return_type = "ObjectProperties")]
+    pub fn properties(
+        &mut self,
+        #[wasm_bindgen(unchecked_param_type = "string")] name: JsValue,
+        options: Option<PropertiesOptions>,
+    ) -> Result<Object, JsValue> {
+        let name = string_arg(&name, "name")?;
+        let object_type = match option_string(options.as_deref(), "type")? {
+            Some(type_name) => Some(
+                OBJECT_TYPES
+                    .into_iter()
+                    .find(|&t| object_type_name(t) == type_name)
+                    .ok_or_else(|| {
+                        let names = OBJECT_TYPES.map(object_type_name);
+                        jetdb_error(
+                            "INVALID_ARGUMENT",
+                            &format!("option type must be one of {}", names.join(", ")),
+                        )
+                    })?,
+            ),
+            None => None,
+        };
+        let properties = self
+            .inner
+            .properties(&name, object_type)
+            .map_err(|e| properties_error(e, &name))?;
+        let object = Object::new();
+        set(&object, "object", property_array(&properties.object).into());
+        set(&object, "columns", group_array(&properties.columns).into());
+        set(
+            &object,
+            "additional",
+            group_array(&properties.additional).into(),
+        );
+        Ok(object)
     }
 
     /// The DDL of the user tables in a SQL dialect, as `jetdb schema --ddl`
@@ -501,6 +585,50 @@ fn relationship_object(relationship: &Relationship) -> Object {
     set(&object, "cascadeUpdate", relationship.cascade_update.into());
     set(&object, "cascadeDelete", relationship.cascade_delete.into());
     object
+}
+
+/// The JavaScript error of `Database.properties` for the object `name`.
+fn properties_error(error: PropertiesError, name: &str) -> JsValue {
+    match error {
+        PropertiesError::File(e) => to_js_error(e),
+        PropertiesError::NotFound => {
+            jetdb_error("OBJECT_NOT_FOUND", &format!("object not found: {name}"))
+        }
+        PropertiesError::SeveralTypes(types) => {
+            let names: Vec<&str> = types.into_iter().map(object_type_name).collect();
+            jetdb_error(
+                "INVALID_ARGUMENT",
+                &format!(
+                    "objects of several types are named {name}: {}; choose one with the type option",
+                    names.join(", ")
+                ),
+            )
+        }
+    }
+}
+
+fn property_array(properties: &[Property]) -> Array {
+    properties
+        .iter()
+        .map(|p| {
+            let object = Object::new();
+            set(&object, "name", p.name.as_str().into());
+            set(&object, "value", cell_value(p.value.clone()));
+            object
+        })
+        .collect()
+}
+
+fn group_array(groups: &[PropertyGroup]) -> Array {
+    groups
+        .iter()
+        .map(|g| {
+            let object = Object::new();
+            set(&object, "name", g.name.as_str().into());
+            set(&object, "properties", property_array(&g.properties).into());
+            object
+        })
+        .collect()
 }
 
 fn cell_value(cell: Cell) -> JsValue {
