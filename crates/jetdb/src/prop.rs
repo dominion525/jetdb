@@ -200,12 +200,17 @@ pub(crate) fn parse_lvprop(data: &[u8], is_jet3: bool) -> Result<Vec<PropertyMap
                 reason: "LvProp chunk_len < 6",
             });
         }
-        if offset + chunk_len > data.len() {
-            // Truncated chunk — stop parsing rather than error
+        // A chunk running past the end, or so long that offset + chunk_len
+        // overflows a 32-bit usize, is truncated — stop parsing rather than
+        // error.
+        let Some(chunk_end) = offset
+            .checked_add(chunk_len)
+            .filter(|&end| end <= data.len())
+        else {
             break;
-        }
+        };
 
-        let chunk_data = &data[offset + 6..offset + chunk_len];
+        let chunk_data = &data[offset + 6..chunk_end];
 
         match chunk_type {
             CHUNK_NAME_LIST => {
@@ -220,7 +225,7 @@ pub(crate) fn parse_lvprop(data: &[u8], is_jet3: bool) -> Result<Vec<PropertyMap
             }
         }
 
-        offset += chunk_len;
+        offset = chunk_end;
     }
 
     Ok(maps)
@@ -759,6 +764,23 @@ mod tests {
         let name_chunk_len: u32 = 6; // header only, no names
         blob.extend_from_slice(&name_chunk_len.to_le_bytes());
         blob.extend_from_slice(&0x0080u16.to_le_bytes());
+
+        let maps = parse_lvprop(&blob, false).unwrap();
+        assert!(maps.is_empty());
+    }
+
+    #[test]
+    fn parse_lvprop_chunk_len_past_the_end() {
+        // A value chunk after a valid one claims 0xFFFFFFFF bytes. Where usize
+        // is 32 bits, as in Wasm, offset + chunk_len wraps around; it must
+        // still be read as a chunk cut short, not as a slice out of range.
+        let mut blob = Vec::new();
+        blob.extend_from_slice(b"MR2\0");
+        blob.extend_from_slice(&6u32.to_le_bytes());
+        blob.extend_from_slice(&0x0080u16.to_le_bytes());
+        blob.extend_from_slice(&u32::MAX.to_le_bytes());
+        blob.extend_from_slice(&0x0000u16.to_le_bytes());
+        blob.extend_from_slice(&[0; 8]);
 
         let maps = parse_lvprop(&blob, false).unwrap();
         assert!(maps.is_empty());
