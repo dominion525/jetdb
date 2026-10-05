@@ -3,7 +3,7 @@
 use crate::data::{self, format_guid, Value};
 use crate::encoding;
 use crate::file::{FileError, PageReader};
-use crate::format::CATALOG_PAGE;
+use crate::format::{ObjectType, CATALOG_PAGE};
 use crate::money;
 use crate::table;
 
@@ -51,26 +51,54 @@ pub struct ObjectProperties {
 // ---------------------------------------------------------------------------
 
 /// Read properties for a named object from MSysObjects.LvProp.
+///
+/// Objects of different types can share a name, such as a table and a form
+/// both named `Customers`; this reads the first object of that name. Use
+/// [`read_object_properties_of_type`] to name the type too.
 pub fn read_object_properties(
     reader: &mut PageReader,
     object_name: &str,
+) -> Result<ObjectProperties, FileError> {
+    read_properties(reader, object_name, None)
+}
+
+/// Read properties for the object of `object_type` named `object_name` from
+/// MSysObjects.LvProp. An object that is not there has no properties.
+pub fn read_object_properties_of_type(
+    reader: &mut PageReader,
+    object_name: &str,
+    object_type: ObjectType,
+) -> Result<ObjectProperties, FileError> {
+    read_properties(reader, object_name, Some(object_type))
+}
+
+/// The properties of the first object named `object_name`, of `object_type`
+/// when it is given.
+fn read_properties(
+    reader: &mut PageReader,
+    object_name: &str,
+    object_type: Option<ObjectType>,
 ) -> Result<ObjectProperties, FileError> {
     let is_jet3 = reader.header().version.is_jet3();
     let tdef = table::read_table_def(reader, "MSysObjects", CATALOG_PAGE)?;
     let result = data::read_table_rows(reader, &tdef)?;
     result.warn_skipped("MSysObjects");
 
-    // Locate Name and LvProp column indices
-    let (mut name_idx, mut lvprop_idx) = (None, None);
+    // Locate Name, Type and LvProp column indices
+    let (mut name_idx, mut type_idx, mut lvprop_idx) = (None, None, None);
     for (i, col) in tdef.columns.iter().enumerate() {
         match col.name.as_str() {
             "Name" => name_idx = Some(i),
+            "Type" => type_idx = Some(i),
             "LvProp" => lvprop_idx = Some(i),
             _ => {}
         }
     }
     let name_idx = name_idx.ok_or(FileError::InvalidTableDef {
         reason: "MSysObjects missing Name column",
+    })?;
+    let type_idx = type_idx.ok_or(FileError::InvalidTableDef {
+        reason: "MSysObjects missing Type column",
     })?;
 
     let lvprop_idx = match lvprop_idx {
@@ -91,6 +119,15 @@ pub fn read_object_properties(
         };
         if row_name != object_name {
             continue;
+        }
+        if let Some(wanted) = object_type {
+            let row_type = match row.get(type_idx) {
+                Some(Value::Int(v)) => ObjectType::try_from(i32::from(*v)).ok(),
+                _ => None,
+            };
+            if row_type != Some(wanted) {
+                continue;
+            }
         }
 
         let data = match row.get(lvprop_idx) {
@@ -822,6 +859,55 @@ mod tests {
         let props = read_object_properties(&mut reader, "Table1").unwrap();
         assert_eq!(props.object_name, "Table1");
         assert_has_properties(&props);
+    }
+
+    #[test]
+    fn properties_of_the_object_of_a_type() {
+        // nwind.mdb has a table, a form and a macro all named Customers.
+        let path = skip_if_missing!("V1997/nwind.mdb");
+        let mut reader = PageReader::open(&path).unwrap();
+        let column_names = |props: &ObjectProperties| -> Vec<String> {
+            props
+                .maps
+                .iter()
+                .filter(|m| m.map_type == PropMapType::Column)
+                .map(|m| m.name.clone())
+                .collect()
+        };
+        let description = |props: &ObjectProperties| -> Option<String> {
+            props
+                .maps
+                .iter()
+                .filter(|m| m.map_type == PropMapType::Default)
+                .flat_map(|m| &m.properties)
+                .find(|p| p.name == "Description")
+                .and_then(|p| match &p.value {
+                    Value::Text(s) => Some(s.clone()),
+                    _ => None,
+                })
+        };
+
+        let table =
+            read_object_properties_of_type(&mut reader, "Customers", ObjectType::Table).unwrap();
+        assert!(
+            column_names(&table).contains(&"CustomerID".to_string()),
+            "{:?}",
+            column_names(&table)
+        );
+
+        let form =
+            read_object_properties_of_type(&mut reader, "Customers", ObjectType::Form).unwrap();
+        assert!(column_names(&form).is_empty());
+        let form_description = description(&form).unwrap();
+        assert!(
+            form_description.contains("Single-column form"),
+            "{form_description}"
+        );
+        assert_ne!(description(&table), Some(form_description));
+
+        let query =
+            read_object_properties_of_type(&mut reader, "Customers", ObjectType::Query).unwrap();
+        assert!(query.maps.is_empty());
     }
 
     #[test]
