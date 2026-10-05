@@ -59,6 +59,40 @@ fn prop_nonexistent_table() {
 }
 
 // ---------------------------------------------------------------------------
+// Objects of several types sharing a name: --type chooses one
+// ---------------------------------------------------------------------------
+
+#[test]
+fn prop_shared_name_needs_type() {
+    // nwind.mdb has a table, a form and a macro all named Customers.
+    let path = skip_if_missing!("V1997/nwind.mdb");
+    let output = jetdb_bin()
+        .args(["prop", path.to_str().unwrap(), "Customers"])
+        .output()
+        .expect("failed to run jetdb");
+    assert!(!output.status.success(), "should fail without --type");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("objects of several types are named Customers: form, macro, table"),
+        "got: {stderr}"
+    );
+
+    let output = jetdb_bin()
+        .args([
+            "prop",
+            "--type",
+            "table",
+            path.to_str().unwrap(),
+            "Customers",
+        ])
+        .output()
+        .expect("failed to run jetdb");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Column: CustomerID"), "got:\n{stdout}");
+}
+
+// ---------------------------------------------------------------------------
 // Nonexistent file: error
 // ---------------------------------------------------------------------------
 

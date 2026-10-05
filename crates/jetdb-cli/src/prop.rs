@@ -2,7 +2,13 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::Args;
-use jetdb::{read_object_properties, PageReader, PropMapType, Value};
+use jetdb::format::ObjectType;
+use jetdb::{
+    read_catalog, read_object_properties, read_object_properties_of_type, PageReader, PropMapType,
+    Value,
+};
+
+use crate::{object_type_name, OBJECT_TYPES};
 
 // ---------------------------------------------------------------------------
 // CLI definition
@@ -14,6 +20,10 @@ pub struct PropArgs {
     pub file: PathBuf,
     /// Object name (table, query, etc.)
     pub object_name: String,
+
+    /// Object type, needed when objects of different types share the name
+    #[arg(short = 't', long = "type", value_parser = clap::builder::PossibleValuesParser::new(OBJECT_TYPES.map(object_type_name)))]
+    pub object_type: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -30,9 +40,23 @@ pub fn cmd_prop(args: PropArgs, password: Option<&str>) -> ExitCode {
     }
 }
 
-fn run_prop(args: &PropArgs, password: Option<&str>) -> Result<(), jetdb::FileError> {
-    let mut reader = PageReader::open_with_password(&args.file, password)?;
-    let props = read_object_properties(&mut reader, &args.object_name)?;
+fn run_prop(args: &PropArgs, password: Option<&str>) -> Result<(), String> {
+    let mut reader =
+        PageReader::open_with_password(&args.file, password).map_err(|e| e.to_string())?;
+    let object_type = match &args.object_type {
+        Some(name) => Some(
+            OBJECT_TYPES
+                .into_iter()
+                .find(|&t| object_type_name(t) == name)
+                .expect("clap accepts only the type names"),
+        ),
+        None => only_type_of(&mut reader, &args.object_name)?,
+    };
+    let props = match object_type {
+        Some(t) => read_object_properties_of_type(&mut reader, &args.object_name, t),
+        None => read_object_properties(&mut reader, &args.object_name),
+    }
+    .map_err(|e| e.to_string())?;
 
     if props.maps.is_empty() {
         return Ok(());
@@ -81,6 +105,28 @@ fn run_prop(args: &PropArgs, password: Option<&str>) -> Result<(), jetdb::FileEr
     }
 
     Ok(())
+}
+
+/// The type of the object named `name`, `None` when there is none, or an
+/// error naming the types when objects of several types share the name.
+fn only_type_of(reader: &mut PageReader, name: &str) -> Result<Option<ObjectType>, String> {
+    let catalog = read_catalog(reader).map_err(|e| e.to_string())?;
+    let types: Vec<ObjectType> = catalog
+        .iter()
+        .filter(|e| e.name == name)
+        .map(|e| e.object_type)
+        .collect();
+    match types.as_slice() {
+        [] => Ok(None),
+        [only] => Ok(Some(*only)),
+        several => {
+            let names: Vec<&str> = several.iter().map(|&t| object_type_name(t)).collect();
+            Err(format!(
+                "objects of several types are named {name}: {}; choose one with --type",
+                names.join(", ")
+            ))
+        }
+    }
 }
 
 /// Format a property value for display.
