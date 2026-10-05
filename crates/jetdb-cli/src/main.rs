@@ -187,6 +187,23 @@ fn resolve_type_name(entry: &CatalogEntry) -> &'static str {
     }
 }
 
+/// The object types, in the order `jetdb prop --type` lists them.
+const OBJECT_TYPES: [ObjectType; 13] = [
+    ObjectType::Table,
+    ObjectType::Query,
+    ObjectType::Form,
+    ObjectType::Report,
+    ObjectType::Macro,
+    ObjectType::Module,
+    ObjectType::LinkedTable,
+    ObjectType::LinkedOdbcTable,
+    ObjectType::Relationship,
+    ObjectType::Container,
+    ObjectType::Database,
+    ObjectType::DatabaseProperty,
+    ObjectType::UserInfo,
+];
+
 fn object_type_name(t: ObjectType) -> &'static str {
     match t {
         ObjectType::Form => "form",

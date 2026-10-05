@@ -49,6 +49,9 @@ pub use macro_def::{
     MacroXmlElement,
 };
 pub use macro_text::{data_macros_to_text, embedded_macro_to_text};
-pub use prop::{read_object_properties, ObjectProperties, PropMapType, Property, PropertyMap};
+pub use prop::{
+    read_object_properties, read_object_properties_of_type, ObjectProperties, PropMapType,
+    Property, PropertyMap,
+};
 pub use query::{query_to_sql, read_queries, QueryDef, QueryType};
 pub use vba::{read_vba_project, VbaModule, VbaModuleType, VbaProject};

@@ -259,12 +259,20 @@ WHERE (([Table1].[col1]="foo"));
 ### prop — Show object properties
 
 ```
-jetdb prop <FILE> <OBJECT_NAME>
+jetdb prop [OPTIONS] <FILE> <OBJECT_NAME>
 ```
 
 Display the LvProp (Lightweight Property) values for a database object
 such as a table or query. Properties are grouped into table-level,
 per-column, and additional property maps.
+
+Objects of different types can share a name, such as a table and a form
+both named `Customers`. The command then fails and lists the types; name
+one with `--type`.
+
+#### Options
+
+- `-t`, `--type <TYPE>` — Object type: `table`, `query`, `form`, `report`, `macro`, `module`, `linkedtable`, `linkedodbctable`, `relationship`, `container`, `database`, `dbproperty`, or `userinfo`
 
 #### Output examples
 
@@ -290,6 +298,13 @@ Object: Table1
     GUID                {E9EDD90C-CE55-4151-ABE1-A1ACE1007515}
     IMEMode             0
     IMESentenceMode     3
+  ...
+
+$ jetdb prop nwind.mdb Customers
+jetdb: objects of several types are named Customers: form, macro, table; choose one with --type
+
+$ jetdb prop --type table nwind.mdb Customers
+Object: Customers
   ...
 ```
 

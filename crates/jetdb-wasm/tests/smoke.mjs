@@ -25,6 +25,7 @@ function check(Database, build) {
   checkRelationships(Database, build);
   checkDdl(Database, build);
   checkQueries(Database, build);
+  checkProperties(Database, build);
   checkErrors(Database, build);
   checkStringArguments(Database, build);
   checkPassword(Database, build);
@@ -236,6 +237,33 @@ function checkQueries(Database, build) {
   assert.ok(!sports.queries().some((q) => q.name === hidden), build);
   assert.deepEqual(sports.queries({ system: true }).find((q) => q.name === hidden), { name: hidden, type: "Crosstab" }, build);
   assert.ok(sports.querySql(hidden).startsWith("TRANSFORM Count("), build);
+}
+
+function checkProperties(Database, build) {
+  const db = Database.open(read("V2010/calcFieldTestV2010.accdb"));
+  const props = db.properties("Table1");
+  const value = (properties, name) => properties.find((p) => p.name === name).value;
+  assert.match(value(props.object, "GUID"), /^\{[0-9A-F-]+\}$/, build);
+  assert.equal(value(props.object, "TotalsRow"), false, build);
+  assert.ok(value(props.object, "NameMap") instanceof Uint8Array, build);
+  const firstName = props.columns.find((c) => c.name === "FirstName").properties;
+  assert.equal(value(firstName, "AllowZeroLength"), true, build);
+  assert.equal(value(firstName, "ColumnWidth"), 1380, build);
+  assert.deepEqual(props.additional, [], build);
+
+  // nwind.mdb has a form, a macro and a table all named Customers.
+  const nwind = Database.open(read("V1997/nwind.mdb"));
+  assert.throws(
+    () => nwind.properties("Customers"),
+    (e) => e.name === "JetdbError" && e.code === "INVALID_ARGUMENT" && e.message.includes("Form, Macro, Table"),
+    build,
+  );
+  assert.ok(nwind.properties("Customers", { type: "Table" }).columns.some((c) => c.name === "CustomerID"), build);
+  assert.match(value(nwind.properties("Customers", { type: "Form" }).object, "Description"), /Single-column form/, build);
+  assert.throws(() => nwind.properties("Customers", { type: "Query" }), { name: "JetdbError", code: "OBJECT_NOT_FOUND" }, build);
+  assert.throws(() => nwind.properties("Customers", { type: "View" }), { name: "JetdbError", code: "INVALID_ARGUMENT" }, build);
+  assert.throws(() => db.properties("NoSuchObject"), { name: "JetdbError", code: "OBJECT_NOT_FOUND" }, build);
+  assert.throws(() => db.properties(42), { name: "JetdbError", code: "INVALID_ARGUMENT" }, build);
 }
 
 function checkOpen(Database, build) {

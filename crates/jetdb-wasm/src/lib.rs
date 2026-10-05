@@ -12,9 +12,10 @@ use std::io::Cursor;
 use jetdb::ddl::{self, DdlDialect};
 use jetdb::format::{column_flags, index_flags, index_type, ColumnType, ObjectType};
 use jetdb::{
-    calculated_column_types, find_table, query_to_sql, read_catalog, read_queries,
-    read_relationships, read_table_def, read_table_rows, relationship_flags, timestamp,
-    CatalogEntry, FileError, IndexColumnOrder, PageReader, QueryType, TableDef, Value,
+    calculated_column_types, find_table, query_to_sql, read_catalog,
+    read_object_properties_of_type, read_queries, read_relationships, read_table_def,
+    read_table_rows, relationship_flags, timestamp, CatalogEntry, FileError, IndexColumnOrder,
+    PageReader, PropMapType, QueryType, TableDef, Value,
 };
 
 /// A database opened from bytes in memory.
@@ -98,6 +99,47 @@ pub struct Query {
     pub name: String,
     /// The type name, such as `Select` or `MakeTable` (see [`query_type_name`]).
     pub type_name: &'static str,
+}
+
+/// The properties of an object, as `Database::properties` returns them.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ObjectProperties {
+    /// The properties of the object itself.
+    pub object: Vec<Property>,
+    /// The properties of each column of a table.
+    pub columns: Vec<PropertyGroup>,
+    /// The additional groups of properties.
+    pub additional: Vec<PropertyGroup>,
+}
+
+/// A named group of properties, such as those of a column.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PropertyGroup {
+    pub name: String,
+    pub properties: Vec<Property>,
+}
+
+/// A property, with its value as the rows of a table have it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Property {
+    pub name: String,
+    pub value: Cell,
+}
+
+/// Why `Database::properties` gave no properties.
+#[derive(Debug)]
+pub enum PropertiesError {
+    File(FileError),
+    /// No object of that name, or of that name and type.
+    NotFound,
+    /// Objects of these types share the name, and no type was given.
+    SeveralTypes(Vec<ObjectType>),
+}
+
+impl From<FileError> for PropertiesError {
+    fn from(error: FileError) -> Self {
+        Self::File(error)
+    }
 }
 
 /// The rows of a table, as `Database::rows` returns them.
@@ -357,6 +399,52 @@ impl Database {
         Ok(query_to_sql(query))
     }
 
+    /// The properties of the object `name`, of `object_type` when it is
+    /// given, as `jetdb prop` reads them. Without a type, objects of several
+    /// types sharing the name are an error, as there is no telling which one
+    /// is meant.
+    pub fn properties(
+        &mut self,
+        name: &str,
+        object_type: Option<ObjectType>,
+    ) -> Result<ObjectProperties, PropertiesError> {
+        let types: Vec<ObjectType> = self
+            .catalog()?
+            .iter()
+            .filter(|e| e.name == name && object_type.is_none_or(|t| e.object_type == t))
+            .map(|e| e.object_type)
+            .collect();
+        let object_type = match types.as_slice() {
+            [] => return Err(PropertiesError::NotFound),
+            [only] => *only,
+            _ => return Err(PropertiesError::SeveralTypes(types)),
+        };
+        let read = read_object_properties_of_type(&mut self.reader, name, object_type)?;
+        let mut out = ObjectProperties::default();
+        for map in read.maps {
+            let properties: Vec<Property> = map
+                .properties
+                .into_iter()
+                .map(|p| Property {
+                    name: p.name,
+                    value: p.value.into(),
+                })
+                .collect();
+            match map.map_type {
+                PropMapType::Default => out.object.extend(properties),
+                PropMapType::Column => out.columns.push(PropertyGroup {
+                    name: map.name,
+                    properties,
+                }),
+                PropMapType::Additional => out.additional.push(PropertyGroup {
+                    name: map.name,
+                    properties,
+                }),
+            }
+        }
+        Ok(out)
+    }
+
     /// The DDL of the user tables, or of `table` alone, in `dialect`, as
     /// `jetdb schema --ddl` writes it: with the indexes unless `indexes` is
     /// false, and the foreign keys unless `relations` is false.
@@ -409,6 +497,42 @@ fn type_name(column_type: &ColumnType) -> String {
     match column_type {
         ColumnType::Unknown(_) => "Unknown".to_string(),
         known => known.to_string(),
+    }
+}
+
+/// The object types, in the order JavaScript lists them.
+pub const OBJECT_TYPES: [ObjectType; 13] = [
+    ObjectType::Table,
+    ObjectType::Query,
+    ObjectType::Form,
+    ObjectType::Report,
+    ObjectType::Macro,
+    ObjectType::Module,
+    ObjectType::LinkedTable,
+    ObjectType::LinkedOdbcTable,
+    ObjectType::Relationship,
+    ObjectType::Container,
+    ObjectType::Database,
+    ObjectType::DatabaseProperty,
+    ObjectType::UserInfo,
+];
+
+/// The name of an object type, as JavaScript gets it.
+pub fn object_type_name(object_type: ObjectType) -> &'static str {
+    match object_type {
+        ObjectType::Table => "Table",
+        ObjectType::Query => "Query",
+        ObjectType::Form => "Form",
+        ObjectType::Report => "Report",
+        ObjectType::Macro => "Macro",
+        ObjectType::Module => "Module",
+        ObjectType::LinkedTable => "LinkedTable",
+        ObjectType::LinkedOdbcTable => "LinkedOdbcTable",
+        ObjectType::Relationship => "Relationship",
+        ObjectType::Container => "Container",
+        ObjectType::Database => "Database",
+        ObjectType::DatabaseProperty => "DatabaseProperty",
+        ObjectType::UserInfo => "UserInfo",
     }
 }
 
@@ -1082,6 +1206,119 @@ mod tests {
             db.query_sql("Query1"),
             Err(FileError::QueryNotFound { .. })
         ));
+    }
+
+    fn property<'a>(properties: &'a [Property], name: &str) -> &'a Cell {
+        &properties.iter().find(|p| p.name == name).unwrap().value
+    }
+
+    #[test]
+    fn properties_of_a_table_and_its_columns() {
+        let bytes = skip_if_missing!("V2010/calcFieldTestV2010.accdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        let props = db.properties("Table1", None).unwrap();
+        assert!(matches!(
+            property(&props.object, "GUID"),
+            Cell::String(s) if s.starts_with('{')
+        ));
+        assert_eq!(
+            *property(&props.object, "FCMinReadVer"),
+            string("14.0.0000.0000")
+        );
+        assert_eq!(*property(&props.object, "TotalsRow"), Cell::Bool(false));
+        assert!(matches!(property(&props.object, "NameMap"), Cell::Bytes(_)));
+
+        let column_names: Vec<&str> = props.columns.iter().map(|c| c.name.as_str()).collect();
+        assert!(column_names.contains(&"FirstName"), "{column_names:?}");
+        let first_name = &props
+            .columns
+            .iter()
+            .find(|c| c.name == "FirstName")
+            .unwrap();
+        assert_eq!(
+            *property(&first_name.properties, "AllowZeroLength"),
+            Cell::Bool(true)
+        );
+        assert_eq!(
+            *property(&first_name.properties, "ColumnWidth"),
+            Cell::Number(1380.0)
+        );
+        assert!(props.additional.is_empty());
+    }
+
+    #[test]
+    fn properties_of_a_query() {
+        let bytes = skip_if_missing!("V2003/queryTestV2003.mdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        let props = db
+            .properties("SelectQuery", Some(ObjectType::Query))
+            .unwrap();
+        assert_eq!(*property(&props.object, "ODBCTimeout"), Cell::Number(60.0));
+        assert!(props.columns.is_empty());
+    }
+
+    #[test]
+    fn properties_of_objects_sharing_a_name() {
+        // nwind.mdb has a form, a macro and a table all named Customers.
+        let bytes = skip_if_missing!("V1997/nwind.mdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        let PropertiesError::SeveralTypes(mut types) =
+            db.properties("Customers", None).unwrap_err()
+        else {
+            panic!("expected several types");
+        };
+        types.sort_by_key(|&t| object_type_name(t));
+        assert_eq!(
+            types,
+            [ObjectType::Form, ObjectType::Macro, ObjectType::Table]
+        );
+
+        let table = db.properties("Customers", Some(ObjectType::Table)).unwrap();
+        assert!(table.columns.iter().any(|c| c.name == "CustomerID"));
+        let form = db.properties("Customers", Some(ObjectType::Form)).unwrap();
+        assert!(form.columns.is_empty());
+        assert!(matches!(
+            property(&form.object, "Description"),
+            Cell::String(s) if s.contains("Single-column form")
+        ));
+        assert!(matches!(
+            db.properties("Customers", Some(ObjectType::Query)),
+            Err(PropertiesError::NotFound)
+        ));
+    }
+
+    #[test]
+    fn properties_of_a_missing_object() {
+        let bytes = skip_if_missing!("V2003/testV2003.mdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        assert!(matches!(
+            db.properties("NoSuchObject", None),
+            Err(PropertiesError::NotFound)
+        ));
+    }
+
+    #[test]
+    fn object_types_and_their_names() {
+        // These names are the ObjectType union declared in js.rs.
+        let names: Vec<&str> = OBJECT_TYPES.iter().map(|&t| object_type_name(t)).collect();
+        assert_eq!(
+            names,
+            [
+                "Table",
+                "Query",
+                "Form",
+                "Report",
+                "Macro",
+                "Module",
+                "LinkedTable",
+                "LinkedOdbcTable",
+                "Relationship",
+                "Container",
+                "Database",
+                "DatabaseProperty",
+                "UserInfo",
+            ]
+        );
     }
 
     fn string(s: &str) -> Cell {

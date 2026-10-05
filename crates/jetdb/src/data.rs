@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::encoding;
 use crate::file::{find_row, FileError, PageReader};
-use crate::format::{row, ColumnType};
+use crate::format::{row, ColumnType, ObjectType};
 use crate::money;
 use crate::table::{ColumnDef, TableDef};
 use crate::timestamp;
@@ -105,7 +105,7 @@ pub fn calculated_column_types(
     if !has_calculated || table.name.starts_with("MSys") {
         return HashMap::new();
     }
-    crate::prop::read_object_properties(reader, &table.name)
+    crate::prop::read_object_properties_of_type(reader, &table.name, ObjectType::Table)
         .ok()
         .map(|props| calculated_result_types(&props))
         .unwrap_or_default()

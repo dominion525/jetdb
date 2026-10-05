@@ -15,6 +15,9 @@ import {
   type DdlDialect,
   type Query,
   type QueryType,
+  type ObjectProperties,
+  type ObjectType,
+  type Property,
   type Row,
   type Value,
   type ErrorCode,
@@ -129,11 +132,26 @@ export const querySql: string = db.querySql("Query1");
 // @ts-expect-error: the query name is required.
 db.querySql();
 
+export const properties: ObjectProperties = db.properties("Table1");
+db.properties("Customers", { type: "Table" });
+export const props: {
+  object: { name: string; value: Value }[];
+  columns: { name: string; properties: Property[] }[];
+  additional: { name: string; properties: Property[] }[];
+} = properties;
+export const objectType: ObjectType = "Form";
+// @ts-expect-error: View is not an object type.
+db.properties("Customers", { type: "View" });
+// @ts-expect-error: the object name is required.
+db.properties();
+// @ts-expect-error: a property value is not always a string.
+export const propertyText: string = properties.object[0].value;
+
 declare const caught: unknown;
 if (caught instanceof Error && caught.name === "JetdbError") {
   const error = caught as JetdbError;
   const code: ErrorCode = error.code;
-  if (code === "PASSWORD_REQUIRED") {
+  if (code === "PASSWORD_REQUIRED" || code === "OBJECT_NOT_FOUND") {
   }
   // @ts-expect-error: NOT_FOUND is not an error code.
   if (code === "NOT_FOUND") {

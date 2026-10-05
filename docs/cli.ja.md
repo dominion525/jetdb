@@ -259,11 +259,18 @@ WHERE (([Table1].[col1]="foo"));
 ### prop — オブジェクトプロパティの表示
 
 ```
-jetdb prop <FILE> <OBJECT_NAME>
+jetdb prop [OPTIONS] <FILE> <OBJECT_NAME>
 ```
 
 テーブルやクエリなどのデータベースオブジェクトの LvProp (軽量プロパティ) 値を表示する。
 プロパティはテーブル全体、カラムごと、追加プロパティの各マップに分けて出力される。
+
+テーブルとフォームがどちらも `Customers` という名前のように、種類の違うオブジェクトが同じ名前を持つことがある。
+その場合はエラーになり、種類を一覧で示すので、`--type` で 1 つを指定する。
+
+#### オプション
+
+- `-t`, `--type <TYPE>` — オブジェクトの種類: `table`、`query`、`form`、`report`、`macro`、`module`、`linkedtable`、`linkedodbctable`、`relationship`、`container`、`database`、`dbproperty`、`userinfo`
 
 #### 出力例
 
@@ -289,6 +296,13 @@ Object: Table1
     GUID                {E9EDD90C-CE55-4151-ABE1-A1ACE1007515}
     IMEMode             0
     IMESentenceMode     3
+  ...
+
+$ jetdb prop nwind.mdb Customers
+jetdb: objects of several types are named Customers: form, macro, table; choose one with --type
+
+$ jetdb prop --type table nwind.mdb Customers
+Object: Customers
   ...
 ```
 
