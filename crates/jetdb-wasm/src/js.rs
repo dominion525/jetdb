@@ -6,11 +6,11 @@ use wasm_bindgen::JsCast;
 
 use crate::{error_code, Cell, Column, Database, Index, Relationship};
 
-// Types for the TypeScript declarations. Version, Column, Index, Relationship
-// and Rows are used through unchecked_return_type, and DdlDialect through
-// unchecked_param_type. TablesOptions, RelationshipsOptions and DdlOptions
-// are extern types rather than unchecked_param_type, which would make the
-// parameter required.
+// Types for the TypeScript declarations. Version, Column, Index, Relationship,
+// Query and Rows are used through unchecked_return_type, and DdlDialect
+// through unchecked_param_type. TablesOptions, RelationshipsOptions,
+// QueriesOptions and DdlOptions are extern types rather than
+// unchecked_param_type, which would make the parameter required.
 #[wasm_bindgen(typescript_custom_section)]
 const TYPES: &str = r#"
 /** The database engine version. */
@@ -98,6 +98,26 @@ export interface RelationshipColumn {
     to: string;
 }
 
+/** The options of `Database.queries`. */
+export interface QueriesOptions {
+    /**
+     * Include the system and hidden queries too, such as those Access makes
+     * for forms and reports.
+     */
+    system?: boolean;
+}
+
+/** The type of a saved query. `Ddl` is a data-definition query. */
+export type QueryType =
+    | "Select" | "MakeTable" | "Append" | "Update" | "Delete"
+    | "Crosstab" | "Ddl" | "Passthrough" | "Union";
+
+/** A saved query. */
+export interface Query {
+    name: string;
+    type: QueryType;
+}
+
 /** The SQL dialect of `Database.ddl`. */
 export type DdlDialect = "sqlite" | "postgres" | "mysql" | "access";
 
@@ -181,8 +201,16 @@ extern "C" {
     #[wasm_bindgen(typescript_type = "TablesOptions")]
     pub type TablesOptions;
 
+    // The password of Database.open, checked to be a string. An extern type
+    // keeps the parameter optional, which unchecked_param_type would not.
+    #[wasm_bindgen(typescript_type = "string")]
+    pub type Password;
+
     #[wasm_bindgen(typescript_type = "RelationshipsOptions")]
     pub type RelationshipsOptions;
+
+    #[wasm_bindgen(typescript_type = "QueriesOptions")]
+    pub type QueriesOptions;
 
     #[wasm_bindgen(typescript_type = "DdlOptions")]
     pub type DdlOptions;
@@ -216,8 +244,12 @@ impl JsDatabase {
     /// `.accdb`.
     pub fn open(
         #[wasm_bindgen(unchecked_param_type = "Uint8Array | ArrayBuffer")] bytes: JsValue,
-        password: Option<String>,
+        password: Option<Password>,
     ) -> Result<JsDatabase, JsValue> {
+        let password = match password.as_deref() {
+            Some(value) => Some(string_arg(value, "password")?),
+            None => None,
+        };
         let inner = Database::open(bytes_of(&bytes)?, password.as_deref()).map_err(to_js_error)?;
         Ok(JsDatabase { inner })
     }
@@ -239,16 +271,28 @@ impl JsDatabase {
     /// The columns of a table in the order Access shows them, without the
     /// columns Access maintains and hides in user tables.
     #[wasm_bindgen(unchecked_return_type = "Column[]")]
-    pub fn columns(&mut self, table: &str) -> Result<Array, JsValue> {
-        let columns = self.inner.columns(table).map_err(to_js_error)?;
+    pub fn columns(
+        &mut self,
+        #[wasm_bindgen(unchecked_param_type = "string")] table: JsValue,
+    ) -> Result<Array, JsValue> {
+        let columns = self
+            .inner
+            .columns(&string_arg(&table, "table")?)
+            .map_err(to_js_error)?;
         Ok(columns.iter().map(column_object).collect())
     }
 
     /// The indexes of a table, without the foreign key references, which
     /// Access keeps as indexes of their own.
     #[wasm_bindgen(unchecked_return_type = "Index[]")]
-    pub fn indexes(&mut self, table: &str) -> Result<Array, JsValue> {
-        let indexes = self.inner.indexes(table).map_err(to_js_error)?;
+    pub fn indexes(
+        &mut self,
+        #[wasm_bindgen(unchecked_param_type = "string")] table: JsValue,
+    ) -> Result<Array, JsValue> {
+        let indexes = self
+            .inner
+            .indexes(&string_arg(&table, "table")?)
+            .map_err(to_js_error)?;
         Ok(indexes.iter().map(index_object).collect())
     }
 
@@ -266,6 +310,35 @@ impl JsDatabase {
             .relationships(include_system)
             .map_err(to_js_error)?;
         Ok(relationships.iter().map(relationship_object).collect())
+    }
+
+    /// The saved queries, sorted by name, without the system and hidden
+    /// ones. With `{ system: true }`, those are included too.
+    #[wasm_bindgen(unchecked_return_type = "Query[]")]
+    pub fn queries(&mut self, options: Option<QueriesOptions>) -> Result<Array, JsValue> {
+        let include_system = option_bool(options.as_deref(), "system", false)?;
+        let queries = self.inner.queries(include_system).map_err(to_js_error)?;
+        Ok(queries
+            .iter()
+            .map(|q| {
+                let object = Object::new();
+                set(&object, "name", q.name.as_str().into());
+                set(&object, "type", q.type_name.into());
+                object
+            })
+            .collect())
+    }
+
+    /// The SQL of a saved query, system and hidden ones included, as Access
+    /// shows it in SQL view.
+    #[wasm_bindgen(js_name = querySql)]
+    pub fn query_sql(
+        &mut self,
+        #[wasm_bindgen(unchecked_param_type = "string")] name: JsValue,
+    ) -> Result<String, JsValue> {
+        self.inner
+            .query_sql(&string_arg(&name, "name")?)
+            .map_err(to_js_error)
     }
 
     /// The DDL of the user tables in a SQL dialect, as `jetdb schema --ddl`
@@ -300,8 +373,14 @@ impl JsDatabase {
     /// the columns that `columns` returns, and the number of rows that could
     /// not be read and were left out.
     #[wasm_bindgen(unchecked_return_type = "Rows")]
-    pub fn rows(&mut self, table: &str) -> Result<Object, JsValue> {
-        let rows = self.inner.rows(table).map_err(to_js_error)?;
+    pub fn rows(
+        &mut self,
+        #[wasm_bindgen(unchecked_param_type = "string")] table: JsValue,
+    ) -> Result<Object, JsValue> {
+        let rows = self
+            .inner
+            .rows(&string_arg(&table, "table")?)
+            .map_err(to_js_error)?;
         let names: Vec<JsValue> = rows.columns.iter().map(|c| JsValue::from_str(c)).collect();
         let objects: Array = rows
             .rows
@@ -322,6 +401,15 @@ impl JsDatabase {
         set(&object, "skipped", (rows.skipped as f64).into());
         Ok(object)
     }
+}
+
+/// A string argument. A `&str` parameter takes a value of any other type
+/// without an error of its own: no argument fails in the generated glue, and
+/// a number or an object makes the Wasm access memory out of bounds.
+fn string_arg(value: &JsValue, name: &str) -> Result<String, JsValue> {
+    value
+        .as_string()
+        .ok_or_else(|| jetdb_error("INVALID_ARGUMENT", &format!("{name} must be a string")))
 }
 
 /// The bytes of a Uint8Array or an ArrayBuffer. A `Vec<u8>` parameter would

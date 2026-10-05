@@ -24,7 +24,9 @@ function check(Database, build) {
   checkSkippedRows(Database, build);
   checkRelationships(Database, build);
   checkDdl(Database, build);
+  checkQueries(Database, build);
   checkErrors(Database, build);
+  checkStringArguments(Database, build);
   checkPassword(Database, build);
   console.log(`ok: ${build}`);
 }
@@ -202,6 +204,40 @@ function checkDdl(Database, build) {
   assert.throws(() => db.ddl("mysql", { table: "NoSuchTable" }), { name: "JetdbError", code: "TABLE_NOT_FOUND" }, build);
 }
 
+function checkQueries(Database, build) {
+  const db = Database.open(read("V2003/queryTestV2003.mdb"));
+  assert.deepEqual(
+    db.queries(),
+    [
+      { name: "AppendQuery", type: "Append" },
+      { name: "CrosstabQuery", type: "Crosstab" },
+      { name: "DataDefinitionQuery", type: "Ddl" },
+      { name: "DeleteQuery", type: "Delete" },
+      { name: "MakeTableQuery", type: "MakeTable" },
+      { name: "PassthroughQuery", type: "Passthrough" },
+      { name: "SelectQuery", type: "Select" },
+      { name: "UnionQuery", type: "Union" },
+      { name: "UpdateQuery", type: "Update" },
+    ],
+    build,
+  );
+  assert.equal(
+    db.querySql("DeleteQuery"),
+    'DELETE Table1.col1, Table1.col2, Table1.col3\nFROM Table1\nWHERE (((Table1.col1)>"blah"));',
+    build,
+  );
+  assert.throws(() => db.queries({ system: "yes" }), { name: "JetdbError", code: "INVALID_ARGUMENT" }, build);
+  assert.throws(() => db.querySql("NoSuchQuery"), { name: "JetdbError", code: "QUERY_NOT_FOUND" }, build);
+  assert.deepEqual(openTest(Database).queries(), [], build);
+
+  // Access made ~sq_rStatistics-byPlace for a report.
+  const sports = Database.open(read("saveastext/SportsAdmin/Sports.accdb"));
+  const hidden = "~sq_rStatistics-byPlace";
+  assert.ok(!sports.queries().some((q) => q.name === hidden), build);
+  assert.deepEqual(sports.queries({ system: true }).find((q) => q.name === hidden), { name: hidden, type: "Crosstab" }, build);
+  assert.ok(sports.querySql(hidden).startsWith("TRANSFORM Count("), build);
+}
+
 function checkOpen(Database, build) {
   // read gives a Node.js Buffer, which is a Uint8Array.
   const buffer = read("V2003/testV2003.mdb");
@@ -219,6 +255,27 @@ function checkErrors(Database, build) {
     (e) => e instanceof Error && e.name === "JetdbError" && e.code === "INVALID_FILE",
     build,
   );
+}
+
+function checkStringArguments(Database, build) {
+  // A value that is not a string, which TypeScript would not allow, is an
+  // INVALID_ARGUMENT error rather than an error of the Wasm, and the database
+  // can still be read after it.
+  const db = openTest(Database);
+  const invalid = { name: "JetdbError", code: "INVALID_ARGUMENT" };
+  for (const method of ["columns", "indexes", "rows", "querySql"]) {
+    for (const value of [undefined, null, 42, {}]) {
+      assert.throws(() => db[method](value), invalid, `${build}: ${method}(${value})`);
+    }
+  }
+  assert.equal(db.columns("Table1").length, 9, build);
+
+  const bytes = read("V2003/testV2003.mdb");
+  for (const password of [42, {}, true]) {
+    assert.throws(() => Database.open(bytes, password), invalid, `${build}: password ${password}`);
+  }
+  assert.equal(Database.open(bytes, undefined).version(), "JET4", build);
+  assert.equal(Database.open(bytes, null).version(), "JET4", build);
 }
 
 function checkPassword(Database, build) {

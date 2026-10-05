@@ -12,9 +12,9 @@ use std::io::Cursor;
 use jetdb::ddl::{self, DdlDialect};
 use jetdb::format::{column_flags, index_flags, index_type, ColumnType, ObjectType};
 use jetdb::{
-    calculated_column_types, find_table, read_catalog, read_relationships, read_table_def,
-    read_table_rows, relationship_flags, timestamp, CatalogEntry, FileError, IndexColumnOrder,
-    PageReader, TableDef, Value,
+    calculated_column_types, find_table, query_to_sql, read_catalog, read_queries,
+    read_relationships, read_table_def, read_table_rows, relationship_flags, timestamp,
+    CatalogEntry, FileError, IndexColumnOrder, PageReader, QueryType, TableDef, Value,
 };
 
 /// A database opened from bytes in memory.
@@ -90,6 +90,14 @@ pub struct RelationshipColumn {
     pub from: String,
     /// The column of `to_table` it refers to.
     pub to: String,
+}
+
+/// A saved query, as `Database::queries` returns it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Query {
+    pub name: String,
+    /// The type name, such as `Select` or `MakeTable` (see [`query_type_name`]).
+    pub type_name: &'static str,
 }
 
 /// The rows of a table, as `Database::rows` returns them.
@@ -312,6 +320,43 @@ impl Database {
         Ok(out)
     }
 
+    /// The saved queries, sorted by name: without the system and hidden
+    /// ones, such as those Access makes for forms and reports, as `tables`
+    /// leaves them out, and with `include_system` all of them.
+    pub fn queries(&mut self, include_system: bool) -> Result<Vec<Query>, FileError> {
+        let queries = read_queries(&mut self.reader)?;
+        let catalog = self.catalog()?;
+        let system_or_hidden = |name: &str| {
+            catalog.iter().any(|e| {
+                e.object_type == ObjectType::Query && e.name == name && e.is_system_or_hidden()
+            })
+        };
+        let mut out: Vec<Query> = queries
+            .into_iter()
+            .filter(|q| include_system || !system_or_hidden(&q.name))
+            .map(|q| Query {
+                type_name: query_type_name(q.query_type),
+                name: q.name,
+            })
+            .collect();
+        out.sort_unstable_by(|a, b| a.name.cmp(&b.name));
+        Ok(out)
+    }
+
+    /// The SQL of the saved query `name`, system and hidden ones included, as
+    /// `jetdb queries show` prints it.
+    pub fn query_sql(&mut self, name: &str) -> Result<String, FileError> {
+        let queries = read_queries(&mut self.reader)?;
+        let query =
+            queries
+                .iter()
+                .find(|q| q.name == name)
+                .ok_or_else(|| FileError::QueryNotFound {
+                    name: name.to_string(),
+                })?;
+        Ok(query_to_sql(query))
+    }
+
     /// The DDL of the user tables, or of `table` alone, in `dialect`, as
     /// `jetdb schema --ddl` writes it: with the indexes unless `indexes` is
     /// false, and the foreign keys unless `relations` is false.
@@ -364,6 +409,21 @@ fn type_name(column_type: &ColumnType) -> String {
     match column_type {
         ColumnType::Unknown(_) => "Unknown".to_string(),
         known => known.to_string(),
+    }
+}
+
+/// The name of a query type, as JavaScript gets it.
+fn query_type_name(query_type: QueryType) -> &'static str {
+    match query_type {
+        QueryType::Select => "Select",
+        QueryType::MakeTable => "MakeTable",
+        QueryType::Append => "Append",
+        QueryType::Update => "Update",
+        QueryType::Delete => "Delete",
+        QueryType::Crosstab => "Crosstab",
+        QueryType::Ddl => "Ddl",
+        QueryType::Passthrough => "Passthrough",
+        QueryType::Union => "Union",
     }
 }
 
@@ -945,6 +1005,83 @@ mod tests {
         assert_eq!(error_code(&error), "INVALID_FILE", "{error}");
         let sql = db.ddl(dialect("postgres"), None, true, false).unwrap();
         assert!(sql.contains("CREATE TABLE \"Table1\""), "{sql}");
+    }
+
+    fn query(name: &str, type_name: &'static str) -> Query {
+        Query {
+            name: name.to_string(),
+            type_name,
+        }
+    }
+
+    #[test]
+    fn queries_of_each_type() {
+        // The type names are the QueryType union declared in js.rs.
+        let bytes = skip_if_missing!("V2003/queryTestV2003.mdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        assert_eq!(
+            db.queries(false).unwrap(),
+            [
+                query("AppendQuery", "Append"),
+                query("CrosstabQuery", "Crosstab"),
+                query("DataDefinitionQuery", "Ddl"),
+                query("DeleteQuery", "Delete"),
+                query("MakeTableQuery", "MakeTable"),
+                query("PassthroughQuery", "Passthrough"),
+                query("SelectQuery", "Select"),
+                query("UnionQuery", "Union"),
+                query("UpdateQuery", "Update"),
+            ]
+        );
+    }
+
+    #[test]
+    fn queries_system_and_hidden_only_with_system() {
+        // Access made ~sq_rStatistics-byPlace for a report.
+        let bytes = skip_if_missing!("saveastext/SportsAdmin/Sports.accdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        let names =
+            |queries: Vec<Query>| -> Vec<String> { queries.into_iter().map(|q| q.name).collect() };
+        let user = names(db.queries(false).unwrap());
+        let all = names(db.queries(true).unwrap());
+        assert_eq!(user.len(), 100);
+        assert_eq!(all.len(), 101);
+        assert!(!user.iter().any(|n| n.starts_with('~')), "{user:?}");
+        assert!(all.contains(&"~sq_rStatistics-byPlace".to_string()));
+        assert!(all.windows(2).all(|w| w[0] <= w[1]), "sorted: {all:?}");
+
+        let sql = db.query_sql("~sq_rStatistics-byPlace").unwrap();
+        assert!(sql.starts_with("TRANSFORM Count("), "{sql}");
+    }
+
+    #[test]
+    fn query_sql_as_jetdb_queries_show() {
+        let bytes = skip_if_missing!("V2003/queryTestV2003.mdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        assert_eq!(
+            db.query_sql("DeleteQuery").unwrap(),
+            "DELETE Table1.col1, Table1.col2, Table1.col3\nFROM Table1\nWHERE (((Table1.col1)>\"blah\"));"
+        );
+        assert!(matches!(
+            db.query_sql("NoSuchQuery"),
+            Err(FileError::QueryNotFound { .. })
+        ));
+        // Query names are matched as they are written, as by the CLI.
+        assert!(matches!(
+            db.query_sql("deletequery"),
+            Err(FileError::QueryNotFound { .. })
+        ));
+    }
+
+    #[test]
+    fn queries_none() {
+        let bytes = skip_if_missing!("V2003/testV2003.mdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        assert_eq!(db.queries(true).unwrap(), []);
+        assert!(matches!(
+            db.query_sql("Query1"),
+            Err(FileError::QueryNotFound { .. })
+        ));
     }
 
     fn string(s: &str) -> Cell {

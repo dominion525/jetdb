@@ -13,6 +13,8 @@ import {
   type Index,
   type Relationship,
   type DdlDialect,
+  type Query,
+  type QueryType,
   type Row,
   type Value,
   type ErrorCode,
@@ -114,6 +116,18 @@ db.ddl();
 db.ddl("postgres", { table: 1 });
 // @ts-expect-error: the option is indexes.
 db.ddl("postgres", { index: false });
+
+export const queries: Query[] = db.queries();
+db.queries({ system: true });
+export const query: { name: string; type: QueryType } = queries[0];
+// @ts-expect-error: DataDefinition is not a query type; it is Ddl.
+if (query.type === "DataDefinition") {
+}
+// @ts-expect-error: system is a boolean.
+db.queries({ system: "yes" });
+export const querySql: string = db.querySql("Query1");
+// @ts-expect-error: the query name is required.
+db.querySql();
 
 declare const caught: unknown;
 if (caught instanceof Error && caught.name === "JetdbError") {
