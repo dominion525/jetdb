@@ -201,6 +201,11 @@ extern "C" {
     #[wasm_bindgen(typescript_type = "TablesOptions")]
     pub type TablesOptions;
 
+    // The password of Database.open, checked to be a string. An extern type
+    // keeps the parameter optional, which unchecked_param_type would not.
+    #[wasm_bindgen(typescript_type = "string")]
+    pub type Password;
+
     #[wasm_bindgen(typescript_type = "RelationshipsOptions")]
     pub type RelationshipsOptions;
 
@@ -239,8 +244,12 @@ impl JsDatabase {
     /// `.accdb`.
     pub fn open(
         #[wasm_bindgen(unchecked_param_type = "Uint8Array | ArrayBuffer")] bytes: JsValue,
-        password: Option<String>,
+        password: Option<Password>,
     ) -> Result<JsDatabase, JsValue> {
+        let password = match password.as_deref() {
+            Some(value) => Some(string_arg(value, "password")?),
+            None => None,
+        };
         let inner = Database::open(bytes_of(&bytes)?, password.as_deref()).map_err(to_js_error)?;
         Ok(JsDatabase { inner })
     }
@@ -262,16 +271,28 @@ impl JsDatabase {
     /// The columns of a table in the order Access shows them, without the
     /// columns Access maintains and hides in user tables.
     #[wasm_bindgen(unchecked_return_type = "Column[]")]
-    pub fn columns(&mut self, table: &str) -> Result<Array, JsValue> {
-        let columns = self.inner.columns(table).map_err(to_js_error)?;
+    pub fn columns(
+        &mut self,
+        #[wasm_bindgen(unchecked_param_type = "string")] table: JsValue,
+    ) -> Result<Array, JsValue> {
+        let columns = self
+            .inner
+            .columns(&string_arg(&table, "table")?)
+            .map_err(to_js_error)?;
         Ok(columns.iter().map(column_object).collect())
     }
 
     /// The indexes of a table, without the foreign key references, which
     /// Access keeps as indexes of their own.
     #[wasm_bindgen(unchecked_return_type = "Index[]")]
-    pub fn indexes(&mut self, table: &str) -> Result<Array, JsValue> {
-        let indexes = self.inner.indexes(table).map_err(to_js_error)?;
+    pub fn indexes(
+        &mut self,
+        #[wasm_bindgen(unchecked_param_type = "string")] table: JsValue,
+    ) -> Result<Array, JsValue> {
+        let indexes = self
+            .inner
+            .indexes(&string_arg(&table, "table")?)
+            .map_err(to_js_error)?;
         Ok(indexes.iter().map(index_object).collect())
     }
 
@@ -311,8 +332,13 @@ impl JsDatabase {
     /// The SQL of a saved query, system and hidden ones included, as Access
     /// shows it in SQL view.
     #[wasm_bindgen(js_name = querySql)]
-    pub fn query_sql(&mut self, name: &str) -> Result<String, JsValue> {
-        self.inner.query_sql(name).map_err(to_js_error)
+    pub fn query_sql(
+        &mut self,
+        #[wasm_bindgen(unchecked_param_type = "string")] name: JsValue,
+    ) -> Result<String, JsValue> {
+        self.inner
+            .query_sql(&string_arg(&name, "name")?)
+            .map_err(to_js_error)
     }
 
     /// The DDL of the user tables in a SQL dialect, as `jetdb schema --ddl`
@@ -347,8 +373,14 @@ impl JsDatabase {
     /// the columns that `columns` returns, and the number of rows that could
     /// not be read and were left out.
     #[wasm_bindgen(unchecked_return_type = "Rows")]
-    pub fn rows(&mut self, table: &str) -> Result<Object, JsValue> {
-        let rows = self.inner.rows(table).map_err(to_js_error)?;
+    pub fn rows(
+        &mut self,
+        #[wasm_bindgen(unchecked_param_type = "string")] table: JsValue,
+    ) -> Result<Object, JsValue> {
+        let rows = self
+            .inner
+            .rows(&string_arg(&table, "table")?)
+            .map_err(to_js_error)?;
         let names: Vec<JsValue> = rows.columns.iter().map(|c| JsValue::from_str(c)).collect();
         let objects: Array = rows
             .rows
@@ -369,6 +401,15 @@ impl JsDatabase {
         set(&object, "skipped", (rows.skipped as f64).into());
         Ok(object)
     }
+}
+
+/// A string argument. A `&str` parameter takes a value of any other type
+/// without an error of its own: no argument fails in the generated glue, and
+/// a number or an object makes the Wasm access memory out of bounds.
+fn string_arg(value: &JsValue, name: &str) -> Result<String, JsValue> {
+    value
+        .as_string()
+        .ok_or_else(|| jetdb_error("INVALID_ARGUMENT", &format!("{name} must be a string")))
 }
 
 /// The bytes of a Uint8Array or an ArrayBuffer. A `Vec<u8>` parameter would

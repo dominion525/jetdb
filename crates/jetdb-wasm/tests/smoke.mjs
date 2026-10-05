@@ -26,6 +26,7 @@ function check(Database, build) {
   checkDdl(Database, build);
   checkQueries(Database, build);
   checkErrors(Database, build);
+  checkStringArguments(Database, build);
   checkPassword(Database, build);
   console.log(`ok: ${build}`);
 }
@@ -254,6 +255,27 @@ function checkErrors(Database, build) {
     (e) => e instanceof Error && e.name === "JetdbError" && e.code === "INVALID_FILE",
     build,
   );
+}
+
+function checkStringArguments(Database, build) {
+  // A value that is not a string, which TypeScript would not allow, is an
+  // INVALID_ARGUMENT error rather than an error of the Wasm, and the database
+  // can still be read after it.
+  const db = openTest(Database);
+  const invalid = { name: "JetdbError", code: "INVALID_ARGUMENT" };
+  for (const method of ["columns", "indexes", "rows", "querySql"]) {
+    for (const value of [undefined, null, 42, {}]) {
+      assert.throws(() => db[method](value), invalid, `${build}: ${method}(${value})`);
+    }
+  }
+  assert.equal(db.columns("Table1").length, 9, build);
+
+  const bytes = read("V2003/testV2003.mdb");
+  for (const password of [42, {}, true]) {
+    assert.throws(() => Database.open(bytes, password), invalid, `${build}: password ${password}`);
+  }
+  assert.equal(Database.open(bytes, undefined).version(), "JET4", build);
+  assert.equal(Database.open(bytes, null).version(), "JET4", build);
 }
 
 function checkPassword(Database, build) {
