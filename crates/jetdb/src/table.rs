@@ -186,8 +186,12 @@ pub fn read_table_def(
     };
 
     // 3d. Column entries
-    let col_entry_start =
-        format.tdef_index_entries_pos + (num_real_idxs as usize) * format.tdef_index_entry_span;
+    let col_entry_start = (num_real_idxs as usize)
+        .checked_mul(format.tdef_index_entry_span)
+        .and_then(|span| span.checked_add(format.tdef_index_entries_pos))
+        .ok_or(FileError::InvalidTableDef {
+            reason: "index count too large",
+        })?;
     cursor.set_position(col_entry_start);
     let mut columns = parse_column_entries(
         cursor,
@@ -406,7 +410,9 @@ fn read_names(
     count: usize,
     is_jet3: bool,
 ) -> Result<Vec<String>, FileError> {
-    let mut names = Vec::with_capacity(count);
+    // count may come from a broken file: grow as names are read rather
+    // than reserve room for it.
+    let mut names = Vec::new();
     for _ in 0..count {
         if is_jet3 {
             let name_len = cursor.read_u8()? as usize;
@@ -495,7 +501,9 @@ fn parse_index_column_defs(
     count: u32,
     format: &JetFormat,
 ) -> Result<Vec<PhysicalIndexEntry>, FileError> {
-    let mut idx_col_defs = Vec::with_capacity(count as usize);
+    // count comes from the file and may be broken: grow as entries are
+    // read rather than reserve room for it.
+    let mut idx_col_defs = Vec::new();
 
     for _ in 0..count {
         cursor.skip(format.idx_col_skip_before)?;
@@ -536,7 +544,9 @@ fn parse_logical_indexes(
     count: u32,
     format: &JetFormat,
 ) -> Result<Vec<LogicalIndex>, FileError> {
-    let mut logical_indexes = Vec::with_capacity(count as usize);
+    // count comes from the file and may be broken: grow as entries are
+    // read rather than reserve room for it.
+    let mut logical_indexes = Vec::new();
 
     for _ in 0..count {
         let entry_start = cursor.position();
@@ -1069,6 +1079,19 @@ mod tests {
         let names = read_names(&mut cursor, 0, true).unwrap();
         assert!(names.is_empty());
         assert_eq!(cursor.position(), 0);
+    }
+
+    #[test]
+    fn index_counts_larger_than_the_data() {
+        // A broken TDEF can give any index count. Each read must end in an
+        // error when the data runs out, not reserve room for the count,
+        // which panics with "capacity overflow" where usize is 32 bits.
+        use crate::format::JET4;
+        let buf = [0u8; 64];
+        let count = u32::MAX;
+        assert!(read_names(&mut TdefCursor::new(&buf, 0), count as usize, false).is_err());
+        assert!(parse_index_column_defs(&mut TdefCursor::new(&buf, 0), count, &JET4).is_err());
+        assert!(parse_logical_indexes(&mut TdefCursor::new(&buf, 0), count, &JET4).is_err());
     }
 
     // -- parse_column_entries tests -------------------------------------------
