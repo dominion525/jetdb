@@ -156,3 +156,38 @@ fn queries_newline_delimiter_conflict() {
         "should fail when -1 and -d are both specified"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Show a query whose definition may be incomplete: error, but list works
+// ---------------------------------------------------------------------------
+
+#[test]
+fn queries_show_incomplete_definition() {
+    let path = skip_if_missing!("V2003/queryTestV2003.mdb");
+    // The row offset at 123108 gets the offset of the row before it,
+    // which leaves one row of MSysQueries no bytes.
+    let mut bytes = std::fs::read(&path).unwrap();
+    bytes.copy_within(123106..123108, 123108);
+    let damaged =
+        std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("queryTestV2003-damaged.mdb");
+    std::fs::write(&damaged, bytes).unwrap();
+
+    let output = jetdb_bin()
+        .args(["queries", "show", damaged.to_str().unwrap(), "DeleteQuery"])
+        .output()
+        .expect("failed to run jetdb");
+    assert!(!output.status.success(), "should fail");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("query DeleteQuery may be incomplete"),
+        "got: {stderr}"
+    );
+    assert!(output.stdout.is_empty(), "should print no SQL");
+
+    let output = jetdb_bin()
+        .args(["queries", "list", damaged.to_str().unwrap()])
+        .output()
+        .expect("failed to run jetdb");
+    assert!(output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("DeleteQuery"));
+}

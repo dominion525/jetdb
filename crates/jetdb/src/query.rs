@@ -79,6 +79,10 @@ impl QueryType {
 pub struct QueryDef {
     pub name: String,
     pub query_type: QueryType,
+    /// Rows of MSysQueries could not be read. Which query they belonged to
+    /// is not known, so any query may be missing some of its rows, and
+    /// [`query_to_sql`] may give SQL with parts of it left out.
+    pub incomplete: bool,
     rows: Vec<QueryRow>,
 }
 
@@ -248,6 +252,7 @@ fn build_query_defs(
         queries.push(QueryDef {
             name,
             query_type,
+            incomplete: false,
             rows,
         });
     }
@@ -332,7 +337,13 @@ pub fn read_queries(reader: &mut PageReader) -> Result<Vec<QueryDef>, FileError>
         .map(|e| (e.table_page, e.name.clone()))
         .collect();
 
-    Ok(build_query_defs(groups, &query_name_map))
+    let mut queries = build_query_defs(groups, &query_name_map);
+    if result.skipped_rows > 0 {
+        for query in &mut queries {
+            query.incomplete = true;
+        }
+    }
+    Ok(queries)
 }
 
 // ---------------------------------------------------------------------------
@@ -1250,6 +1261,35 @@ mod tests {
         assert_eq!(queries.len(), 9, "should have 9 queries");
     }
 
+    /// queryTestV2003.mdb with one row of MSysQueries made unreadable:
+    /// the row offset at 123108 gets the offset of the row before it,
+    /// which leaves the row no bytes.
+    fn query_test_with_an_unreadable_row() -> Option<Vec<u8>> {
+        let path = test_data_path("V2003/queryTestV2003.mdb")?;
+        let mut bytes = std::fs::read(path).ok()?;
+        bytes.copy_within(123106..123108, 123108);
+        Some(bytes)
+    }
+
+    #[test]
+    fn read_queries_incomplete_when_a_row_cannot_be_read() {
+        let path = skip_if_missing!("V2003/queryTestV2003.mdb");
+        let mut reader = PageReader::open(&path).unwrap();
+        let queries = read_queries(&mut reader).unwrap();
+        assert!(queries.iter().all(|q| !q.incomplete));
+
+        let bytes = query_test_with_an_unreadable_row().unwrap();
+        let mut reader =
+            PageReader::open_reader_with_password(std::io::Cursor::new(bytes), None).unwrap();
+        let queries = read_queries(&mut reader).unwrap();
+        // The names and types are still there, but any definition may
+        // have lost the row; DeleteQuery lost its WHERE clause.
+        assert_eq!(queries.len(), 9);
+        assert!(queries.iter().all(|q| q.incomplete));
+        let delete = queries.iter().find(|q| q.name == "DeleteQuery").unwrap();
+        assert!(!query_to_sql(delete).contains("WHERE"));
+    }
+
     #[test]
     fn read_queries_names() {
         let path = skip_if_missing!("V2003/queryTestV2003.mdb");
@@ -1852,6 +1892,7 @@ mod tests {
         let qdef = QueryDef {
             name: "TestQuery".to_string(),
             query_type: QueryType::Select,
+            incomplete: false,
             rows: vec![
                 QueryRow {
                     attribute: ATTR_TYPE,

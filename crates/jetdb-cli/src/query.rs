@@ -99,6 +99,11 @@ fn run_show(args: &QueryShowArgs, password: Option<&str>) -> Result<(), jetdb::F
             name: args.query_name.clone(),
         },
     )?;
+    if qdef.incomplete {
+        return Err(jetdb::FileError::IncompleteQuery {
+            name: qdef.name.clone(),
+        });
+    }
     let sql = query_to_sql(qdef);
     println!("{sql}");
 
