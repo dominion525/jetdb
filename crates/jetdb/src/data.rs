@@ -397,7 +397,13 @@ fn crack_row_jet3(row_data: &[u8]) -> Result<CrackedRow<'_>, FileError> {
     let col_count = row_data[0] as u16;
     let null_mask_len = (col_count as usize).div_ceil(8);
 
-    let null_mask_start = len - null_mask_len;
+    let Some(null_mask_start) = len.checked_sub(null_mask_len) else {
+        return Err(FileError::InvalidRow {
+            page: 0,
+            row: 0,
+            reason: "row too short for null mask",
+        });
+    };
     if null_mask_start == 0 {
         return Ok(CrackedRow {
             row_data,
@@ -2296,6 +2302,17 @@ mod tests {
         let cracked = crack_row_jet3(&row).unwrap();
         assert_eq!(cracked.col_count, 8);
         assert_eq!(cracked.var_col_count, 0);
+    }
+
+    #[test]
+    fn crack_row_jet3_null_mask_longer_than_row() {
+        // col_count=255 → null_mask_len=32, but the row has 3 bytes, as a
+        // broken row can.
+        let row = [0xFF, 0x00, 0x00];
+        assert!(matches!(
+            crack_row_jet3(&row),
+            Err(FileError::InvalidRow { .. })
+        ));
     }
 
     #[test]
