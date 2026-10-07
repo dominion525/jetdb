@@ -11,6 +11,14 @@ impl DdlDialect for Sqlite {
     }
 
     fn map_column_type(&self, col: &ColumnDef, is_auto: bool) -> String {
+        if is_auto && col.col_type == ColumnType::Guid {
+            // A new GUID of random hex digits, in the braced form jetdb
+            // exports. SQLite has no function to make one.
+            return "TEXT NOT NULL DEFAULT ('{' || upper(hex(randomblob(4))) || '-' \
+                    || upper(hex(randomblob(2))) || '-' || upper(hex(randomblob(2))) || '-' \
+                    || upper(hex(randomblob(2))) || '-' || upper(hex(randomblob(6))) || '}')"
+                .to_string();
+        }
         if is_auto {
             return "INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT".to_string();
         }

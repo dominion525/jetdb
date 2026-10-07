@@ -11,6 +11,11 @@ impl DdlDialect for Mysql {
     }
 
     fn map_column_type(&self, col: &ColumnDef, is_auto: bool) -> String {
+        if is_auto && col.col_type == ColumnType::Guid {
+            // A new GUID in the braced form jetdb exports. An expression
+            // default needs MySQL 8.0.13 or later.
+            return "CHAR(38) NOT NULL DEFAULT (CONCAT('{', UPPER(UUID()), '}'))".to_string();
+        }
         if is_auto {
             return "INT NOT NULL AUTO_INCREMENT".to_string();
         }

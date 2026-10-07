@@ -203,6 +203,19 @@ ALTER TABLE "Table1" ADD CONSTRAINT "Table3Table1"
 | mysql | MySQL |
 | access | Access SQL |
 
+#### GUID のオートナンバー型の列
+
+GUID のオートナンバー型（レプリケーション ID）の列には、新しい GUID を作る既定値を付ける。列が文字列のときは、jetdb が GUID を書き出す形（`{7B4C91E0-774D-4889-B11A-0B9D2CF3D167}`）で作る。
+
+| 名前 | 列 |
+|------|------|
+| sqlite | `TEXT NOT NULL DEFAULT (…)`、乱数の 16 進数 |
+| postgres | `UUID NOT NULL DEFAULT gen_random_uuid()`（PostgreSQL 13 以降） |
+| mysql | `CHAR(38) NOT NULL DEFAULT (CONCAT('{', UPPER(UUID()), '}'))`（MySQL 8.0.13 以降） |
+| access | `UNIQUEIDENTIFIER NOT NULL`、既定値なし |
+
+Access の SQL ビューは、データベースが ANSI-92 の構文（Access のオプションの [オブジェクト デザイナー] にある「SQL Server 互換構文」）を使わない限り、`DEFAULT` を受け付けない。ANSI-92 の構文なら、列に `DEFAULT GenGUID()` を足せる。
+
 ### queries — 保存済みクエリの管理
 
 #### queries list — クエリ名の一覧表示
