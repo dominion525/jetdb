@@ -163,20 +163,20 @@ CREATE TABLE "Table1" (
     "id" INTEGER,
     "otherfk1" INTEGER,
     "otherfk2" INTEGER,
-    "data" VARCHAR(100),
+    "data" VARCHAR(50),
     "otherfk3" INTEGER,
     PRIMARY KEY ("id")
 );
 
 CREATE TABLE "Table2" (
     "id" INTEGER,
-    "data" VARCHAR(100),
+    "data" VARCHAR(50),
     PRIMARY KEY ("id")
 );
 
 CREATE TABLE "Table3" (
     "id" INTEGER,
-    "data" VARCHAR(100),
+    "data" VARCHAR(50),
     PRIMARY KEY ("id")
 );
 

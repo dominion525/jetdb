@@ -187,7 +187,7 @@ function checkDdl(Database, build) {
   const db = Database.open(read("V2003/indexTestV2003.mdb"));
   assert.equal(
     db.ddl("postgres", { table: "Table2" }),
-    'CREATE TABLE "Table2" (\n    "id" INTEGER,\n    "data" VARCHAR(100),\n    PRIMARY KEY ("id")\n);\n\n' +
+    'CREATE TABLE "Table2" (\n    "id" INTEGER,\n    "data" VARCHAR(50),\n    PRIMARY KEY ("id")\n);\n\n' +
       'CREATE INDEX "Table2_id_idx" ON "Table2" ("id");\n',
     build,
   );
