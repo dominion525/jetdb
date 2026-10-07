@@ -78,13 +78,15 @@ pub fn decimal_variant_to_string(bytes: &[u8; 16]) -> String {
     let lo = u64::from_le_bytes(bytes[8..16].try_into().unwrap()) as u128;
     let value = (hi << 64) | lo;
 
+    // Place the decimal point in the digits rather than divide by 10^scale,
+    // which overflows a u128 for a scale above 38 that a broken file can give.
+    let scale = scale as usize;
     let s = if scale == 0 {
         value.to_string()
     } else {
-        let divisor = 10u128.pow(scale as u32);
-        let integer = value / divisor;
-        let decimal = value % divisor;
-        format!("{integer}.{decimal:0>width$}", width = scale as usize)
+        let digits = format!("{value:0>width$}", width = scale + 1);
+        let (integer, decimal) = digits.split_at(digits.len() - scale);
+        format!("{integer}.{decimal}")
     };
     if negative && value != 0 {
         format!("-{s}")
@@ -309,5 +311,25 @@ mod tests {
             0x63, 0x45,
         ];
         assert_eq!(decimal_variant_to_string(&bytes), "499999999999999.9995");
+    }
+
+    #[test]
+    fn decimal_variant_scale_beyond_28() {
+        // A DECIMAL has a scale of at most 28, but a broken file can give
+        // any byte. 10^scale no longer fits in a u128 from 39, and wraps to
+        // 0 from 128, so the scale must not be taken through a power of ten.
+        for (scale, negative) in [(40u8, false), (128, true), (255, false)] {
+            let mut bytes = [0u8; 16];
+            bytes[2] = scale;
+            bytes[3] = if negative { 0x80 } else { 0 };
+            bytes[8] = 5;
+            let zeros = "0".repeat(scale as usize - 1);
+            let sign = if negative { "-" } else { "" };
+            assert_eq!(
+                decimal_variant_to_string(&bytes),
+                format!("{sign}0.{zeros}5"),
+                "scale {scale}"
+            );
+        }
     }
 }
