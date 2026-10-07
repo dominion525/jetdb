@@ -14,6 +14,8 @@ pub enum FormatError {
     UnknownColumnType(u8),
     UnknownObjectType(i32),
     InvalidEncoding,
+    /// The file does not start with the signature of a Jet or ACE database.
+    InvalidSignature,
 }
 
 impl fmt::Display for FormatError {
@@ -24,6 +26,10 @@ impl fmt::Display for FormatError {
             Self::UnknownColumnType(v) => write!(f, "unknown column type byte: 0x{v:02X}"),
             Self::UnknownObjectType(v) => write!(f, "unknown object type value: {v}"),
             Self::InvalidEncoding => write!(f, "invalid text encoding"),
+            Self::InvalidSignature => write!(
+                f,
+                "not an Access database: no Standard Jet DB or Standard ACE DB signature"
+            ),
         }
     }
 }
@@ -573,6 +579,12 @@ pub mod usage_map {
 
 /// Database header offsets.
 pub mod db_header {
+    /// Offset of the signature, [`SIGNATURE_JET`] or [`SIGNATURE_ACE`].
+    pub const SIGNATURE: usize = 0x04;
+    /// Signature of a Jet3 or Jet4 database (`.mdb`).
+    pub const SIGNATURE_JET: &[u8; 16] = b"Standard Jet DB\0";
+    /// Signature of an ACE database (`.accdb`).
+    pub const SIGNATURE_ACE: &[u8; 16] = b"Standard ACE DB\0";
     /// Offset of the version byte.
     pub const VERSION: usize = 0x14;
     /// Start of the encrypted region.
