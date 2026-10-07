@@ -10,7 +10,7 @@ mod js;
 use std::io::Cursor;
 
 use jetdb::ddl::{self, DdlDialect};
-use jetdb::format::{column_flags, index_flags, index_type, ColumnType, ObjectType};
+use jetdb::format::{index_flags, index_type, ColumnType, ObjectType};
 use jetdb::{
     calculated_column_types, find_table, query_to_sql, read_catalog,
     read_object_properties_of_type, read_queries, read_relationships, read_table_def,
@@ -257,7 +257,7 @@ impl Database {
                     size: c.col_size,
                     precision: if fixed_numeric { c.precision } else { 0 },
                     scale: if fixed_numeric { c.scale } else { 0 },
-                    auto_number: c.flags & (column_flags::AUTO_LONG | column_flags::AUTO_UUID) != 0,
+                    auto_number: c.is_auto_number(),
                     calculated: c.is_calculated,
                 }
             })

@@ -93,17 +93,6 @@ fn find_primary_key(tdef: &TableDef) -> Option<&IndexDef> {
         .find(|idx| idx.index_type == index_type::PRIMARY)
 }
 
-/// Check if a column is auto-increment.
-///
-/// A complex column (attachment, multi-value, or version history) carries the
-/// auto-increment flag because Access numbers the IDs it holds of its values
-/// in a hidden table, but it is not an auto-increment column of the table.
-fn is_auto_increment(col: &ColumnDef) -> bool {
-    col.col_type != ColumnType::ComplexType
-        && ((col.flags & column_flags::AUTO_LONG) != 0
-            || (col.flags & column_flags::AUTO_UUID) != 0)
-}
-
 /// Check if an index is the hidden index Access keeps on a complex column.
 fn is_complex_column_index(tdef: &TableDef, idx: &IndexDef) -> bool {
     idx.columns.iter().all(|ic| {
@@ -219,7 +208,7 @@ pub fn generate_create_table(
     let auto_pk_col = pk.and_then(|_| {
         tdef.columns
             .iter()
-            .find(|c| pk_col_nums.contains(&c.col_num) && is_auto_increment(c))
+            .find(|c| pk_col_nums.contains(&c.col_num) && c.is_auto_number())
     });
 
     // If dialect absorbs PK and there's an auto-increment PK col, suppress table-level PK
@@ -229,7 +218,7 @@ pub fn generate_create_table(
 
     // Column definitions
     for col in &tdef.columns {
-        let is_auto = is_auto_increment(col);
+        let is_auto = col.is_auto_number();
         let type_str = dialect.map_column_type(col, is_auto);
         let not_null = if (col.flags & column_flags::NULLABLE) == 0 {
             " NOT NULL"
