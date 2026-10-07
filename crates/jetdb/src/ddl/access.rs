@@ -11,6 +11,11 @@ impl DdlDialect for Access {
     }
 
     fn map_column_type(&self, col: &ColumnDef, is_auto: bool) -> String {
+        if is_auto && col.col_type == ColumnType::Guid {
+            // No DEFAULT GenGUID(): the SQL view of Access rejects DEFAULT
+            // unless it uses ANSI-92 syntax.
+            return "UNIQUEIDENTIFIER NOT NULL".to_string();
+        }
         if is_auto {
             return "COUNTER NOT NULL".to_string();
         }

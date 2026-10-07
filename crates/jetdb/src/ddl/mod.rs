@@ -204,11 +204,13 @@ pub fn generate_create_table(
         .map(|idx| idx.columns.iter().map(|c| c.col_num).collect())
         .unwrap_or_default();
 
-    // Check if there's an auto-increment column in the PK
+    // Check if there's an auto-increment column in the PK. A GUID AutoNumber
+    // gets a default rather than auto-increment syntax, which cannot stand in
+    // for the PRIMARY KEY.
     let auto_pk_col = pk.and_then(|_| {
-        tdef.columns
-            .iter()
-            .find(|c| pk_col_nums.contains(&c.col_num) && c.is_auto_number())
+        tdef.columns.iter().find(|c| {
+            pk_col_nums.contains(&c.col_num) && c.is_auto_number() && c.col_type != ColumnType::Guid
+        })
     });
 
     // If dialect absorbs PK and there's an auto-increment PK col, suppress table-level PK
@@ -806,6 +808,64 @@ mod tests {
         assert!(
             !result.contains("    PRIMARY KEY"),
             "should not have table-level PK, got:\n{result}"
+        );
+    }
+
+    #[test]
+    fn guid_auto_number_has_a_default_in_each_dialect() {
+        let c = col("x", ColumnType::Guid, 16, column_flags::AUTO_UUID, 0, 0);
+        assert_eq!(
+            postgres().map_column_type(&c, true),
+            "UUID NOT NULL DEFAULT gen_random_uuid()"
+        );
+        assert_eq!(
+            mysql().map_column_type(&c, true),
+            "CHAR(38) NOT NULL DEFAULT (CONCAT('{', UPPER(UUID()), '}'))"
+        );
+        assert_eq!(
+            sqlite().map_column_type(&c, true),
+            "TEXT NOT NULL DEFAULT ('{' || upper(hex(randomblob(4))) || '-' \
+             || upper(hex(randomblob(2))) || '-' || upper(hex(randomblob(2))) || '-' \
+             || upper(hex(randomblob(2))) || '-' || upper(hex(randomblob(6))) || '}')"
+        );
+        // The SQL view of Access rejects DEFAULT without ANSI-92 syntax.
+        assert_eq!(
+            access().map_column_type(&c, true),
+            "UNIQUEIDENTIFIER NOT NULL"
+        );
+    }
+
+    #[test]
+    fn create_table_sqlite_guid_auto_pk_keeps_the_primary_key() {
+        // A GUID AutoNumber gets a default, not PRIMARY KEY AUTOINCREMENT, so
+        // the table-level PRIMARY KEY must stay.
+        let tdef = table(
+            "T",
+            vec![col_with_num(
+                "id",
+                ColumnType::Guid,
+                16,
+                column_flags::FIXED | column_flags::AUTO_UUID,
+                0,
+                0,
+                1,
+            )],
+            vec![index(
+                "PrimaryKey",
+                &[1],
+                index_flags::UNIQUE | index_flags::REQUIRED,
+                index_type::PRIMARY,
+                0,
+            )],
+        );
+        let result = generate_create_table(&*sqlite(), &tdef, &[]);
+        assert!(
+            result.contains("\"id\" TEXT NOT NULL DEFAULT ("),
+            "got:\n{result}"
+        );
+        assert!(
+            result.contains("    PRIMARY KEY (\"id\")"),
+            "got:\n{result}"
         );
     }
 

@@ -203,6 +203,19 @@ ALTER TABLE "Table1" ADD CONSTRAINT "Table3Table1"
 | mysql | MySQL |
 | access | Access SQL |
 
+#### GUID AutoNumber columns
+
+A GUID AutoNumber column (Replication ID) gets a default that makes a new GUID, in the form jetdb exports GUIDs (`{7B4C91E0-774D-4889-B11A-0B9D2CF3D167}`) where the column holds text:
+
+| Name | Column |
+|------|--------|
+| sqlite | `TEXT NOT NULL DEFAULT (…)`, random hex digits |
+| postgres | `UUID NOT NULL DEFAULT gen_random_uuid()` (PostgreSQL 13 or later) |
+| mysql | `CHAR(38) NOT NULL DEFAULT (CONCAT('{', UPPER(UUID()), '}'))` (MySQL 8.0.13 or later) |
+| access | `UNIQUEIDENTIFIER NOT NULL`, with no default |
+
+The SQL view of Access rejects `DEFAULT` unless the database uses ANSI-92 syntax (SQL Server Compatible Syntax, in Object Designers of the Access options). With it, `DEFAULT GenGUID()` can be added to the column.
+
 ### queries — Manage saved queries
 
 #### queries list — List saved query names

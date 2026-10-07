@@ -11,6 +11,10 @@ impl DdlDialect for Postgres {
     }
 
     fn map_column_type(&self, col: &ColumnDef, is_auto: bool) -> String {
+        if is_auto && col.col_type == ColumnType::Guid {
+            // gen_random_uuid() is a core function from PostgreSQL 13.
+            return "UUID NOT NULL DEFAULT gen_random_uuid()".to_string();
+        }
         if is_auto {
             return "INTEGER NOT NULL GENERATED ALWAYS AS IDENTITY".to_string();
         }
