@@ -193,6 +193,36 @@ pub fn generate_ddl(
     out
 }
 
+/// The integer AutoNumber column that is the whole primary key `pk`, if any.
+/// A GUID AutoNumber gets a default rather than auto-increment syntax, which
+/// cannot stand in for the PRIMARY KEY.
+fn sole_auto_increment_column<'a>(tdef: &'a TableDef, pk: &IndexDef) -> Option<&'a ColumnDef> {
+    let [only] = pk.columns.as_slice() else {
+        return None;
+    };
+    tdef.columns
+        .iter()
+        .find(|c| c.col_num == only.col_num && c.is_auto_number() && c.col_type != ColumnType::Guid)
+}
+
+/// Whether `col` is written as an AutoNumber of `dialect`. Where the
+/// auto-increment syntax is itself a PRIMARY KEY (SQLite), only the column
+/// that is the whole primary key can have it, and any other integer
+/// AutoNumber column is written as a plain column.
+fn writes_auto_number(
+    dialect: &dyn DdlDialect,
+    col: &ColumnDef,
+    auto_pk_col: Option<&ColumnDef>,
+) -> bool {
+    if !col.is_auto_number() {
+        return false;
+    }
+    if col.col_type == ColumnType::Guid || !dialect.auto_increment_absorbs_pk() {
+        return true;
+    }
+    auto_pk_col.is_some_and(|c| c.col_num == col.col_num)
+}
+
 /// Generate CREATE TABLE statement for a single table.
 pub fn generate_create_table(
     dialect: &dyn DdlDialect,
@@ -200,18 +230,7 @@ pub fn generate_create_table(
     table_rels: &[&Relationship],
 ) -> String {
     let pk = find_primary_key(tdef);
-    let pk_col_nums: Vec<u16> = pk
-        .map(|idx| idx.columns.iter().map(|c| c.col_num).collect())
-        .unwrap_or_default();
-
-    // Check if there's an auto-increment column in the PK. A GUID AutoNumber
-    // gets a default rather than auto-increment syntax, which cannot stand in
-    // for the PRIMARY KEY.
-    let auto_pk_col = pk.and_then(|_| {
-        tdef.columns.iter().find(|c| {
-            pk_col_nums.contains(&c.col_num) && c.is_auto_number() && c.col_type != ColumnType::Guid
-        })
-    });
+    let auto_pk_col = pk.and_then(|idx| sole_auto_increment_column(tdef, idx));
 
     // If dialect absorbs PK and there's an auto-increment PK col, suppress table-level PK
     let suppress_pk = dialect.auto_increment_absorbs_pk() && auto_pk_col.is_some();
@@ -220,9 +239,11 @@ pub fn generate_create_table(
 
     // Column definitions
     for col in &tdef.columns {
-        let is_auto = col.is_auto_number();
+        let is_auto = writes_auto_number(dialect, col, auto_pk_col);
         let type_str = dialect.map_column_type(col, is_auto);
-        let not_null = if (col.flags & column_flags::NULLABLE) == 0 {
+        // An AutoNumber is never NULL, even written as a plain column where
+        // Access flags it as nullable.
+        let not_null = if (col.flags & column_flags::NULLABLE) == 0 || col.is_auto_number() {
             " NOT NULL"
         } else {
             ""
@@ -808,6 +829,60 @@ mod tests {
         assert!(
             !result.contains("    PRIMARY KEY"),
             "should not have table-level PK, got:\n{result}"
+        );
+    }
+
+    /// A table with an AutoNumber column "auto" (col 1) and a primary key on
+    /// `pk_cols` of the columns "a" (2) and "b" (3).
+    fn auto_number_table(pk_cols: &[u16]) -> TableDef {
+        table(
+            "T",
+            vec![
+                // Flagged as nullable, as Access flags some AutoNumber columns.
+                col_with_num(
+                    "auto",
+                    ColumnType::Long,
+                    4,
+                    column_flags::FIXED | column_flags::NULLABLE | column_flags::AUTO_LONG,
+                    0,
+                    0,
+                    1,
+                ),
+                col_with_num("a", ColumnType::Long, 4, column_flags::FIXED, 0, 0, 2),
+                col_with_num("b", ColumnType::Long, 4, column_flags::FIXED, 0, 0, 3),
+            ],
+            vec![index(
+                "PrimaryKey",
+                pk_cols,
+                index_flags::UNIQUE | index_flags::REQUIRED,
+                index_type::PRIMARY,
+                0,
+            )],
+        )
+    }
+
+    #[test]
+    fn create_table_sqlite_auto_number_outside_the_primary_key() {
+        // SQLite has auto-increment only as INTEGER PRIMARY KEY, so an
+        // AutoNumber column that is not the whole primary key is a plain
+        // column, and the real primary key stays.
+        for (pk_cols, pk) in [(&[2][..], "(\"a\")"), (&[1, 2][..], "(\"auto\", \"a\")")] {
+            let result = generate_create_table(&*sqlite(), &auto_number_table(pk_cols), &[]);
+            assert!(
+                result.contains("    \"auto\" INTEGER NOT NULL,"),
+                "got:\n{result}"
+            );
+            assert!(!result.contains("AUTOINCREMENT"), "got:\n{result}");
+            assert!(
+                result.contains(&format!("    PRIMARY KEY {pk}")),
+                "got:\n{result}"
+            );
+        }
+        // Other dialects keep auto-increment on a column outside the key.
+        let result = generate_create_table(&*postgres(), &auto_number_table(&[2]), &[]);
+        assert!(
+            result.contains("\"auto\" INTEGER NOT NULL GENERATED ALWAYS AS IDENTITY"),
+            "got:\n{result}"
         );
     }
 
