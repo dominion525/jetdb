@@ -1070,7 +1070,7 @@ mod tests {
             "CREATE TABLE \"Table1\" (\n    \"id\" INTEGER,",
             "CREATE TABLE \"Table2\" (",
             "CREATE TABLE \"Table3\" (",
-            "CREATE INDEX \"id\" ON \"Table1\" (\"id\");",
+            "CREATE INDEX \"Table1_id_idx\" ON \"Table1\" (\"id\");",
             "ALTER TABLE \"Table1\" ADD CONSTRAINT \"Table2Table1\"\n    \
              FOREIGN KEY (\"otherfk1\") REFERENCES \"Table2\" (\"id\")\n    \
              ON DELETE CASCADE;",

@@ -49,4 +49,8 @@ impl DdlDialect for Postgres {
     fn inline_foreign_keys(&self) -> bool {
         false
     }
+
+    fn index_names_per_table(&self) -> bool {
+        false
+    }
 }

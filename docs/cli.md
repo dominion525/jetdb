@@ -156,7 +156,7 @@ CREATE TABLE "Table1" (
     PRIMARY KEY ("A")
 );
 
-CREATE INDEX "B" ON "Table1" ("B");
+CREATE INDEX "Table1_B_idx" ON "Table1" ("B");
 
 $ jetdb schema indexTest.mdb --ddl postgres
 CREATE TABLE "Table1" (
@@ -180,11 +180,11 @@ CREATE TABLE "Table3" (
     PRIMARY KEY ("id")
 );
 
-CREATE INDEX "id" ON "Table1" ("id");
+CREATE INDEX "Table1_id_idx" ON "Table1" ("id");
 
-CREATE INDEX "id" ON "Table2" ("id");
+CREATE INDEX "Table2_id_idx" ON "Table2" ("id");
 
-CREATE INDEX "id" ON "Table3" ("id");
+CREATE INDEX "Table3_id_idx" ON "Table3" ("id");
 
 ALTER TABLE "Table1" ADD CONSTRAINT "Table2Table1"
     FOREIGN KEY ("otherfk1") REFERENCES "Table2" ("id")
