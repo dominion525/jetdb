@@ -52,6 +52,10 @@ impl DdlDialect for Mysql {
         false
     }
 
+    fn auto_increment_needs_key(&self) -> bool {
+        true
+    }
+
     fn index_names_per_table(&self) -> bool {
         true
     }

@@ -52,6 +52,10 @@ impl DdlDialect for Sqlite {
         true
     }
 
+    fn auto_increment_needs_key(&self) -> bool {
+        false
+    }
+
     fn index_names_per_table(&self) -> bool {
         false
     }

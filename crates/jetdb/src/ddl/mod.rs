@@ -77,6 +77,11 @@ pub trait DdlDialect {
     /// (true for SQLite, false for others)
     fn inline_foreign_keys(&self) -> bool;
 
+    /// Whether an auto-increment column must begin an index declared in its
+    /// CREATE TABLE (true only for MySQL, whose InnoDB looks up the largest
+    /// value through it)
+    fn auto_increment_needs_key(&self) -> bool;
+
     /// Whether an index name needs to be unique only within its table (MySQL,
     /// Access), rather than among all the tables and indexes of the schema
     /// (SQLite, PostgreSQL), where [`generate_create_indexes`] names an index
@@ -242,6 +247,32 @@ fn in_characters<'a>(tdef: &TableDef, col: &'a ColumnDef) -> Cow<'a, ColumnDef> 
     Cow::Owned(chars)
 }
 
+/// The `KEY` lines a dialect that needs an auto-increment column to begin an
+/// index (MySQL) adds to CREATE TABLE: one for each integer AutoNumber column
+/// that does not begin the primary key `pk`. The indexes of the table come
+/// after CREATE TABLE, too late for it. A GUID AutoNumber has a default
+/// rather than auto-increment.
+fn auto_increment_keys(
+    dialect: &dyn DdlDialect,
+    tdef: &TableDef,
+    pk: Option<&IndexDef>,
+    auto_pk_col: Option<&ColumnDef>,
+) -> Vec<String> {
+    if !dialect.auto_increment_needs_key() {
+        return Vec::new();
+    }
+    let pk_first = pk.and_then(|idx| idx.columns.first()).map(|c| c.col_num);
+    tdef.columns
+        .iter()
+        .filter(|c| {
+            writes_auto_number(dialect, c, auto_pk_col)
+                && c.col_type != ColumnType::Guid
+                && Some(c.col_num) != pk_first
+        })
+        .map(|c| format!("    KEY ({})", dialect.quote_id(&c.name)))
+        .collect()
+}
+
 /// Generate CREATE TABLE statement for a single table.
 pub fn generate_create_table(
     dialect: &dyn DdlDialect,
@@ -293,6 +324,7 @@ pub fn generate_create_table(
             lines.push(format!("    PRIMARY KEY ({})", pk_cols.join(", ")));
         }
     }
+    lines.extend(auto_increment_keys(dialect, tdef, pk, auto_pk_col));
 
     // Inline foreign keys (SQLite)
     for rel in table_rels {
@@ -942,6 +974,32 @@ mod tests {
             result.contains("\"auto\" INTEGER NOT NULL GENERATED ALWAYS AS IDENTITY"),
             "got:\n{result}"
         );
+    }
+
+    #[test]
+    fn create_table_mysql_auto_increment_begins_an_index() {
+        // InnoDB needs an AUTO_INCREMENT column to begin an index, and the
+        // indexes come after CREATE TABLE.
+        for (pk_cols, key) in [
+            (&[1][..], false),    // the AutoNumber is the primary key
+            (&[1, 2][..], false), // it begins the primary key
+            (&[2][..], true),     // the primary key is another column
+            (&[2, 1][..], true),  // it is in the primary key, but not first
+        ] {
+            let result = generate_create_table(&*mysql(), &auto_number_table(pk_cols), &[]);
+            assert!(
+                result.contains("`auto` INT NOT NULL AUTO_INCREMENT"),
+                "got:\n{result}"
+            );
+            assert_eq!(
+                result.contains("    KEY (`auto`)"),
+                key,
+                "{pk_cols:?}:\n{result}"
+            );
+        }
+        // The other dialects need no KEY.
+        let result = generate_create_table(&*postgres(), &auto_number_table(&[2]), &[]);
+        assert!(!result.contains("\n    KEY ("), "got:\n{result}");
     }
 
     #[test]
