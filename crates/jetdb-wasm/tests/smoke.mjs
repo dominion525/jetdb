@@ -9,6 +9,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { runInNewContext } from "node:vm";
 
 import { Database as NodeDatabase } from "jetdb-wasm";
 
@@ -273,6 +274,15 @@ function checkOpen(Database, build) {
   assert.equal(Database.open(arrayBuffer).version(), "JET4", build);
   assert.equal(Database.open(new Uint8Array(arrayBuffer)).version(), "JET4", build);
   assert.throws(() => Database.open("testV2003.mdb"), { name: "JetdbError", code: "INVALID_ARGUMENT" }, build);
+
+  // Bytes made in another realm, such as an iframe or a vm context, are not
+  // instances of this realm's Uint8Array and ArrayBuffer.
+  const foreign = runInNewContext("new Uint8Array(bytes)", { bytes: buffer });
+  assert.ok(!(foreign instanceof Uint8Array), build);
+  assert.equal(Database.open(foreign).version(), "JET4", build);
+  assert.equal(Database.open(foreign.buffer).version(), "JET4", build);
+  const notBytes = runInNewContext("new Int16Array(4)");
+  assert.throws(() => Database.open(notBytes), { name: "JetdbError", code: "INVALID_ARGUMENT" }, build);
 }
 
 function checkErrors(Database, build) {
