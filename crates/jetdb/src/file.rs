@@ -56,6 +56,11 @@ pub enum FileError {
     MacroNotFound {
         name: String,
     },
+    /// Rows of MSysQueries could not be read, so the definition of the
+    /// query `name` may be missing some of its rows.
+    IncompleteQuery {
+        name: String,
+    },
     InvalidVbaProject {
         reason: String,
     },
@@ -103,6 +108,10 @@ impl fmt::Display for FileError {
             Self::ModuleNotFound { name } => write!(f, "VBA module not found: {name}"),
             Self::FormNotFound { name } => write!(f, "form/report not found: {name}"),
             Self::MacroNotFound { name } => write!(f, "macro not found: {name}"),
+            Self::IncompleteQuery { name } => write!(
+                f,
+                "query {name} may be incomplete: rows of MSysQueries could not be read"
+            ),
             Self::InvalidVbaProject { reason } => write!(f, "invalid VBA project: {reason}"),
             Self::InvalidFormData { reason } => write!(f, "invalid form data: {reason}"),
             Self::InvalidMacroData { reason } => write!(f, "invalid macro data: {reason}"),

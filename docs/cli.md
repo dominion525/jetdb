@@ -247,6 +247,10 @@ jetdb queries show <FILE> <QUERY_NAME>
 
 Show the restored SQL definition of the specified saved query.
 
+When rows of MSysQueries cannot be read, the command fails rather than print
+SQL that may be missing parts: which query the rows belonged to is not known.
+`queries list` lists the queries in that case too.
+
 ##### Output examples
 
 ```

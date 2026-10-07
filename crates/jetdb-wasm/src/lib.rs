@@ -396,6 +396,11 @@ impl Database {
                 .ok_or_else(|| FileError::QueryNotFound {
                     name: name.to_string(),
                 })?;
+        if query.incomplete {
+            return Err(FileError::IncompleteQuery {
+                name: query.name.clone(),
+            });
+        }
         Ok(query_to_sql(query))
     }
 
@@ -574,7 +579,8 @@ pub fn error_code(error: &FileError) -> &'static str {
         | FileError::InvalidProperty { .. }
         | FileError::InvalidVbaProject { .. }
         | FileError::InvalidFormData { .. }
-        | FileError::InvalidMacroData { .. } => "INVALID_FILE",
+        | FileError::InvalidMacroData { .. }
+        | FileError::IncompleteQuery { .. } => "INVALID_FILE",
         FileError::Io(_) => "IO",
     }
 }
@@ -1198,6 +1204,22 @@ mod tests {
     }
 
     #[test]
+    fn query_sql_of_definitions_that_may_be_incomplete() {
+        // The row offset at 123108 gets the offset of the row before it,
+        // which leaves one row of MSysQueries no bytes.
+        let mut bytes = skip_if_missing!("V2003/queryTestV2003.mdb");
+        bytes.copy_within(123106..123108, 123108);
+        let mut db = Database::open(bytes, None).unwrap();
+        assert_eq!(db.queries(false).unwrap().len(), 9);
+        let error = db.query_sql("DeleteQuery").unwrap_err();
+        assert!(
+            matches!(&error, FileError::IncompleteQuery { name } if name == "DeleteQuery"),
+            "{error}"
+        );
+        assert_eq!(error_code(&error), "INVALID_FILE");
+    }
+
+    #[test]
     fn queries_none() {
         let bytes = skip_if_missing!("V2003/testV2003.mdb");
         let mut db = Database::open(bytes, None).unwrap();
@@ -1514,6 +1536,7 @@ mod tests {
                 "INVALID_FILE",
             ),
             (FileError::InvalidTableDef { reason: "x" }, "INVALID_FILE"),
+            (FileError::IncompleteQuery { name: name() }, "INVALID_FILE"),
             (FileError::Io(std::io::Error::other("x")), "IO"),
         ];
         for (error, code) in codes {
