@@ -102,6 +102,9 @@ pub struct TableDef {
     pub columns: Vec<ColumnDef>,
     pub indexes: Vec<IndexDef>,
     pub data_pages: Vec<u32>,
+    /// The table is of a Jet3 (Access 97) file. The `col_size` of a Text
+    /// column is in bytes: one a character in Jet3, two in Jet4 and later.
+    pub is_jet3: bool,
 }
 
 impl ColumnDef {
@@ -260,6 +263,7 @@ pub fn read_table_def(
         columns,
         indexes,
         data_pages,
+        is_jet3,
     })
 }
 

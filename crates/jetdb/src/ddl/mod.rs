@@ -10,6 +10,7 @@ pub use mysql::Mysql;
 pub use postgres::Postgres;
 pub use sqlite::Sqlite;
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use crate::format::{column_flags, index_flags, index_type, ColumnType, ObjectType};
@@ -229,6 +230,18 @@ fn writes_auto_number(
     auto_pk_col.is_some_and(|c| c.col_num == col.col_num)
 }
 
+/// `col` with the size of a Text column in characters, as SQL sizes a text
+/// type, rather than in the bytes Access stores: two a character in Jet4 and
+/// later.
+fn in_characters<'a>(tdef: &TableDef, col: &'a ColumnDef) -> Cow<'a, ColumnDef> {
+    if col.col_type != ColumnType::Text || tdef.is_jet3 {
+        return Cow::Borrowed(col);
+    }
+    let mut chars = col.clone();
+    chars.col_size /= 2;
+    Cow::Owned(chars)
+}
+
 /// Generate CREATE TABLE statement for a single table.
 pub fn generate_create_table(
     dialect: &dyn DdlDialect,
@@ -246,7 +259,7 @@ pub fn generate_create_table(
     // Column definitions
     for col in &tdef.columns {
         let is_auto = writes_auto_number(dialect, col, auto_pk_col);
-        let type_str = dialect.map_column_type(col, is_auto);
+        let type_str = dialect.map_column_type(&in_characters(tdef, col), is_auto);
         // An AutoNumber is never NULL, even written as a plain column where
         // Access flags it as nullable.
         let not_null = if (col.flags & column_flags::NULLABLE) == 0 || col.is_auto_number() {
@@ -492,6 +505,7 @@ mod tests {
             columns,
             indexes,
             data_pages: vec![],
+            is_jet3: false,
         }
     }
 
@@ -787,10 +801,41 @@ mod tests {
             vec![],
         );
         let result = generate_create_table(&*d, &tdef, &[]);
+        // 100 bytes of Jet4 text are 50 characters.
         assert_eq!(
             result,
-            "CREATE TABLE \"T\" (\n    \"A\" VARCHAR(100) NOT NULL,\n    \"B\" INTEGER\n);\n"
+            "CREATE TABLE \"T\" (\n    \"A\" VARCHAR(50) NOT NULL,\n    \"B\" INTEGER\n);\n"
         );
+    }
+
+    #[test]
+    fn text_size_in_characters_by_version() {
+        // Jet4 and later store two bytes a character, Jet3 one.
+        let mut tdef = table(
+            "T",
+            vec![col_with_num("A", ColumnType::Text, 510, 0, 0, 0, 1)],
+            vec![],
+        );
+        for (is_jet3, access, postgres_size) in
+            [(false, "TEXT(255)", 255), (true, "TEXT(510)", 510)]
+        {
+            tdef.is_jet3 = is_jet3;
+            let ddl = generate_create_table(&Access, &tdef, &[]);
+            assert!(
+                ddl.contains(&format!("[A] {access} NOT NULL")),
+                "got:\n{ddl}"
+            );
+            let ddl = generate_create_table(&Postgres, &tdef, &[]);
+            assert!(
+                ddl.contains(&format!("\"A\" VARCHAR({postgres_size}) NOT NULL")),
+                "got:\n{ddl}"
+            );
+            let ddl = generate_create_table(&Mysql, &tdef, &[]);
+            assert!(
+                ddl.contains(&format!("`A` VARCHAR({postgres_size}) NOT NULL")),
+                "got:\n{ddl}"
+            );
+        }
     }
 
     #[test]
