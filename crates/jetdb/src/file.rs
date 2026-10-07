@@ -540,6 +540,14 @@ impl PageReader {
         file.seek(SeekFrom::Start(0))?;
         file.read_exact(&mut page0_buf)?;
 
+        // The version byte alone lets other files through, such as a page of
+        // zeros, which reads as Jet3. The signature comes before the
+        // encrypted region of the header.
+        let signature = &page0_buf[db_header::SIGNATURE..db_header::SIGNATURE + 16];
+        if signature != db_header::SIGNATURE_JET && signature != db_header::SIGNATURE_ACE {
+            return Err(FileError::Format(FormatError::InvalidSignature));
+        }
+
         // Decrypt header region.
         decrypt_header(&mut page0_buf, version);
 
@@ -1217,6 +1225,46 @@ mod tests {
             matches!(err, FileError::FileTooSmall { expected, actual: 0x16 } if expected == expected_page),
             "{err:?}"
         );
+    }
+
+    #[test]
+    fn open_needs_the_signature() {
+        let open = |bytes: Vec<u8>| {
+            PageReader::open_reader_with_password(std::io::Cursor::new(bytes), None)
+        };
+        let invalid_signature = |result: Result<PageReader, FileError>| {
+            matches!(
+                result,
+                Err(FileError::Format(FormatError::InvalidSignature))
+            )
+        };
+
+        // A page of zeros has the version byte of Jet3 and a whole page.
+        assert!(invalid_signature(open(vec![
+            0u8;
+            crate::format::JET3.page_size
+        ])));
+
+        for (file, signature) in [
+            ("V2003/testV2003.mdb", db_header::SIGNATURE_JET),
+            ("V2010/testV2010.accdb", db_header::SIGNATURE_ACE),
+        ] {
+            let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../testdata")
+                .join(file);
+            let Ok(bytes) = std::fs::read(&path) else {
+                eprintln!("SKIP: test data not found: {file}");
+                continue;
+            };
+            assert_eq!(
+                &bytes[db_header::SIGNATURE..db_header::SIGNATURE + 16],
+                signature
+            );
+            assert!(open(bytes.clone()).is_ok(), "{file}");
+            let mut broken = bytes;
+            broken[db_header::SIGNATURE] = b's';
+            assert!(invalid_signature(open(broken)), "{file}");
+        }
     }
 
     #[test]
