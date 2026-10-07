@@ -51,4 +51,8 @@ impl DdlDialect for Sqlite {
     fn inline_foreign_keys(&self) -> bool {
         true
     }
+
+    fn index_names_per_table(&self) -> bool {
+        false
+    }
 }

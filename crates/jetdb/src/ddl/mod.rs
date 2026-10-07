@@ -75,6 +75,12 @@ pub trait DdlDialect {
     /// Whether foreign keys should be inlined in CREATE TABLE
     /// (true for SQLite, false for others)
     fn inline_foreign_keys(&self) -> bool;
+
+    /// Whether an index name needs to be unique only within its table (MySQL,
+    /// Access), rather than among all the tables and indexes of the schema
+    /// (SQLite, PostgreSQL), where [`generate_create_indexes`] names an index
+    /// `{table}_{index}_idx`.
+    fn index_names_per_table(&self) -> bool;
 }
 
 // ---------------------------------------------------------------------------
@@ -335,9 +341,16 @@ pub fn generate_create_indexes(dialect: &dyn DdlDialect, tdef: &TableDef) -> Str
             .iter()
             .map(|c| dialect.quote_id(resolve_col_name(tdef, c.col_num)))
             .collect();
+        // Access names an index within its table, so two tables often have
+        // an index of the same name, such as "id".
+        let name = if dialect.index_names_per_table() {
+            idx.name.clone()
+        } else {
+            format!("{}_{}_idx", tdef.name, idx.name)
+        };
         out.push_str(&format!(
             "CREATE {unique}INDEX {} ON {} ({});\n",
-            dialect.quote_id(&idx.name),
+            dialect.quote_id(&name),
             dialect.quote_id(&tdef.name),
             cols.join(", ")
         ));
@@ -1014,7 +1027,53 @@ mod tests {
             vec![index("idx_B", &[2], 0, index_type::ORDINARY, 1)],
         );
         let result = generate_create_indexes(&*d, &tdef);
-        assert_eq!(result, "CREATE INDEX \"idx_B\" ON \"T\" (\"B\");\n");
+        assert_eq!(result, "CREATE INDEX \"T_idx_B_idx\" ON \"T\" (\"B\");\n");
+    }
+
+    #[test]
+    fn index_names_of_two_tables() {
+        // Access names indexes within their table: both tables have "id".
+        let tables = ["T1", "T2"].map(|name| {
+            table(
+                name,
+                vec![col_with_num("id", ColumnType::Long, 0, 0, 0, 0, 1)],
+                vec![index("id", &[1], 0, index_type::ORDINARY, 1)],
+            )
+        });
+        let names = |dialect: &dyn DdlDialect| -> Vec<String> {
+            tables
+                .iter()
+                .map(|t| generate_create_indexes(dialect, t))
+                .collect()
+        };
+        assert_eq!(
+            names(&*sqlite()),
+            [
+                "CREATE INDEX \"T1_id_idx\" ON \"T1\" (\"id\");\n",
+                "CREATE INDEX \"T2_id_idx\" ON \"T2\" (\"id\");\n"
+            ]
+        );
+        assert_eq!(
+            names(&*postgres()),
+            [
+                "CREATE INDEX \"T1_id_idx\" ON \"T1\" (\"id\");\n",
+                "CREATE INDEX \"T2_id_idx\" ON \"T2\" (\"id\");\n"
+            ]
+        );
+        assert_eq!(
+            names(&*mysql()),
+            [
+                "CREATE INDEX `id` ON `T1` (`id`);\n",
+                "CREATE INDEX `id` ON `T2` (`id`);\n"
+            ]
+        );
+        assert_eq!(
+            names(&*access()),
+            [
+                "CREATE INDEX [id] ON [T1] ([id]);\n",
+                "CREATE INDEX [id] ON [T2] ([id]);\n"
+            ]
+        );
     }
 
     #[test]
@@ -1032,7 +1091,10 @@ mod tests {
             )],
         );
         let result = generate_create_indexes(&*d, &tdef);
-        assert_eq!(result, "CREATE UNIQUE INDEX \"idx_B\" ON \"T\" (\"B\");\n");
+        assert_eq!(
+            result,
+            "CREATE UNIQUE INDEX \"T_idx_B_idx\" ON \"T\" (\"B\");\n"
+        );
     }
 
     #[test]
@@ -1208,7 +1270,7 @@ mod tests {
         assert!(result.contains("CREATE TABLE \"Child\""), "got:\n{result}");
         // Should contain CREATE INDEX
         assert!(
-            result.contains("CREATE INDEX \"idx_pid\""),
+            result.contains("CREATE INDEX \"Child_idx_pid_idx\""),
             "got:\n{result}"
         );
         // Should contain ALTER TABLE FK
