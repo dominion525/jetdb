@@ -300,7 +300,7 @@ fn format_col_attrs(col: &ColumnDef) -> String {
     if (col.flags & column_flags::NULLABLE) == 0 {
         attrs.push("NOT NULL");
     }
-    if (col.flags & column_flags::AUTO_LONG) != 0 || (col.flags & column_flags::AUTO_UUID) != 0 {
+    if col.is_auto_number() {
         attrs.push("AUTO");
     }
     if col.is_calculated {
@@ -737,7 +737,7 @@ mod tests {
     fn format_col_attrs_auto_uuid() {
         let c = col(
             "x",
-            ColumnType::Long,
+            ColumnType::Guid,
             0,
             column_flags::NULLABLE | column_flags::AUTO_UUID,
             0,

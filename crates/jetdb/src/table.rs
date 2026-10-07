@@ -118,6 +118,22 @@ impl ColumnDef {
     pub fn is_shown(&self, system_table: bool) -> bool {
         system_table || !self.is_hidden()
     }
+
+    /// `true` for an AutoNumber column, whose values Access fills in: a Long
+    /// with [`column_flags::AUTO_LONG`](crate::format::column_flags::AUTO_LONG)
+    /// or a GUID with [`column_flags::AUTO_UUID`](crate::format::column_flags::AUTO_UUID).
+    /// The flags alone are not enough: Jet3 sets `AUTO_UUID` on columns of
+    /// other types too, and a complex column (attachment, multiple values,
+    /// version history) carries `AUTO_LONG` for the IDs Access numbers in a
+    /// hidden table.
+    pub fn is_auto_number(&self) -> bool {
+        use crate::format::column_flags::{AUTO_LONG, AUTO_UUID};
+        match self.col_type {
+            ColumnType::Long => self.flags & AUTO_LONG != 0,
+            ColumnType::Guid => self.flags & AUTO_UUID != 0,
+            _ => false,
+        }
+    }
 }
 
 /// Former name of [`ColumnDef::is_hidden`].
@@ -956,6 +972,75 @@ mod tests {
         );
         for fk in &fk_indexes {
             assert!(fk.foreign_key.is_some());
+        }
+    }
+
+    // -- is_auto_number tests -----------------------------------------------
+
+    #[test]
+    fn is_auto_number_needs_the_flag_of_its_type() {
+        let column = |col_type, flags| ColumnDef {
+            name: "x".to_string(),
+            col_type,
+            col_num: 0,
+            var_col_num: 0,
+            fixed_offset: 0,
+            col_size: 0,
+            flags,
+            is_fixed: false,
+            precision: 0,
+            scale: 0,
+            is_calculated: false,
+            display_index: 0,
+        };
+        assert!(column(ColumnType::Long, column_flags::AUTO_LONG).is_auto_number());
+        assert!(column(ColumnType::Guid, column_flags::AUTO_UUID).is_auto_number());
+        // Each flag belongs to one type.
+        assert!(!column(ColumnType::Long, column_flags::AUTO_UUID).is_auto_number());
+        assert!(!column(ColumnType::Guid, column_flags::AUTO_LONG).is_auto_number());
+        // Jet3 sets AUTO_UUID on columns of other types; complex columns carry
+        // AUTO_LONG for the IDs of their values.
+        assert!(!column(ColumnType::Text, column_flags::AUTO_UUID).is_auto_number());
+        assert!(!column(ColumnType::ComplexType, column_flags::AUTO_LONG).is_auto_number());
+        assert!(!column(ColumnType::Long, column_flags::NULLABLE).is_auto_number());
+    }
+
+    #[test]
+    fn is_auto_number_of_real_columns() {
+        let columns = |file: &str, table: &str| -> Option<Vec<(String, bool)>> {
+            let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../testdata")
+                .join(file);
+            let mut reader = crate::PageReader::open(&path).ok()?;
+            let catalog = crate::read_catalog(&mut reader).unwrap();
+            let entry = crate::find_table(&catalog, table).unwrap();
+            let tdef = read_table_def(&mut reader, &entry.name, entry.table_page).unwrap();
+            Some(
+                tdef.columns
+                    .iter()
+                    .map(|c| (c.name.clone(), c.is_auto_number()))
+                    .collect(),
+            )
+        };
+        let auto = |columns: &[(String, bool)]| -> Vec<String> {
+            columns
+                .iter()
+                .filter(|(_, a)| *a)
+                .map(|(n, _)| n.clone())
+                .collect()
+        };
+        // CategoryName (Text) carries 0x40 in Jet3, as several other columns
+        // of nwind.mdb do.
+        if let Some(c) = columns("V1997/nwind.mdb", "Categories") {
+            assert_eq!(auto(&c), ["CategoryID"]);
+        }
+        // Attachment, multiple values and version history columns carry 0x04;
+        // the table has no AutoNumber column.
+        if let Some(c) = columns("V2010/complexDataTestV2010.accdb", "Table1") {
+            assert!(auto(&c).is_empty(), "{c:?}");
+        }
+        if let Some(c) = columns("V2010/testV2010.accdb", "Table4") {
+            assert_eq!(auto(&c), ["data"]);
         }
     }
 
