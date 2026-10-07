@@ -1,6 +1,6 @@
 //! The JavaScript interface: thin `wasm-bindgen` wrappers over [`crate::Database`].
 
-use js_sys::{Array, ArrayBuffer, BigInt, Object, Reflect, Uint8Array};
+use js_sys::{Array, ArrayBuffer, BigInt, Object, Reflect, Symbol, Uint8Array};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 
@@ -505,10 +505,30 @@ fn bytes_of(value: &JsValue) -> Result<Vec<u8>, JsValue> {
     if let Some(buffer) = value.dyn_ref::<ArrayBuffer>() {
         return Ok(Uint8Array::new(buffer).to_vec());
     }
+    // One made in another realm, such as an iframe, is not an instance of
+    // this realm's classes, which dyn_ref tests; its toStringTag is the same
+    // in every realm. Uint8Array::new copies a typed array, and reads an
+    // ArrayBuffer, of any realm.
+    if matches!(
+        to_string_tag(value).as_deref(),
+        Some("Uint8Array" | "ArrayBuffer")
+    ) {
+        return Ok(Uint8Array::new(value).to_vec());
+    }
     Err(jetdb_error(
         "INVALID_ARGUMENT",
         "bytes must be a Uint8Array or an ArrayBuffer",
     ))
+}
+
+/// The `Symbol.toStringTag` of an object, such as `"Uint8Array"`.
+fn to_string_tag(value: &JsValue) -> Option<String> {
+    if !value.is_object() {
+        return None;
+    }
+    Reflect::get(value, &Symbol::to_string_tag())
+        .ok()?
+        .as_string()
 }
 
 fn to_js_error(e: jetdb::FileError) -> JsValue {
