@@ -27,7 +27,8 @@ impl DdlDialect for Mysql {
             ColumnType::Text => format!("VARCHAR({})", col.col_size),
             ColumnType::Memo => "LONGTEXT".to_string(),
             ColumnType::Ole => "LONGBLOB".to_string(),
-            ColumnType::Guid => "CHAR(36)".to_string(),
+            // Braces included, as jetdb reads and exports a GUID.
+            ColumnType::Guid => "CHAR(38)".to_string(),
             // No fixed precision (a calculated column): the largest DECIMAL MySQL allows.
             ColumnType::Numeric if col.precision == 0 => "DECIMAL(65,30)".to_string(),
             ColumnType::Numeric => format!("DECIMAL({},{})", col.precision, col.scale),

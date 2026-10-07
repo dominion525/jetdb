@@ -645,9 +645,11 @@ mod tests {
 
     #[test]
     fn mysql_map_guid() {
+        // A GUID is read and exported with its braces, 38 characters.
         let d = mysql();
         let c = col("x", ColumnType::Guid, 0, 0, 0, 0);
-        assert_eq!(d.map_column_type(&c, false), "CHAR(36)");
+        assert_eq!(d.map_column_type(&c, false), "CHAR(38)");
+        assert_eq!(crate::data::format_guid(&[0; 16]).len(), 38);
     }
 
     // -- Access SQL -----------------------------------------------------------
