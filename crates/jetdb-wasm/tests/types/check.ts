@@ -78,7 +78,8 @@ indexes[0].type;
 // @ts-expect-error: the table name is required.
 db.indexes();
 
-export const result: { rows: Row[]; skipped: number } = db.rows("Table1");
+export const result: { columns: string[]; rows: Row[]; skipped: number } =
+  db.rows("Table1");
 export const rows: Row[] = result.rows;
 // @ts-expect-error: the rows are in the rows property.
 export const notRows: Row[] = db.rows("Table1");

@@ -104,6 +104,7 @@ function checkRows(Database, build) {
   assert.deepEqual(
     db.rows("Table1"),
     {
+      columns: ["A", "B", "C", "D", "E", "F", "G", "H", "I"],
       rows: [
         { A: "abcdefg", B: "hijklmnop", C: 2, D: 222, E: 333333333, F: 444.555, G: "1974-09-21", H: "3.5000", I: true },
         { A: "a", B: "b", C: 0, D: 0, E: 0, F: 0, G: "1981-12-12", H: "0.0000", I: false },
@@ -113,6 +114,11 @@ function checkRows(Database, build) {
     build,
   );
   assert.throws(() => db.rows("NoSuchTable"), { name: "JetdbError", code: "TABLE_NOT_FOUND" }, build);
+  // A table without rows still gives the names of its columns.
+  const empty = db.rows("Table2");
+  assert.deepEqual(empty.rows, [], build);
+  assert.deepEqual(empty.columns, db.columns("Table2").map((c) => c.name), build);
+  assert.ok(empty.columns.length > 0, build);
 
   const binary = Database.open(read("V2010/binIdxTestV2010.accdb")).rows("Test").rows;
   assert.deepEqual(binary.find((row) => row.ID === 1).BinAsc, new Uint8Array([0x61, 0x62]), build);
