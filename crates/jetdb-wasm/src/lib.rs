@@ -342,7 +342,7 @@ impl Database {
                     || !(system_or_hidden(&r.from_table) || system_or_hidden(&r.to_table))
             })
             .map(|r| Relationship {
-                referential_integrity: r.flags & relationship_flags::NO_REFERENTIAL_INTEGRITY == 0,
+                referential_integrity: r.has_referential_integrity(),
                 cascade_update: r.flags & relationship_flags::CASCADE_UPDATE != 0,
                 cascade_delete: r.flags & relationship_flags::CASCADE_DELETE != 0,
                 columns: r
