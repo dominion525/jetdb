@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::catalog::read_catalog;
+use crate::catalog::{read_catalog, CatalogEntry};
 use crate::data::{self, Value};
 use crate::file::{FileError, PageReader};
 use crate::format::ObjectType;
@@ -63,8 +63,16 @@ pub mod relationship_flags {
 ///
 /// Returns an empty `Vec` if the table does not exist.
 pub fn read_relationships(reader: &mut PageReader) -> Result<Vec<Relationship>, FileError> {
-    // Find MSysRelationships in the catalog
     let catalog = read_catalog(reader)?;
+    read_relationships_in(reader, &catalog)
+}
+
+/// [`read_relationships`] with the catalog already read, which it searches
+/// for MSysRelationships rather than read it again.
+pub fn read_relationships_in(
+    reader: &mut PageReader,
+    catalog: &[CatalogEntry],
+) -> Result<Vec<Relationship>, FileError> {
     let rel_entry = catalog
         .iter()
         .find(|e| e.name == "MSysRelationships" && e.object_type == ObjectType::Table);
@@ -242,6 +250,22 @@ mod tests {
                 }
             }
         };
+    }
+
+    #[test]
+    fn relationships_in_a_catalog_already_read() {
+        let path = skip_if_missing!("V1997/nwind.mdb");
+        let mut reader = PageReader::open(&path).unwrap();
+        let catalog = read_catalog(&mut reader).unwrap();
+        let read = read_relationships(&mut reader).unwrap();
+        assert_eq!(read.len(), 7);
+        assert_eq!(
+            format!(
+                "{:?}",
+                read_relationships_in(&mut reader, &catalog).unwrap()
+            ),
+            format!("{read:?}")
+        );
     }
 
     #[test]

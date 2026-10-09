@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::catalog::read_catalog;
+use crate::catalog::{read_catalog, CatalogEntry};
 use crate::data::{self, Value};
 use crate::file::{FileError, PageReader};
 use crate::format::ObjectType;
@@ -268,7 +268,15 @@ fn build_query_defs(
 /// Returns an empty `Vec` if the table does not exist.
 pub fn read_queries(reader: &mut PageReader) -> Result<Vec<QueryDef>, FileError> {
     let catalog = read_catalog(reader)?;
+    read_queries_in(reader, &catalog)
+}
 
+/// [`read_queries`] with the catalog already read, which it searches for
+/// MSysQueries and the names of the queries rather than read it again.
+pub fn read_queries_in(
+    reader: &mut PageReader,
+    catalog: &[CatalogEntry],
+) -> Result<Vec<QueryDef>, FileError> {
     let queries_entry = catalog
         .iter()
         .find(|e| e.name == "MSysQueries" && e.object_type == ObjectType::Table);
@@ -1251,6 +1259,19 @@ mod tests {
                 }
             }
         };
+    }
+
+    #[test]
+    fn read_queries_in_a_catalog_already_read() {
+        let path = skip_if_missing!("V2003/queryTestV2003.mdb");
+        let mut reader = PageReader::open(&path).unwrap();
+        let catalog = read_catalog(&mut reader).unwrap();
+        let read = read_queries(&mut reader).unwrap();
+        assert_eq!(read.len(), 9);
+        assert_eq!(
+            format!("{:?}", read_queries_in(&mut reader, &catalog).unwrap()),
+            format!("{read:?}")
+        );
     }
 
     #[test]
