@@ -202,6 +202,13 @@ export type Row = Record<string, Value>;
 
 /** The rows of a table, as `Database.rows` returns them. */
 export interface Rows {
+    /**
+     * The names of the columns in the order of the table, as `Database.columns`
+     * lists them, also when there are no rows. The keys of a `Row` do not keep
+     * this order: JavaScript puts a key that looks like an integer, such as
+     * `"2019"`, before the others.
+     */
+    columns: string[];
     rows: Row[];
     /** The number of rows that could not be read and were left out. */
     skipped: number;
@@ -453,9 +460,10 @@ impl JsDatabase {
             .map_err(to_js_error)
     }
 
-    /// The rows of a table, each an object keyed by the column names, with
-    /// the columns that `columns` returns, and the number of rows that could
-    /// not be read and were left out.
+    /// The names of the columns, in the order of the table, and the rows of
+    /// a table, each an object keyed by the column names, with the columns
+    /// that `columns` returns, and the number of rows that could not be read
+    /// and were left out.
     #[wasm_bindgen(unchecked_return_type = "Rows")]
     pub fn rows(
         &mut self,
@@ -481,6 +489,7 @@ impl JsDatabase {
             })
             .collect();
         let object = Object::new();
+        set(&object, "columns", names.iter().collect::<Array>().into());
         set(&object, "rows", objects.into());
         set(&object, "skipped", (rows.skipped as f64).into());
         Ok(object)
