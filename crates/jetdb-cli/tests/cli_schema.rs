@@ -25,10 +25,10 @@ fn schema_single_table() {
     );
     // Verify specific columns and types
     assert!(
-        stdout.contains("A  Text(100)"),
+        stdout.contains("A  Text(50)"),
         "should contain column A with type"
     );
-    assert!(stdout.contains("Text(200)"), "should contain Text(200)");
+    assert!(stdout.contains("Text(100)"), "should contain Text(100)");
     assert!(stdout.contains("Long"), "should contain Long type");
     assert!(
         stdout.contains("Timestamp"),

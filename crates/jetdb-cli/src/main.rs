@@ -282,10 +282,12 @@ fn run_schema(args: &SchemaArgs, password: Option<&str>) -> Result<(), jetdb::Fi
     Ok(())
 }
 
-fn format_col_type(col: &ColumnDef) -> String {
+/// The type of `col` as `jetdb schema` shows it, with `size`, the size as
+/// Access shows it (see `TableDef::shown_size`): characters for Text.
+fn format_col_type(col: &ColumnDef, size: u16) -> String {
     match col.col_type {
-        ColumnType::Text => format!("Text({})", col.col_size),
-        ColumnType::Binary => format!("Binary({})", col.col_size),
+        ColumnType::Text => format!("Text({size})"),
+        ColumnType::Binary => format!("Binary({size})"),
         // A calculated column has no fixed precision, given as 0.
         ColumnType::Numeric if col.precision == 0 => "Numeric".to_string(),
         ColumnType::Numeric => format!("Numeric({},{})", col.precision, col.scale),
@@ -317,7 +319,11 @@ fn print_table_schema(tdef: &TableDef, rels: &[Relationship], args: &SchemaArgs)
     println!("  Columns:");
 
     // Pre-compute type strings to avoid double formatting
-    let col_types: Vec<String> = tdef.columns.iter().map(format_col_type).collect();
+    let col_types: Vec<String> = tdef
+        .columns
+        .iter()
+        .map(|c| format_col_type(c, tdef.shown_size(c)))
+        .collect();
     let name_width = tdef.columns.iter().map(|c| c.name.len()).max().unwrap_or(0);
     let type_width = col_types.iter().map(|s| s.len()).max().unwrap_or(0);
 
@@ -666,49 +672,49 @@ mod tests {
     #[test]
     fn format_col_type_text() {
         let c = col("x", ColumnType::Text, 100, 0, 0, 0);
-        assert_eq!(format_col_type(&c), "Text(100)");
+        assert_eq!(format_col_type(&c, c.col_size), "Text(100)");
     }
 
     #[test]
     fn format_col_type_binary() {
         let c = col("x", ColumnType::Binary, 50, 0, 0, 0);
-        assert_eq!(format_col_type(&c), "Binary(50)");
+        assert_eq!(format_col_type(&c, c.col_size), "Binary(50)");
     }
 
     #[test]
     fn format_col_type_numeric() {
         let c = col("x", ColumnType::Numeric, 0, 0, 18, 2);
-        assert_eq!(format_col_type(&c), "Numeric(18,2)");
+        assert_eq!(format_col_type(&c, c.col_size), "Numeric(18,2)");
     }
 
     #[test]
     fn format_col_type_memo() {
         let c = col("x", ColumnType::Memo, 0, 0, 0, 0);
-        assert_eq!(format_col_type(&c), "Memo");
+        assert_eq!(format_col_type(&c, c.col_size), "Memo");
     }
 
     #[test]
     fn format_col_type_ole() {
         let c = col("x", ColumnType::Ole, 0, 0, 0, 0);
-        assert_eq!(format_col_type(&c), "Ole");
+        assert_eq!(format_col_type(&c, c.col_size), "Ole");
     }
 
     #[test]
     fn format_col_type_long() {
         let c = col("x", ColumnType::Long, 0, 0, 0, 0);
-        assert_eq!(format_col_type(&c), "Long");
+        assert_eq!(format_col_type(&c, c.col_size), "Long");
     }
 
     #[test]
     fn format_col_type_double() {
         let c = col("x", ColumnType::Double, 0, 0, 0, 0);
-        assert_eq!(format_col_type(&c), "Double");
+        assert_eq!(format_col_type(&c, c.col_size), "Double");
     }
 
     #[test]
     fn format_col_type_timestamp() {
         let c = col("x", ColumnType::Timestamp, 0, 0, 0, 0);
-        assert_eq!(format_col_type(&c), "Timestamp");
+        assert_eq!(format_col_type(&c, c.col_size), "Timestamp");
     }
 
     // -- format_col_attrs tests -----------------------------------------------
@@ -775,7 +781,7 @@ mod tests {
     #[test]
     fn format_col_type_numeric_without_a_fixed_precision() {
         let c = col("x", ColumnType::Numeric, 17, column_flags::NULLABLE, 0, 0);
-        assert_eq!(format_col_type(&c), "Numeric");
+        assert_eq!(format_col_type(&c, c.col_size), "Numeric");
     }
 
     // -- format_index_flags tests ---------------------------------------------

@@ -37,8 +37,8 @@ export interface Column {
     /** For a calculated column, the type of its result, which its values have. */
     type: ColumnType;
     /**
-     * The size in bytes as stored, such as 100 for a Text column of 50
-     * characters in Jet4 and later, which store two bytes a character.
+     * The size as Access shows it: in characters for a Text column, such as
+     * 255, and in bytes for the other types.
      */
     size: number;
     /**

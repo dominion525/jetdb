@@ -52,8 +52,8 @@ function checkColumns(Database, build) {
   assert.deepEqual(
     columns.map((c) => [c.name, c.type, c.size]),
     [
-      ["A", "Text", 100],
-      ["B", "Text", 200],
+      ["A", "Text", 50],
+      ["B", "Text", 100],
       ["C", "Byte", 1],
       ["D", "Int", 2],
       ["E", "Long", 4],
@@ -66,7 +66,7 @@ function checkColumns(Database, build) {
   );
   assert.deepEqual(
     columns[0],
-    { name: "A", type: "Text", size: 100, precision: 0, scale: 0, autoNumber: false, calculated: false },
+    { name: "A", type: "Text", size: 50, precision: 0, scale: 0, autoNumber: false, calculated: false },
     build,
   );
   assert.throws(() => db.columns("NoSuchTable"), { name: "JetdbError", code: "TABLE_NOT_FOUND" }, build);

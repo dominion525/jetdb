@@ -33,8 +33,8 @@ pub struct Column {
     /// The type name, such as `Long` or `Text` (see [`type_name`]). For a
     /// calculated column, the type of its result, which its values have.
     pub type_name: String,
-    /// The size in bytes as stored, such as 100 for a Text column of 50
-    /// characters in Jet4 and later, which store two bytes a character.
+    /// The size as Access shows it: in characters for a Text column, such as
+    /// 255, and in bytes for the other types.
     pub size: u16,
     /// Precision of a Numeric column; 0 for the other types and for calculated
     /// columns, whose values each carry their own scale.
@@ -254,7 +254,7 @@ impl Database {
                 Column {
                     name: c.name.clone(),
                     type_name: type_name(col_type),
-                    size: c.col_size,
+                    size: tdef.shown_size(c),
                     precision: if fixed_numeric { c.precision } else { 0 },
                     scale: if fixed_numeric { c.scale } else { 0 },
                     auto_number: c.is_auto_number(),
@@ -725,8 +725,8 @@ mod tests {
         assert_eq!(
             summary,
             [
-                ("A", "Text", 100),
-                ("B", "Text", 200),
+                ("A", "Text", 50),
+                ("B", "Text", 100),
                 ("C", "Byte", 1),
                 ("D", "Int", 2),
                 ("E", "Long", 4),

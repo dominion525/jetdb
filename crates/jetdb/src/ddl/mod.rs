@@ -237,13 +237,14 @@ fn writes_auto_number(
 
 /// `col` with the size of a Text column in characters, as SQL sizes a text
 /// type, rather than in the bytes Access stores: two a character in Jet4 and
-/// later.
+/// later (see [`TableDef::shown_size`]).
 fn in_characters<'a>(tdef: &TableDef, col: &'a ColumnDef) -> Cow<'a, ColumnDef> {
-    if col.col_type != ColumnType::Text || tdef.is_jet3 {
+    let size = tdef.shown_size(col);
+    if size == col.col_size {
         return Cow::Borrowed(col);
     }
     let mut chars = col.clone();
-    chars.col_size /= 2;
+    chars.col_size = size;
     Cow::Owned(chars)
 }
 
