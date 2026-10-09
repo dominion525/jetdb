@@ -128,8 +128,8 @@ $ jetdb schema test.mdb -T Table1
 Table: Table1
 
   Columns:
-    A  Text(100)
-    B  Text(200)
+    A  Text(50)
+    B  Text(100)
     C  Byte
     D  Int
     E  Long

@@ -107,6 +107,19 @@ pub struct TableDef {
     pub is_jet3: bool,
 }
 
+impl TableDef {
+    /// The size of `col` as Access shows it: in characters for a Text column,
+    /// whose `col_size` is in bytes, two a character in Jet4 and later; in
+    /// bytes, as stored, for the other types.
+    pub fn shown_size(&self, col: &ColumnDef) -> u16 {
+        if col.col_type == ColumnType::Text && !self.is_jet3 {
+            col.col_size / 2
+        } else {
+            col.col_size
+        }
+    }
+}
+
 impl ColumnDef {
     /// `true` for a column Access maintains and hides from users
     /// ([`column_flags::HIDDEN`](crate::format::column_flags::HIDDEN)), such as
@@ -977,6 +990,42 @@ mod tests {
         for fk in &fk_indexes {
             assert!(fk.foreign_key.is_some());
         }
+    }
+
+    // -- shown_size tests ----------------------------------------------------
+
+    #[test]
+    fn shown_size_of_text_in_characters() {
+        let column = |col_type, col_size| ColumnDef {
+            name: "x".to_string(),
+            col_type,
+            col_num: 0,
+            var_col_num: 0,
+            fixed_offset: 0,
+            col_size,
+            flags: 0,
+            is_fixed: false,
+            precision: 0,
+            scale: 0,
+            is_calculated: false,
+            display_index: 0,
+        };
+        let mut tdef = TableDef {
+            name: "T".to_string(),
+            num_rows: 0,
+            num_cols: 0,
+            num_var_cols: 0,
+            columns: vec![],
+            indexes: vec![],
+            data_pages: vec![],
+            is_jet3: false,
+        };
+        // Jet4 and later store two bytes a character of Text.
+        assert_eq!(tdef.shown_size(&column(ColumnType::Text, 510)), 255);
+        assert_eq!(tdef.shown_size(&column(ColumnType::Binary, 510)), 510);
+        // Jet3 stores one.
+        tdef.is_jet3 = true;
+        assert_eq!(tdef.shown_size(&column(ColumnType::Text, 255)), 255);
     }
 
     // -- is_auto_number tests -----------------------------------------------
