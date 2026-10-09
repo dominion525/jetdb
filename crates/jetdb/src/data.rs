@@ -90,6 +90,17 @@ pub fn read_table_rows(reader: &mut PageReader, table: &TableDef) -> Result<Read
     read_table_rows_impl(reader, table, &calculated)
 }
 
+/// [`read_table_rows`] with the result types of the calculated columns
+/// already found, by [`calculated_column_types`] or
+/// [`calculated_column_types_in`], rather than read MSysObjects again.
+pub fn read_table_rows_with(
+    reader: &mut PageReader,
+    table: &TableDef,
+    calculated: &HashMap<String, ColumnType>,
+) -> Result<ReadResult, FileError> {
+    read_table_rows_impl(reader, table, calculated)
+}
+
 /// The result types of the calculated columns of `table`, keyed by
 /// lowercased column name, as [`read_table_rows`] reads their values.
 ///
@@ -3268,6 +3279,17 @@ mod tests {
         let types = calculated_column_types(&mut reader, &table);
         // The same from the catalog already read.
         assert_eq!(calculated_column_types_in(&catalog, &table), types);
+        // Rows read with the types already found are the rows read_table_rows
+        // reads, finding them itself.
+        assert_eq!(
+            format!(
+                "{:?}",
+                read_table_rows_with(&mut reader, &table, &types)
+                    .unwrap()
+                    .rows
+            ),
+            format!("{:?}", read_table_rows(&mut reader, &table).unwrap().rows)
+        );
         let declared = |name: &str| {
             table
                 .columns

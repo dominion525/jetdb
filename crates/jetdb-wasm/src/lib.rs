@@ -13,9 +13,9 @@ use jetdb::ddl::{self, DdlDialect};
 use jetdb::format::{index_flags, index_type, ColumnType, ObjectType};
 use jetdb::{
     calculated_column_types_in, entry_properties, find_table, query_to_sql, read_catalog,
-    read_queries_in, read_relationships_in, read_table_def, read_table_rows, relationship_flags,
-    timestamp, CatalogEntry, FileError, IndexColumnOrder, PageReader, PropMapType, QueryType,
-    TableDef, Value,
+    read_queries_in, read_relationships_in, read_table_def, read_table_rows_with,
+    relationship_flags, timestamp, CatalogEntry, FileError, IndexColumnOrder, PageReader,
+    PropMapType, QueryType, TableDef, Value,
 };
 
 /// A database opened from bytes in memory.
@@ -304,7 +304,9 @@ impl Database {
         let shown: Vec<usize> = (0..tdef.columns.len())
             .filter(|&i| tdef.columns[i].is_shown(system_table))
             .collect();
-        let result = read_table_rows(&mut self.reader, &tdef)?;
+        let (reader, catalog) = self.reader_and_catalog()?;
+        let calculated = calculated_column_types_in(catalog, &tdef);
+        let result = read_table_rows_with(reader, &tdef, &calculated)?;
         Ok(Rows {
             columns: shown
                 .iter()
