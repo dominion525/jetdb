@@ -12,10 +12,10 @@ use std::io::Cursor;
 use jetdb::ddl::{self, DdlDialect};
 use jetdb::format::{index_flags, index_type, ColumnType, ObjectType};
 use jetdb::{
-    calculated_column_types, find_table, query_to_sql, read_catalog,
-    read_object_properties_of_type, read_queries, read_relationships, read_table_def,
-    read_table_rows, relationship_flags, timestamp, CatalogEntry, FileError, IndexColumnOrder,
-    PageReader, PropMapType, QueryType, TableDef, Value,
+    calculated_column_types_in, entry_properties, find_table, query_to_sql, read_catalog,
+    read_queries_in, read_relationships_in, read_table_def, read_table_rows_with,
+    relationship_flags, timestamp, CatalogEntry, FileError, IndexColumnOrder, PageReader,
+    PropMapType, QueryType, TableDef, Value,
 };
 
 /// A database opened from bytes in memory.
@@ -239,7 +239,7 @@ impl Database {
     /// columns Access maintains and hides, as `jetdb export` leaves them out.
     pub fn columns(&mut self, table: &str) -> Result<Vec<Column>, FileError> {
         let (tdef, system_table) = self.table_def(table)?;
-        let calculated = calculated_column_types(&mut self.reader, &tdef);
+        let calculated = calculated_column_types_in(self.catalog()?, &tdef);
         Ok(tdef
             .columns
             .iter()
@@ -304,7 +304,9 @@ impl Database {
         let shown: Vec<usize> = (0..tdef.columns.len())
             .filter(|&i| tdef.columns[i].is_shown(system_table))
             .collect();
-        let result = read_table_rows(&mut self.reader, &tdef)?;
+        let (reader, catalog) = self.reader_and_catalog()?;
+        let calculated = calculated_column_types_in(catalog, &tdef);
+        let result = read_table_rows_with(reader, &tdef, &calculated)?;
         Ok(Rows {
             columns: shown
                 .iter()
@@ -328,8 +330,8 @@ impl Database {
     /// system and hidden tables, as `tables` leaves them out, and with
     /// `include_system` all of them.
     pub fn relationships(&mut self, include_system: bool) -> Result<Vec<Relationship>, FileError> {
-        let relationships = read_relationships(&mut self.reader)?;
-        let catalog = self.catalog()?;
+        let (reader, catalog) = self.reader_and_catalog()?;
+        let relationships = read_relationships_in(reader, catalog)?;
         let system_or_hidden = |name: &str| {
             catalog.iter().any(|e| {
                 e.object_type == ObjectType::Table && e.name == name && e.is_system_or_hidden()
@@ -366,8 +368,8 @@ impl Database {
     /// ones, such as those Access makes for forms and reports, as `tables`
     /// leaves them out, and with `include_system` all of them.
     pub fn queries(&mut self, include_system: bool) -> Result<Vec<Query>, FileError> {
-        let queries = read_queries(&mut self.reader)?;
-        let catalog = self.catalog()?;
+        let (reader, catalog) = self.reader_and_catalog()?;
+        let queries = read_queries_in(reader, catalog)?;
         let system_or_hidden = |name: &str| {
             catalog.iter().any(|e| {
                 e.object_type == ObjectType::Query && e.name == name && e.is_system_or_hidden()
@@ -388,7 +390,8 @@ impl Database {
     /// The SQL of the saved query `name`, system and hidden ones included, as
     /// `jetdb queries show` prints it.
     pub fn query_sql(&mut self, name: &str) -> Result<String, FileError> {
-        let queries = read_queries(&mut self.reader)?;
+        let (reader, catalog) = self.reader_and_catalog()?;
+        let queries = read_queries_in(reader, catalog)?;
         let query =
             queries
                 .iter()
@@ -413,18 +416,21 @@ impl Database {
         name: &str,
         object_type: Option<ObjectType>,
     ) -> Result<ObjectProperties, PropertiesError> {
-        let types: Vec<ObjectType> = self
+        let is_jet3 = self.reader.header().version.is_jet3();
+        let entries: Vec<&CatalogEntry> = self
             .catalog()?
             .iter()
             .filter(|e| e.name == name && object_type.is_none_or(|t| e.object_type == t))
-            .map(|e| e.object_type)
             .collect();
-        let object_type = match types.as_slice() {
+        let entry = match entries.as_slice() {
             [] => return Err(PropertiesError::NotFound),
             [only] => *only,
-            _ => return Err(PropertiesError::SeveralTypes(types)),
+            several => {
+                let types = several.iter().map(|e| e.object_type).collect();
+                return Err(PropertiesError::SeveralTypes(types));
+            }
         };
-        let read = read_object_properties_of_type(&mut self.reader, name, object_type)?;
+        let read = entry_properties(entry, is_jet3)?;
         let mut out = ObjectProperties::default();
         for map in read.maps {
             let properties: Vec<Property> = map
@@ -460,11 +466,10 @@ impl Database {
         indexes: bool,
         relations: bool,
     ) -> Result<String, FileError> {
-        self.catalog()?;
-        let catalog = self.catalog.as_deref().expect("the catalog was just read");
-        let tables = ddl::schema_tables(&mut self.reader, catalog, table)?;
+        let (reader, catalog) = self.reader_and_catalog()?;
+        let tables = ddl::schema_tables(reader, catalog, table)?;
         let relationships = if relations {
-            read_relationships(&mut self.reader)?
+            read_relationships_in(reader, catalog)?
         } else {
             Vec::new()
         };
@@ -492,6 +497,14 @@ impl Database {
             self.catalog = Some(read_catalog(&mut self.reader)?);
         }
         Ok(self.catalog.as_deref().expect("the catalog was just read"))
+    }
+
+    /// The reader together with the catalog, read on the first call, for the
+    /// library functions that take both.
+    fn reader_and_catalog(&mut self) -> Result<(&mut PageReader, &[CatalogEntry]), FileError> {
+        self.catalog()?;
+        let catalog = self.catalog.as_deref().expect("the catalog was just read");
+        Ok((&mut self.reader, catalog))
     }
 }
 

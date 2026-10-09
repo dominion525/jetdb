@@ -1,5 +1,6 @@
 //! Object property reading from MSysObjects.LvProp blobs.
 
+use crate::catalog::CatalogEntry;
 use crate::data::{self, format_guid, Value};
 use crate::encoding;
 use crate::file::{FileError, PageReader};
@@ -49,6 +50,23 @@ pub struct ObjectProperties {
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
+
+/// The properties of `entry`, from the LvProp [`crate::read_catalog`] keeps,
+/// without reading MSysObjects again. `is_jet3` tells the version of the file
+/// the catalog was read from.
+pub fn entry_properties(
+    entry: &CatalogEntry,
+    is_jet3: bool,
+) -> Result<ObjectProperties, FileError> {
+    let maps = match &entry.lv_prop {
+        Some(data) => parse_lvprop(data, is_jet3)?,
+        None => Vec::new(),
+    };
+    Ok(ObjectProperties {
+        object_name: entry.name.clone(),
+        maps,
+    })
+}
 
 /// Read properties for a named object from MSysObjects.LvProp.
 ///
@@ -873,6 +891,28 @@ mod tests {
         let props = read_object_properties(&mut reader, "Table1").unwrap();
         assert_eq!(props.object_name, "Table1");
         assert_has_properties(&props);
+    }
+
+    #[test]
+    fn properties_of_a_catalog_entry() {
+        // The same as reading MSysObjects again, for each object of
+        // Customers in nwind.mdb (a table, a form and a macro).
+        let path = skip_if_missing!("V1997/nwind.mdb");
+        let mut reader = PageReader::open(&path).unwrap();
+        let catalog = crate::read_catalog(&mut reader).unwrap();
+        let customers: Vec<_> = catalog.iter().filter(|e| e.name == "Customers").collect();
+        assert_eq!(customers.len(), 3);
+        for entry in customers {
+            let read = read_object_properties_of_type(&mut reader, &entry.name, entry.object_type)
+                .unwrap();
+            assert!(!read.maps.is_empty(), "{:?}", entry.object_type);
+            assert_eq!(
+                format!("{:?}", entry_properties(entry, true).unwrap()),
+                format!("{read:?}"),
+                "{:?}",
+                entry.object_type
+            );
+        }
     }
 
     #[test]
