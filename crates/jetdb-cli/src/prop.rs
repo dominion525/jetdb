@@ -8,7 +8,7 @@ use jetdb::{
     PageReader, PropMapType, Value,
 };
 
-use crate::{object_type_name, OBJECT_TYPES};
+use crate::object_type_name;
 
 // ---------------------------------------------------------------------------
 // CLI definition
@@ -22,7 +22,7 @@ pub struct PropArgs {
     pub object_name: String,
 
     /// Object type, needed when objects of different types share the name
-    #[arg(short = 't', long = "type", value_parser = clap::builder::PossibleValuesParser::new(OBJECT_TYPES.map(object_type_name)))]
+    #[arg(short = 't', long = "type", value_parser = clap::builder::PossibleValuesParser::new(ObjectType::ALL.map(object_type_name)))]
     pub object_type: Option<String>,
 }
 
@@ -58,7 +58,7 @@ fn run_prop(args: &PropArgs, password: Option<&str>) -> Result<(), String> {
 
 /// The object type of a name `--type` takes.
 fn object_type_named(name: &str) -> ObjectType {
-    OBJECT_TYPES
+    ObjectType::ALL
         .into_iter()
         .find(|&t| object_type_name(t) == name)
         .expect("clap accepts only the type names")

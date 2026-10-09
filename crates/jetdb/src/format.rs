@@ -521,6 +521,26 @@ impl TryFrom<i32> for ObjectType {
     }
 }
 
+impl ObjectType {
+    /// Every object type, in the order the CLI and jetdb-wasm list them:
+    /// tables and queries first, the objects Access keeps for itself last.
+    pub const ALL: [ObjectType; 13] = [
+        ObjectType::Table,
+        ObjectType::Query,
+        ObjectType::Form,
+        ObjectType::Report,
+        ObjectType::Macro,
+        ObjectType::Module,
+        ObjectType::LinkedTable,
+        ObjectType::LinkedOdbcTable,
+        ObjectType::Relationship,
+        ObjectType::Container,
+        ObjectType::Database,
+        ObjectType::DatabaseProperty,
+        ObjectType::UserInfo,
+    ];
+}
+
 impl fmt::Display for ObjectType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(self, f)
@@ -858,6 +878,11 @@ mod tests {
             assert_eq!(ot, expected);
             assert_eq!(ot as i32, val);
         }
+        // ALL holds each of them once.
+        let mut all = ObjectType::ALL.to_vec();
+        all.sort_by_key(|&t| t as i32);
+        let listed: Vec<ObjectType> = types.iter().map(|&(_, t)| t).collect();
+        assert_eq!(all, listed);
     }
 
     #[test]

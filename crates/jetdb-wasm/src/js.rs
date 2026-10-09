@@ -1,12 +1,13 @@
 //! The JavaScript interface: thin `wasm-bindgen` wrappers over [`crate::Database`].
 
+use jetdb::format::ObjectType;
 use js_sys::{Array, ArrayBuffer, BigInt, Object, Reflect, Symbol, Uint8Array};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 
 use crate::{
-    error_code, object_type_name, Cell, Column, Database, Index, PropertiesError, Property,
-    PropertyGroup, Relationship, OBJECT_TYPES,
+    error_code, Cell, Column, Database, Index, PropertiesError, Property, PropertyGroup,
+    Relationship,
 };
 
 // Types for the TypeScript declarations. Version, Column, Index, Relationship,
@@ -404,11 +405,11 @@ impl JsDatabase {
         let name = string_arg(&name, "name")?;
         let object_type = match option_string(options.as_deref(), "type")? {
             Some(type_name) => Some(
-                OBJECT_TYPES
+                ObjectType::ALL
                     .into_iter()
-                    .find(|&t| object_type_name(t) == type_name)
+                    .find(|t| t.to_string() == type_name)
                     .ok_or_else(|| {
-                        let names = OBJECT_TYPES.map(object_type_name);
+                        let names = ObjectType::ALL.map(|t| t.to_string());
                         jetdb_error(
                             "INVALID_ARGUMENT",
                             &format!("option type must be one of {}", names.join(", ")),
@@ -624,7 +625,7 @@ fn properties_error(error: PropertiesError, name: &str) -> JsValue {
             jetdb_error("OBJECT_NOT_FOUND", &format!("object not found: {name}"))
         }
         PropertiesError::SeveralTypes(types) => {
-            let names: Vec<&str> = types.into_iter().map(object_type_name).collect();
+            let names: Vec<String> = types.iter().map(ToString::to_string).collect();
             jetdb_error(
                 "INVALID_ARGUMENT",
                 &format!(

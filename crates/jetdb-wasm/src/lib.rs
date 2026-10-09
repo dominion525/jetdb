@@ -534,42 +534,6 @@ fn type_name(column_type: &ColumnType) -> String {
     }
 }
 
-/// The object types, in the order JavaScript lists them.
-pub const OBJECT_TYPES: [ObjectType; 13] = [
-    ObjectType::Table,
-    ObjectType::Query,
-    ObjectType::Form,
-    ObjectType::Report,
-    ObjectType::Macro,
-    ObjectType::Module,
-    ObjectType::LinkedTable,
-    ObjectType::LinkedOdbcTable,
-    ObjectType::Relationship,
-    ObjectType::Container,
-    ObjectType::Database,
-    ObjectType::DatabaseProperty,
-    ObjectType::UserInfo,
-];
-
-/// The name of an object type, as JavaScript gets it.
-pub fn object_type_name(object_type: ObjectType) -> &'static str {
-    match object_type {
-        ObjectType::Table => "Table",
-        ObjectType::Query => "Query",
-        ObjectType::Form => "Form",
-        ObjectType::Report => "Report",
-        ObjectType::Macro => "Macro",
-        ObjectType::Module => "Module",
-        ObjectType::LinkedTable => "LinkedTable",
-        ObjectType::LinkedOdbcTable => "LinkedOdbcTable",
-        ObjectType::Relationship => "Relationship",
-        ObjectType::Container => "Container",
-        ObjectType::Database => "Database",
-        ObjectType::DatabaseProperty => "DatabaseProperty",
-        ObjectType::UserInfo => "UserInfo",
-    }
-}
-
 /// The name of a query type, as JavaScript gets it.
 fn query_type_name(query_type: QueryType) -> &'static str {
     match query_type {
@@ -1339,7 +1303,7 @@ mod tests {
         else {
             panic!("expected several types");
         };
-        types.sort_by_key(|&t| object_type_name(t));
+        types.sort_by_key(|t| t.to_string());
         assert_eq!(
             types,
             [ObjectType::Form, ObjectType::Macro, ObjectType::Table]
@@ -1372,7 +1336,7 @@ mod tests {
     #[test]
     fn object_types_and_their_names() {
         // These names are the ObjectType union declared in js.rs.
-        let names: Vec<&str> = OBJECT_TYPES.iter().map(|&t| object_type_name(t)).collect();
+        let names = ObjectType::ALL.map(|t| t.to_string());
         assert_eq!(
             names,
             [
