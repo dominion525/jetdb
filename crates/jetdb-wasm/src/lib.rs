@@ -9,7 +9,7 @@ mod js;
 
 use std::io::Cursor;
 
-use jetdb::ddl::{self, DdlDialect};
+use jetdb::ddl::{self, with_calculated_column_types, DdlDialect};
 use jetdb::format::{index_flags, index_type, ColumnType, ObjectType};
 use jetdb::{
     calculated_column_types_in, entry_properties, find_table, query_to_sql, read_catalog,
@@ -243,24 +243,23 @@ impl Database {
     /// columns Access maintains and hides, as `jetdb export` leaves them out.
     pub fn columns(&mut self, table: &str) -> Result<Vec<Column>, FileError> {
         let (tdef, system_table) = self.table_def(table)?;
+        // The declared type of a calculated column is a placeholder; its
+        // values have the type of its result, as rows reads them, and no
+        // fixed precision or scale, as in the DDL.
         let calculated = calculated_column_types_in(self.catalog()?, &tdef);
+        let tdef = with_calculated_column_types(&tdef, &calculated);
         Ok(tdef
             .columns
             .iter()
             .filter(|c| c.is_shown(system_table))
             .map(|c| {
-                // The declared type of a calculated column is a placeholder;
-                // its values have the type of its result, as rows reads them.
-                let col_type = calculated
-                    .get(&c.name.to_ascii_lowercase())
-                    .unwrap_or(&c.col_type);
-                let fixed_numeric = *col_type == ColumnType::Numeric && !c.is_calculated;
+                let numeric = c.col_type == ColumnType::Numeric;
                 Column {
                     name: c.name.clone(),
-                    type_name: type_name(col_type),
+                    type_name: type_name(&c.col_type),
                     size: tdef.shown_size(c),
-                    precision: if fixed_numeric { c.precision } else { 0 },
-                    scale: if fixed_numeric { c.scale } else { 0 },
+                    precision: if numeric { c.precision } else { 0 },
+                    scale: if numeric { c.scale } else { 0 },
                     auto_number: c.is_auto_number(),
                     calculated: c.is_calculated,
                 }
