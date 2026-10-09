@@ -15,7 +15,7 @@ use jetdb::{
     calculated_column_types_in, entry_properties, find_table, query_to_sql, read_catalog,
     read_queries_in, read_relationships_in, read_table_def, read_table_rows_with,
     relationship_flags, timestamp, CatalogEntry, FileError, IndexColumnOrder, PageReader,
-    PropMapType, QueryType, TableDef, Value,
+    PropMapType, QueryDef, QueryType, TableDef, Value,
 };
 
 /// A database opened from bytes in memory.
@@ -24,6 +24,9 @@ pub struct Database {
     /// The catalog, read when it is first needed. The bytes never change, so
     /// it stays as read.
     catalog: Option<Vec<CatalogEntry>>,
+    /// The definitions of the saved queries, read when they are first needed,
+    /// as the catalog is.
+    queries: Option<Vec<QueryDef>>,
 }
 
 /// A column of a table, as `Database::columns` returns it.
@@ -211,6 +214,7 @@ impl Database {
         Ok(Self {
             reader,
             catalog: None,
+            queries: None,
         })
     }
 
@@ -368,19 +372,23 @@ impl Database {
     /// ones, such as those Access makes for forms and reports, as `tables`
     /// leaves them out, and with `include_system` all of them.
     pub fn queries(&mut self, include_system: bool) -> Result<Vec<Query>, FileError> {
-        let (reader, catalog) = self.reader_and_catalog()?;
-        let queries = read_queries_in(reader, catalog)?;
+        self.query_defs()?;
+        let catalog = self
+            .catalog
+            .as_deref()
+            .expect("the catalog was read for the queries");
+        let queries = self.queries.as_deref().expect("the queries were just read");
         let system_or_hidden = |name: &str| {
             catalog.iter().any(|e| {
                 e.object_type == ObjectType::Query && e.name == name && e.is_system_or_hidden()
             })
         };
         let mut out: Vec<Query> = queries
-            .into_iter()
+            .iter()
             .filter(|q| include_system || !system_or_hidden(&q.name))
             .map(|q| Query {
                 type_name: query_type_name(q.query_type),
-                name: q.name,
+                name: q.name.clone(),
             })
             .collect();
         out.sort_unstable_by(|a, b| a.name.cmp(&b.name));
@@ -390,15 +398,13 @@ impl Database {
     /// The SQL of the saved query `name`, system and hidden ones included, as
     /// `jetdb queries show` prints it.
     pub fn query_sql(&mut self, name: &str) -> Result<String, FileError> {
-        let (reader, catalog) = self.reader_and_catalog()?;
-        let queries = read_queries_in(reader, catalog)?;
-        let query =
-            queries
-                .iter()
-                .find(|q| q.name == name)
-                .ok_or_else(|| FileError::QueryNotFound {
-                    name: name.to_string(),
-                })?;
+        let query = self
+            .query_defs()?
+            .iter()
+            .find(|q| q.name == name)
+            .ok_or_else(|| FileError::QueryNotFound {
+                name: name.to_string(),
+            })?;
         if query.incomplete {
             return Err(FileError::IncompleteQuery {
                 name: query.name.clone(),
@@ -505,6 +511,17 @@ impl Database {
         self.catalog()?;
         let catalog = self.catalog.as_deref().expect("the catalog was just read");
         Ok((&mut self.reader, catalog))
+    }
+
+    /// The definitions of the saved queries, read on the first call. Like the
+    /// catalog, they are not kept when they cannot be read, and the error
+    /// comes from each call that needs them.
+    fn query_defs(&mut self) -> Result<&[QueryDef], FileError> {
+        if self.queries.is_none() {
+            let (reader, catalog) = self.reader_and_catalog()?;
+            self.queries = Some(read_queries_in(reader, catalog)?);
+        }
+        Ok(self.queries.as_deref().expect("the queries were just read"))
     }
 }
 
@@ -1155,6 +1172,27 @@ mod tests {
             name: name.to_string(),
             type_name,
         }
+    }
+
+    #[test]
+    fn query_definitions_read_once_and_reused() {
+        let bytes = skip_if_missing!("V2003/queryTestV2003.mdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        assert!(db.queries.is_none());
+        assert_eq!(db.queries(false).unwrap().len(), 9);
+
+        // Keep only DeleteQuery in their place: the calls that follow see
+        // that, rather than reading MSysQueries again.
+        db.queries
+            .as_mut()
+            .unwrap()
+            .retain(|q| q.name == "DeleteQuery");
+        assert_eq!(db.queries(false).unwrap(), [query("DeleteQuery", "Delete")]);
+        assert!(db.query_sql("DeleteQuery").is_ok());
+        assert!(matches!(
+            db.query_sql("SelectQuery"),
+            Err(FileError::QueryNotFound { .. })
+        ));
     }
 
     #[test]
