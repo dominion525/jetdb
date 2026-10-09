@@ -216,6 +216,10 @@ GUID のオートナンバー型（レプリケーション ID）の列には、
 
 Access の SQL ビューは、データベースが ANSI-92 の構文（Access のオプションの [オブジェクト デザイナー] にある「SQL Server 互換構文」）を使わない限り、`DEFAULT` を受け付けない。ANSI-92 の構文なら、列に `DEFAULT GenGUID()` を足せる。
 
+#### 参照整合性のないリレーションシップ
+
+Access が参照整合性を強制しないリレーションシップは制約ではないので、DDL は `FOREIGN KEY` ではなくコメント（`-- Relationship ... does not enforce referential integrity.`）として書く。Access の SQL にはコメントがないので、Access の DDL には出さない。
+
 ### queries — 保存済みクエリの管理
 
 #### queries list — クエリ名の一覧表示

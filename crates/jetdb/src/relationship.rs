@@ -36,6 +36,15 @@ pub struct Relationship {
     pub flags: u32,
 }
 
+impl Relationship {
+    /// `true` when Access enforces referential integrity, so that the
+    /// relationship is a constraint, not only a note of how the tables join
+    /// ([`relationship_flags::NO_REFERENTIAL_INTEGRITY`]).
+    pub fn has_referential_integrity(&self) -> bool {
+        self.flags & relationship_flags::NO_REFERENTIAL_INTEGRITY == 0
+    }
+}
+
 /// Relationship flag constants.
 pub mod relationship_flags {
     /// No referential integrity enforcement (comment-only).

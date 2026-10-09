@@ -216,6 +216,10 @@ A GUID AutoNumber column (Replication ID) gets a default that makes a new GUID, 
 
 The SQL view of Access rejects `DEFAULT` unless the database uses ANSI-92 syntax (SQL Server Compatible Syntax, in Object Designers of the Access options). With it, `DEFAULT GenGUID()` can be added to the column.
 
+#### Relationships without referential integrity
+
+A relationship for which Access does not enforce referential integrity is no constraint, so the DDL writes it as a comment (`-- Relationship ... does not enforce referential integrity.`) rather than a `FOREIGN KEY`. Access SQL has no comments, so the Access DDL leaves it out.
+
 ### queries — Manage saved queries
 
 #### queries list — List saved query names

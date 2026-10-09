@@ -56,6 +56,10 @@ impl DdlDialect for Mysql {
         true
     }
 
+    fn supports_comments(&self) -> bool {
+        true
+    }
+
     fn index_names_per_table(&self) -> bool {
         true
     }

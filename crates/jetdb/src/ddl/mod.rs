@@ -14,7 +14,10 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 
 use crate::format::{column_flags, index_flags, index_type, ColumnType, ObjectType};
-use crate::{CatalogEntry, ColumnDef, FileError, IndexDef, PageReader, Relationship, TableDef};
+use crate::{
+    CatalogEntry, ColumnDef, FileError, IndexDef, PageReader, Relationship, RelationshipColumn,
+    TableDef,
+};
 
 /// The names of the dialects, as `jetdb schema --ddl` takes them.
 pub const DIALECT_NAMES: [&str; 4] = ["sqlite", "postgres", "mysql", "access"];
@@ -81,6 +84,9 @@ pub trait DdlDialect {
     /// CREATE TABLE (true only for MySQL, whose InnoDB looks up the largest
     /// value through it)
     fn auto_increment_needs_key(&self) -> bool;
+
+    /// Whether the dialect has SQL comments (`--`); Access SQL has none
+    fn supports_comments(&self) -> bool;
 
     /// Whether an index name needs to be unique only within its table (MySQL,
     /// Access), rather than among all the tables and indexes of the schema
@@ -326,7 +332,12 @@ pub fn generate_create_table(
     }
     lines.extend(auto_increment_keys(dialect, tdef, pk, auto_pk_col));
 
-    // Inline foreign keys (SQLite)
+    // Inline foreign keys (SQLite). A relationship without referential
+    // integrity is no constraint; it follows the statement as a comment.
+    let (table_rels, notes): (Vec<&Relationship>, Vec<&Relationship>) = table_rels
+        .iter()
+        .copied()
+        .partition(|r| r.has_referential_integrity());
     for rel in table_rels {
         let from_cols: Vec<String> = rel
             .columns
@@ -348,10 +359,38 @@ pub fn generate_create_table(
         lines.push(fk);
     }
 
-    format!(
+    let mut out = format!(
         "CREATE TABLE {} (\n{}\n);\n",
         dialect.quote_id(&tdef.name),
         lines.join(",\n")
+    );
+    for rel in notes {
+        out.push_str(&no_integrity_note(dialect, rel));
+    }
+    out
+}
+
+/// A comment for a relationship without referential integrity, which Access
+/// does not enforce and so is no constraint; nothing where the dialect has
+/// no comments.
+fn no_integrity_note(dialect: &dyn DdlDialect, rel: &Relationship) -> String {
+    if !dialect.supports_comments() {
+        return String::new();
+    }
+    let cols = |pick: fn(&RelationshipColumn) -> &str| -> String {
+        rel.columns
+            .iter()
+            .map(|c| dialect.quote_id(pick(c)))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    format!(
+        "-- Relationship {} from {} ({}) to {} ({}) does not enforce referential integrity.\n",
+        dialect.quote_id(&rel.name),
+        dialect.quote_id(&rel.from_table),
+        cols(|c| &c.from_column),
+        dialect.quote_id(&rel.to_table),
+        cols(|c| &c.to_column)
     )
 }
 
@@ -409,6 +448,10 @@ pub fn generate_foreign_keys(dialect: &dyn DdlDialect, relationships: &[&Relatio
     let mut out = String::new();
 
     for rel in relationships {
+        if !rel.has_referential_integrity() {
+            out.push_str(&no_integrity_note(dialect, rel));
+            continue;
+        }
         let from_cols: Vec<String> = rel
             .columns
             .iter()
@@ -1253,6 +1296,44 @@ mod tests {
         assert!(
             result.contains("FOREIGN KEY (\"parent_id\") REFERENCES \"Parent\" (\"id\")"),
             "got:\n{result}"
+        );
+    }
+
+    #[test]
+    fn relationship_without_integrity_is_a_comment() {
+        // Access does not enforce it, so it is no constraint.
+        let rel = relationship(
+            "Table1Table2",
+            "Table2",
+            "Table1",
+            &[("Field1", "Field1")],
+            crate::relationship_flags::NO_REFERENTIAL_INTEGRITY,
+        );
+        let note = "-- Relationship \"Table1Table2\" from \"Table2\" (\"Field1\") to \"Table1\" \
+                    (\"Field1\") does not enforce referential integrity.\n";
+        assert_eq!(generate_foreign_keys(&*postgres(), &[&rel]), note);
+        assert_eq!(
+            generate_foreign_keys(&*mysql(), &[&rel]),
+            "-- Relationship `Table1Table2` from `Table2` (`Field1`) to `Table1` (`Field1`) \
+             does not enforce referential integrity.\n"
+        );
+        // Access SQL has no comments.
+        assert_eq!(generate_foreign_keys(&*access(), &[&rel]), "");
+
+        // SQLite writes foreign keys in CREATE TABLE; the note follows it.
+        let tdef = table(
+            "Table2",
+            vec![col_with_num("Field1", ColumnType::Long, 4, 0, 0, 0, 1)],
+            vec![],
+        );
+        let enforced = relationship("Enforced", "Table2", "Table3", &[("Field1", "id")], 0);
+        let sql = generate_create_table(&*sqlite(), &tdef, &[&rel, &enforced]);
+        assert_eq!(
+            sql,
+            format!(
+                "CREATE TABLE \"Table2\" (\n    \"Field1\" INTEGER NOT NULL,\n    \
+                 FOREIGN KEY (\"Field1\") REFERENCES \"Table3\" (\"id\")\n);\n{note}"
+            )
         );
     }
 
