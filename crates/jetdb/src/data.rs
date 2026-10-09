@@ -2,6 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::catalog::CatalogEntry;
 use crate::encoding;
 use crate::file::{find_row, FileError, PageReader};
 use crate::format::{row, ColumnType, ObjectType};
@@ -101,14 +102,37 @@ pub fn calculated_column_types(
     reader: &mut PageReader,
     table: &TableDef,
 ) -> HashMap<String, ColumnType> {
-    let has_calculated = table.columns.iter().any(|c| c.is_calculated);
-    if !has_calculated || table.name.starts_with("MSys") {
+    if !has_calculated_columns(table) {
         return HashMap::new();
     }
     crate::prop::read_object_properties_of_type(reader, &table.name, ObjectType::Table)
         .ok()
         .map(|props| calculated_result_types(&props))
         .unwrap_or_default()
+}
+
+/// [`calculated_column_types`] with the catalog already read, whose entry of
+/// the table holds its properties, rather than read MSysObjects again.
+pub fn calculated_column_types_in(
+    catalog: &[CatalogEntry],
+    table: &TableDef,
+) -> HashMap<String, ColumnType> {
+    if !has_calculated_columns(table) {
+        return HashMap::new();
+    }
+    catalog
+        .iter()
+        .find(|e| e.object_type == ObjectType::Table && e.name == table.name)
+        .and_then(|e| crate::prop::entry_properties(e, table.is_jet3).ok())
+        .map(|props| calculated_result_types(&props))
+        .unwrap_or_default()
+}
+
+/// Whether to look up the result types of calculated columns: a system table
+/// (MSys*) never has any, and reading MSysObjects itself must not look them
+/// up.
+fn has_calculated_columns(table: &TableDef) -> bool {
+    table.columns.iter().any(|c| c.is_calculated) && !table.name.starts_with("MSys")
 }
 
 fn read_table_rows_impl(
@@ -3242,6 +3266,8 @@ mod tests {
         let table =
             crate::table::read_table_def(&mut reader, &entry.name, entry.table_page).unwrap();
         let types = calculated_column_types(&mut reader, &table);
+        // The same from the catalog already read.
+        assert_eq!(calculated_column_types_in(&catalog, &table), types);
         let declared = |name: &str| {
             table
                 .columns

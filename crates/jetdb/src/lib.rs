@@ -38,7 +38,9 @@ pub use table::{
 #[allow(deprecated)]
 pub use table::is_replication_column;
 
-pub use data::{calculated_column_types, read_table_rows, ReadResult, Value};
+pub use data::{
+    calculated_column_types, calculated_column_types_in, read_table_rows, ReadResult, Value,
+};
 pub use form::{
     control_type_name, list_forms, read_form_properties, read_form_stream, read_form_type_info,
     BlobProperty, BlobValue, ControlInfo, ControlProperties, FormEntry, FormObjectType,
@@ -52,8 +54,8 @@ pub use macro_def::{
 };
 pub use macro_text::{data_macros_to_text, embedded_macro_to_text};
 pub use prop::{
-    read_object_properties, read_object_properties_of_type, ObjectProperties, PropMapType,
-    Property, PropertyMap,
+    entry_properties, read_object_properties, read_object_properties_of_type, ObjectProperties,
+    PropMapType, Property, PropertyMap,
 };
 pub use query::{query_to_sql, read_queries, read_queries_in, QueryDef, QueryType};
 pub use vba::{read_vba_project, VbaModule, VbaModuleType, VbaProject};

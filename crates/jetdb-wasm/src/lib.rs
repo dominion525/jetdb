@@ -12,10 +12,10 @@ use std::io::Cursor;
 use jetdb::ddl::{self, DdlDialect};
 use jetdb::format::{index_flags, index_type, ColumnType, ObjectType};
 use jetdb::{
-    calculated_column_types, find_table, query_to_sql, read_catalog,
-    read_object_properties_of_type, read_queries_in, read_relationships_in, read_table_def,
-    read_table_rows, relationship_flags, timestamp, CatalogEntry, FileError, IndexColumnOrder,
-    PageReader, PropMapType, QueryType, TableDef, Value,
+    calculated_column_types_in, entry_properties, find_table, query_to_sql, read_catalog,
+    read_queries_in, read_relationships_in, read_table_def, read_table_rows, relationship_flags,
+    timestamp, CatalogEntry, FileError, IndexColumnOrder, PageReader, PropMapType, QueryType,
+    TableDef, Value,
 };
 
 /// A database opened from bytes in memory.
@@ -239,7 +239,7 @@ impl Database {
     /// columns Access maintains and hides, as `jetdb export` leaves them out.
     pub fn columns(&mut self, table: &str) -> Result<Vec<Column>, FileError> {
         let (tdef, system_table) = self.table_def(table)?;
-        let calculated = calculated_column_types(&mut self.reader, &tdef);
+        let calculated = calculated_column_types_in(self.catalog()?, &tdef);
         Ok(tdef
             .columns
             .iter()
@@ -414,18 +414,21 @@ impl Database {
         name: &str,
         object_type: Option<ObjectType>,
     ) -> Result<ObjectProperties, PropertiesError> {
-        let types: Vec<ObjectType> = self
+        let is_jet3 = self.reader.header().version.is_jet3();
+        let entries: Vec<&CatalogEntry> = self
             .catalog()?
             .iter()
             .filter(|e| e.name == name && object_type.is_none_or(|t| e.object_type == t))
-            .map(|e| e.object_type)
             .collect();
-        let object_type = match types.as_slice() {
+        let entry = match entries.as_slice() {
             [] => return Err(PropertiesError::NotFound),
             [only] => *only,
-            _ => return Err(PropertiesError::SeveralTypes(types)),
+            several => {
+                let types = several.iter().map(|e| e.object_type).collect();
+                return Err(PropertiesError::SeveralTypes(types));
+            }
         };
-        let read = read_object_properties_of_type(&mut self.reader, name, object_type)?;
+        let read = entry_properties(entry, is_jet3)?;
         let mut out = ObjectProperties::default();
         for map in read.maps {
             let properties: Vec<Property> = map

@@ -557,6 +557,7 @@ mod tests {
             object_type,
             table_page: 100,
             flags,
+            lv_prop: None,
         }
     }
 

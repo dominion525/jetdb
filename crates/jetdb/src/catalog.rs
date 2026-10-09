@@ -18,6 +18,9 @@ pub struct CatalogEntry {
     pub table_page: u32,
     /// MSysObjects.Flags value (0 if the column is absent).
     pub flags: u32,
+    /// MSysObjects.LvProp, the properties of the object, which
+    /// [`crate::entry_properties`] reads; `None` when it has none.
+    pub lv_prop: Option<Vec<u8>>,
 }
 
 impl CatalogEntry {
@@ -45,13 +48,15 @@ pub fn read_catalog(reader: &mut PageReader) -> Result<Vec<CatalogEntry>, FileEr
     result.warn_skipped("MSysObjects");
 
     // Locate required column indices in a single pass
-    let (mut id_idx, mut name_idx, mut type_idx, mut flags_idx) = (None, None, None, None);
+    let (mut id_idx, mut name_idx, mut type_idx, mut flags_idx, mut lvprop_idx) =
+        (None, None, None, None, None);
     for (i, col) in tdef.columns.iter().enumerate() {
         match col.name.as_str() {
             "Id" => id_idx = Some(i),
             "Name" => name_idx = Some(i),
             "Type" => type_idx = Some(i),
             "Flags" => flags_idx = Some(i),
+            "LvProp" => lvprop_idx = Some(i),
             _ => {}
         }
     }
@@ -97,11 +102,17 @@ pub fn read_catalog(reader: &mut PageReader) -> Result<Vec<CatalogEntry>, FileEr
             _ => 0,
         };
 
+        let lv_prop = match lvprop_idx.and_then(|i| row.get(i)) {
+            Some(Value::Binary(b)) => Some(b.clone()),
+            _ => None,
+        };
+
         entries.push(CatalogEntry {
             name,
             object_type,
             table_page,
             flags,
+            lv_prop,
         });
     }
 
@@ -336,6 +347,7 @@ mod tests {
             object_type,
             table_page: 100,
             flags,
+            lv_prop: None,
         }
     }
 

@@ -52,7 +52,7 @@ pub fn schema_tables(
     let mut tables = Vec::with_capacity(targets.len());
     for entry in targets {
         let tdef = crate::read_table_def(reader, &entry.name, entry.table_page)?;
-        let calculated = crate::calculated_column_types(reader, &tdef);
+        let calculated = crate::calculated_column_types_in(catalog, &tdef);
         tables.push(with_calculated_column_types(&tdef, &calculated));
     }
     Ok(tables)
