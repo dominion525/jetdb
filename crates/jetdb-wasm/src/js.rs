@@ -423,12 +423,12 @@ impl JsDatabase {
             .properties(&name, object_type)
             .map_err(|e| properties_error(e, &name))?;
         let object = Object::new();
-        set(&object, "object", property_array(&properties.object).into());
-        set(&object, "columns", group_array(&properties.columns).into());
+        set(&object, "object", property_array(properties.object).into());
+        set(&object, "columns", group_array(properties.columns).into());
         set(
             &object,
             "additional",
-            group_array(&properties.additional).into(),
+            group_array(properties.additional).into(),
         );
         Ok(object)
     }
@@ -637,25 +637,25 @@ fn properties_error(error: PropertiesError, name: &str) -> JsValue {
     }
 }
 
-fn property_array(properties: &[Property]) -> Array {
+fn property_array(properties: Vec<Property>) -> Array {
     properties
-        .iter()
+        .into_iter()
         .map(|p| {
             let object = Object::new();
-            set(&object, "name", p.name.as_str().into());
-            set(&object, "value", cell_value(p.value.clone()));
+            set(&object, "name", p.name.into());
+            set(&object, "value", cell_value(p.value));
             object
         })
         .collect()
 }
 
-fn group_array(groups: &[PropertyGroup]) -> Array {
+fn group_array(groups: Vec<PropertyGroup>) -> Array {
     groups
-        .iter()
+        .into_iter()
         .map(|g| {
             let object = Object::new();
-            set(&object, "name", g.name.as_str().into());
-            set(&object, "properties", property_array(&g.properties).into());
+            set(&object, "name", g.name.into());
+            set(&object, "properties", property_array(g.properties).into());
             object
         })
         .collect()
