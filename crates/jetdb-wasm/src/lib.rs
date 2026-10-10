@@ -423,13 +423,18 @@ impl Database {
             .iter()
             .filter(|e| e.name == name && object_type.is_none_or(|t| e.object_type == t))
             .collect();
-        let entry = match entries.as_slice() {
-            [] => return Err(PropertiesError::NotFound),
-            [only] => *only,
-            several => {
-                let types = several.iter().map(|e| e.object_type).collect();
-                return Err(PropertiesError::SeveralTypes(types));
+        // Rows of the same type are one type: the first of them is read, as
+        // read_object_properties_of_type reads the first.
+        let mut types: Vec<ObjectType> = Vec::new();
+        for e in &entries {
+            if !types.contains(&e.object_type) {
+                types.push(e.object_type);
             }
+        }
+        let entry = match (types.len(), entries.first()) {
+            (_, None) => return Err(PropertiesError::NotFound),
+            (1, Some(first)) => *first,
+            _ => return Err(PropertiesError::SeveralTypes(types)),
         };
         let read = entry_properties(entry, is_jet3)?;
         let mut out = ObjectProperties::default();
@@ -1355,6 +1360,33 @@ mod tests {
             db.properties("Customers", Some(ObjectType::Query)),
             Err(PropertiesError::NotFound)
         ));
+    }
+
+    #[test]
+    fn properties_of_an_object_listed_twice() {
+        // Two catalog rows of the same name and type are one object type.
+        let bytes = skip_if_missing!("V1997/nwind.mdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        let catalog = db.catalog().unwrap();
+        let table = catalog
+            .iter()
+            .find(|e| e.name == "Customers" && e.object_type == ObjectType::Table)
+            .unwrap()
+            .clone();
+        db.catalog.as_mut().unwrap().push(table);
+
+        let table = db.properties("Customers", Some(ObjectType::Table)).unwrap();
+        assert!(table.columns.iter().any(|c| c.name == "CustomerID"));
+        let PropertiesError::SeveralTypes(mut types) =
+            db.properties("Customers", None).unwrap_err()
+        else {
+            panic!("expected several types");
+        };
+        types.sort_by_key(|t| t.to_string());
+        assert_eq!(
+            types,
+            [ObjectType::Form, ObjectType::Macro, ObjectType::Table]
+        );
     }
 
     #[test]
