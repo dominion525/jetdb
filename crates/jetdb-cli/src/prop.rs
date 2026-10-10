@@ -4,8 +4,8 @@ use std::process::ExitCode;
 use clap::Args;
 use jetdb::format::ObjectType;
 use jetdb::{
-    read_catalog, read_object_properties, read_object_properties_of_type, ObjectProperties,
-    PageReader, PropMapType, Value,
+    read_catalog, read_object_properties, read_object_properties_of_type, CatalogEntry,
+    ObjectProperties, PageReader, PropMapType, Value,
 };
 
 use crate::object_type_name;
@@ -45,7 +45,10 @@ fn run_prop(args: &PropArgs, password: Option<&str>) -> Result<(), String> {
         PageReader::open_with_password(&args.file, password).map_err(|e| e.to_string())?;
     let object_type = match &args.object_type {
         Some(name) => Some(object_type_named(name)),
-        None => only_type_of(&mut reader, &args.object_name)?,
+        None => {
+            let catalog = read_catalog(&mut reader).map_err(|e| e.to_string())?;
+            only_type_of(&catalog, &args.object_name)?
+        }
     };
     // Without a type, the object may be of a type the catalog leaves out:
     // read it by its name alone.
@@ -117,15 +120,16 @@ fn print_properties(props: &ObjectProperties, object_type: Option<ObjectType>) {
     }
 }
 
-/// The type of the object named `name`, `None` when there is none, or an
-/// error naming the types when objects of several types share the name.
-fn only_type_of(reader: &mut PageReader, name: &str) -> Result<Option<ObjectType>, String> {
-    let catalog = read_catalog(reader).map_err(|e| e.to_string())?;
-    let types: Vec<ObjectType> = catalog
-        .iter()
-        .filter(|e| e.name == name)
-        .map(|e| e.object_type)
-        .collect();
+/// The type of the object named `name` in `catalog`, `None` when there is
+/// none, or an error naming the types when objects of several types share
+/// the name. Rows of the same type are one type.
+fn only_type_of(catalog: &[CatalogEntry], name: &str) -> Result<Option<ObjectType>, String> {
+    let mut types: Vec<ObjectType> = Vec::new();
+    for e in catalog.iter().filter(|e| e.name == name) {
+        if !types.contains(&e.object_type) {
+            types.push(e.object_type);
+        }
+    }
     match types.as_slice() {
         [] => Ok(None),
         [only] => Ok(Some(*only)),
@@ -167,6 +171,35 @@ fn format_value(value: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_type_of_rows_of_the_same_type() {
+        let entry = |object_type| CatalogEntry {
+            name: "Customers".to_string(),
+            object_type,
+            table_page: 0,
+            flags: 0,
+            lv_prop: None,
+        };
+        let twice = [entry(ObjectType::Table), entry(ObjectType::Table)];
+        assert_eq!(
+            only_type_of(&twice, "Customers"),
+            Ok(Some(ObjectType::Table))
+        );
+        assert_eq!(only_type_of(&twice, "Orders"), Ok(None));
+        let several = [
+            entry(ObjectType::Table),
+            entry(ObjectType::Form),
+            entry(ObjectType::Table),
+        ];
+        assert_eq!(
+            only_type_of(&several, "Customers"),
+            Err(
+                "objects of several types are named Customers: table, form; choose one with --type"
+                    .to_string()
+            )
+        );
+    }
 
     #[test]
     fn format_value_bool_true() {
