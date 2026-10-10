@@ -4,7 +4,8 @@ use std::process::ExitCode;
 use clap::Args;
 use jetdb::format::ObjectType;
 use jetdb::{
-    read_catalog, read_object_properties_of_type, ObjectProperties, PageReader, PropMapType, Value,
+    read_catalog, read_object_properties, read_object_properties_of_type, ObjectProperties,
+    PageReader, PropMapType, Value,
 };
 
 use crate::object_type_name;
@@ -46,12 +47,13 @@ fn run_prop(args: &PropArgs, password: Option<&str>) -> Result<(), String> {
         Some(name) => Some(object_type_named(name)),
         None => only_type_of(&mut reader, &args.object_name)?,
     };
-    let Some(object_type) = object_type else {
-        // No object has the name: nothing to print.
-        return Ok(());
-    };
-    let props = read_object_properties_of_type(&mut reader, &args.object_name, object_type)
-        .map_err(|e| e.to_string())?;
+    // Without a type, the object may be of a type the catalog leaves out:
+    // read it by its name alone.
+    let props = match object_type {
+        Some(t) => read_object_properties_of_type(&mut reader, &args.object_name, t),
+        None => read_object_properties(&mut reader, &args.object_name),
+    }
+    .map_err(|e| e.to_string())?;
     print_properties(&props, object_type);
     Ok(())
 }
@@ -65,8 +67,8 @@ fn object_type_named(name: &str) -> ObjectType {
 }
 
 /// Prints the properties of an object of `object_type`, nothing when it has
-/// none.
-fn print_properties(props: &ObjectProperties, object_type: ObjectType) {
+/// none. An object of a type the catalog leaves out has none given.
+fn print_properties(props: &ObjectProperties, object_type: Option<ObjectType>) {
     if props.maps.is_empty() {
         return;
     }
@@ -80,9 +82,10 @@ fn print_properties(props: &ObjectProperties, object_type: ObjectType) {
 
         println!();
         match map.map_type {
-            PropMapType::Default => {
-                println!("  {object_type} Properties:");
-            }
+            PropMapType::Default => match object_type {
+                Some(t) => println!("  {t} Properties:"),
+                None => println!("  Object Properties:"),
+            },
             PropMapType::Column => {
                 println!("  Column: {}", map.name);
             }
