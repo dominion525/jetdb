@@ -335,11 +335,7 @@ impl Database {
     pub fn relationships(&mut self, include_system: bool) -> Result<Vec<Relationship>, FileError> {
         let (reader, catalog) = self.reader_and_catalog()?;
         let relationships = read_relationships_in(reader, catalog)?;
-        let system_or_hidden = |name: &str| {
-            catalog.iter().any(|e| {
-                e.object_type == ObjectType::Table && e.name == name && e.is_system_or_hidden()
-            })
-        };
+        let system_or_hidden = |name: &str| is_system_or_hidden_table(catalog, name);
         let mut out: Vec<Relationship> = relationships
             .into_iter()
             .filter(|r| {
@@ -532,6 +528,18 @@ fn type_name(column_type: &ColumnType) -> String {
         ColumnType::Unknown(_) => "Unknown".to_string(),
         known => known.to_string(),
     }
+}
+
+/// `true` when `name` is a table, linked or not, that Access keeps from users,
+/// whose relationships `Database::relationships` leaves out.
+fn is_system_or_hidden_table(catalog: &[CatalogEntry], name: &str) -> bool {
+    catalog.iter().any(|e| {
+        matches!(
+            e.object_type,
+            ObjectType::Table | ObjectType::LinkedTable | ObjectType::LinkedOdbcTable
+        ) && e.name == name
+            && e.is_system_or_hidden()
+    })
 }
 
 /// The name of a query type, as JavaScript gets it.
@@ -997,6 +1005,32 @@ mod tests {
                 (false, false)
             )
         );
+    }
+
+    #[test]
+    fn hidden_tables_linked_or_not() {
+        let entry = |name: &str, object_type, flags| CatalogEntry {
+            name: name.to_string(),
+            object_type,
+            table_page: 0,
+            flags,
+            lv_prop: None,
+        };
+        let hidden = jetdb::format::catalog_flags::HIDDEN;
+        let catalog = [
+            entry("Shown", ObjectType::Table, 0),
+            entry("Hidden", ObjectType::Table, hidden),
+            entry("HiddenLink", ObjectType::LinkedTable, hidden),
+            entry("HiddenOdbc", ObjectType::LinkedOdbcTable, hidden),
+            entry("ShownLink", ObjectType::LinkedTable, 0),
+            entry("HiddenQuery", ObjectType::Query, hidden),
+        ];
+        let hidden_ones: Vec<&str> = catalog
+            .iter()
+            .map(|e| e.name.as_str())
+            .filter(|&name| is_system_or_hidden_table(&catalog, name))
+            .collect();
+        assert_eq!(hidden_ones, ["Hidden", "HiddenLink", "HiddenOdbc"]);
     }
 
     #[test]
