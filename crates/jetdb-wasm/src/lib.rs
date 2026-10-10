@@ -13,9 +13,9 @@ use jetdb::ddl::{self, with_calculated_column_types, DdlDialect};
 use jetdb::format::{index_flags, index_type, ColumnType, ObjectType};
 use jetdb::{
     calculated_column_types_in, entry_properties, find_table, query_to_sql, read_catalog,
-    read_queries_in, read_relationships_in, read_table_def, read_table_rows_with,
-    relationship_flags, timestamp, CatalogEntry, FileError, IndexColumnOrder, PageReader,
-    PropMapType, QueryDef, QueryType, TableDef, Value,
+    read_object_properties, read_queries_in, read_relationships_in, read_table_def,
+    read_table_rows_with, relationship_flags, timestamp, CatalogEntry, FileError, IndexColumnOrder,
+    PageReader, PropMapType, QueryDef, QueryType, TableDef, Value,
 };
 
 /// A database opened from bytes in memory.
@@ -432,11 +432,24 @@ impl Database {
             }
         }
         let entry = match (types.len(), entries.first()) {
-            (_, None) => return Err(PropertiesError::NotFound),
-            (1, Some(first)) => *first,
+            (_, None) => None,
+            (1, Some(first)) => Some(*first),
             _ => return Err(PropertiesError::SeveralTypes(types)),
         };
-        let read = entry_properties(entry, is_jet3)?;
+        let read = match entry {
+            Some(entry) => entry_properties(entry, is_jet3)?,
+            // The catalog leaves out objects of types jetdb does not know:
+            // without a type, read MSysObjects again by the name alone, as
+            // `jetdb prop` does.
+            None if object_type.is_none() => {
+                let read = read_object_properties(&mut self.reader, name)?;
+                if read.maps.is_empty() {
+                    return Err(PropertiesError::NotFound);
+                }
+                read
+            }
+            None => return Err(PropertiesError::NotFound),
+        };
         let mut out = ObjectProperties::default();
         for map in read.maps {
             let properties: Vec<Property> = map
@@ -1395,6 +1408,24 @@ mod tests {
         let mut db = Database::open(bytes, None).unwrap();
         assert!(matches!(
             db.properties("NoSuchObject", None),
+            Err(PropertiesError::NotFound)
+        ));
+    }
+
+    #[test]
+    fn properties_of_an_object_the_catalog_leaves_out() {
+        // The catalog leaves out objects of types jetdb does not know; take
+        // Table1 out of it to stand for one.
+        let bytes = skip_if_missing!("V2003/testV2003.mdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        let expected = db.properties("Table1", None).unwrap();
+        db.catalog.as_mut().unwrap().retain(|e| e.name != "Table1");
+
+        // Without a type, it is read by the name alone.
+        assert_eq!(db.properties("Table1", None).unwrap(), expected);
+        // With a type, only the catalog is searched.
+        assert!(matches!(
+            db.properties("Table1", Some(ObjectType::Table)),
             Err(PropertiesError::NotFound)
         ));
     }
