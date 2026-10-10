@@ -47,12 +47,14 @@ fn run_prop(args: &PropArgs, password: Option<&str>) -> Result<(), String> {
         Some(name) => Some(object_type_named(name)),
         None => only_type_of(&mut reader, &args.object_name)?,
     };
+    // Without a type, the object may be of a type the catalog leaves out:
+    // read it by its name alone.
     let props = match object_type {
         Some(t) => read_object_properties_of_type(&mut reader, &args.object_name, t),
         None => read_object_properties(&mut reader, &args.object_name),
     }
     .map_err(|e| e.to_string())?;
-    print_properties(&props);
+    print_properties(&props, object_type);
     Ok(())
 }
 
@@ -64,8 +66,9 @@ fn object_type_named(name: &str) -> ObjectType {
         .expect("clap accepts only the type names")
 }
 
-/// Prints the properties of an object, nothing when it has none.
-fn print_properties(props: &ObjectProperties) {
+/// Prints the properties of an object of `object_type`, nothing when it has
+/// none. An object of a type the catalog leaves out has none given.
+fn print_properties(props: &ObjectProperties, object_type: Option<ObjectType>) {
     if props.maps.is_empty() {
         return;
     }
@@ -79,9 +82,10 @@ fn print_properties(props: &ObjectProperties) {
 
         println!();
         match map.map_type {
-            PropMapType::Default => {
-                println!("  Table Properties:");
-            }
+            PropMapType::Default => match object_type {
+                Some(t) => println!("  {t} Properties:"),
+                None => println!("  Object Properties:"),
+            },
             PropMapType::Column => {
                 println!("  Column: {}", map.name);
             }

@@ -90,6 +90,23 @@ fn prop_shared_name_needs_type() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Column: CustomerID"), "got:\n{stdout}");
+    assert!(stdout.contains("  Table Properties:"), "got:\n{stdout}");
+
+    // The heading names the type of the object.
+    let output = jetdb_bin()
+        .args([
+            "prop",
+            "--type",
+            "form",
+            path.to_str().unwrap(),
+            "Customers",
+        ])
+        .output()
+        .expect("failed to run jetdb");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("  Form Properties:"), "got:\n{stdout}");
+    assert!(!stdout.contains("Table Properties:"), "got:\n{stdout}");
 }
 
 // ---------------------------------------------------------------------------
