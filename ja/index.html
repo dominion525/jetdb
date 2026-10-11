@@ -106,50 +106,165 @@
             <li class="read">
               <h3><span class="num">01</span>テーブルのデータ</h3>
               <p>CSV で書き出します。</p>
-              <code class="cmd">jetdb export sales.accdb Customers</code>
+              <code class="cmd">jetdb export testV2010.accdb Table1</code>
+              <details class="output">
+                <summary>出力を見る</summary>
+                <pre><code>A,B,C,D,E,F,G,H,I
+&quot;a&quot;,&quot;b&quot;,0,0,0,0,1981-12-12,0.0000,0
+&quot;abcdefg&quot;,&quot;hijklmnop&quot;,2,222,333333333,444.555,1974-09-21,3.5000,1</code></pre>
+              </details>
             </li>
             <li class="read">
               <h3><span class="num">02</span>スキーマ</h3>
               <p>列・索引・リレーションシップを表示します。</p>
-              <code class="cmd">jetdb schema sales.accdb</code>
+              <code class="cmd">jetdb schema testV2010.accdb -T Table1</code>
+              <details class="output">
+                <summary>出力を見る</summary>
+                <pre><code>Table: Table1
+
+  Columns:
+    A  Text(50)
+    B  Text(100)
+    C  Byte
+    D  Int
+    E  Long
+    F  Double
+    G  Timestamp
+    H  Money
+    I  Boolean
+
+  Indexes:
+    B           [B ASC]
+    PrimaryKey  [A ASC]  UNIQUE REQUIRED</code></pre>
+              </details>
             </li>
             <li class="read">
               <h3><span class="num">03</span>DDL</h3>
               <p>SQLite・PostgreSQL・MySQL・Access SQL 向けに作ります。</p>
-              <code class="cmd">jetdb schema sales.accdb --ddl sqlite</code>
+              <code class="cmd">jetdb schema testV2010.accdb -T Table1 --ddl postgres</code>
+              <details class="output">
+                <summary>出力を見る</summary>
+                <pre><code>CREATE TABLE &quot;Table1&quot; (
+    &quot;A&quot; VARCHAR(50),
+    &quot;B&quot; VARCHAR(100),
+    &quot;C&quot; SMALLINT,
+    &quot;D&quot; SMALLINT,
+    &quot;E&quot; INTEGER,
+    &quot;F&quot; DOUBLE PRECISION,
+    &quot;G&quot; TIMESTAMP WITHOUT TIME ZONE,
+    &quot;H&quot; NUMERIC(19,4),
+    &quot;I&quot; BOOLEAN,
+    PRIMARY KEY (&quot;A&quot;)
+);
+
+CREATE INDEX &quot;Table1_B_idx&quot; ON &quot;Table1&quot; (&quot;B&quot;);</code></pre>
+              </details>
             </li>
             <li class="read">
               <h3><span class="num">04</span>クエリの SQL</h3>
               <p>保存済みクエリの SQL を復元します。</p>
-              <code class="cmd"
-                >jetdb queries show sales.accdb MonthlySales</code
-              >
+              <code class="cmd">jetdb queries show queryTestV2010.accdb SelectQuery</code>
+              <details class="output">
+                <summary>出力を見る</summary>
+                <pre><code>SELECT DISTINCT Table1.*, Table2.col1, Table2.col2, Table3.col3
+FROM (Table1 LEFT JOIN Table3 ON Table1.col1 = Table3.col1) INNER JOIN Table2 ON (Table3.col1 = Table2.col2) AND (Table3.col1 = Table2.col1)
+WHERE (((Table2.col2)=&quot;foo&quot; Or (Table2.col2) In (&quot;buzz&quot;,&quot;bazz&quot;)))
+ORDER BY Table2.col1;</code></pre>
+              </details>
             </li>
             <li class="read">
               <h3><span class="num">05</span>VBA</h3>
-              <p>
-                標準モジュール・クラスモジュール・フォームのモジュールのソースを取り出します。
-              </p>
-              <code class="cmd">jetdb vba show sales.accdb Module1</code>
+              <p>標準モジュール・クラスモジュール・フォームのモジュールのソースを取り出します。</p>
+              <code class="cmd">jetdb vba show vbaV2007.accdb Module1</code>
+              <details class="output">
+                <summary>出力を見る</summary>
+                <pre><code>Attribute VB_Name = &quot;Module1&quot;
+Option Compare Database
+Option Explicit
+
+Public Function Hello() As String
+    Hello = &quot;Hello, World!&quot;
+End Function
+
+Public Function Add(a As Long, b As Long) As Long
+    Add = a + b
+End Function</code></pre>
+              </details>
             </li>
             <li class="read">
               <h3><span class="num">06</span>マクロ</h3>
               <p>名前付きマクロを SaveAsText 形式のテキストで表示します。</p>
-              <code class="cmd">jetdb macro show sales.accdb AutoExec</code>
+              <code class="cmd">jetdb macro show macroTestV2010.accdb mcrSimple</code>
+              <details class="output">
+                <summary>出力を見る</summary>
+                <pre><code>Version =196611
+PublishOption =1
+ColumnsShown =0
+Begin
+    Action =&quot;OpenForm&quot;
+    Argument =&quot;frmEmbedded&quot;
+    Argument =&quot;0&quot;
+    Argument =&quot;&quot;
+    Argument =&quot;&quot;
+    Argument =&quot;-1&quot;
+    Argument =&quot;0&quot;
+End
+Begin
+    Action =&quot;MsgBox&quot;
+    Argument =&quot;Hello&quot;
+    Argument =&quot;0&quot;
+…</code></pre>
+              </details>
             </li>
             <li class="read">
               <h3><span class="num">07</span>フォーム/レポート</h3>
-              <p>
-                フォームやレポートと、そのコントロールのプロパティを表示します。
-              </p>
-              <code class="cmd">jetdb form list sales.accdb</code>
+              <p>フォームやレポートと、そのコントロールのプロパティを表示します。</p>
+              <code class="cmd">jetdb form props vbaV2007.accdb Form1</code>
+              <details class="output">
+                <summary>出力を見る</summary>
+                <pre><code>Form: Form1
+
+  Form Properties:
+    0x013A    yes
+    0x0175    yes
+    0x0093    14080
+    0x00C2    15744
+    0x0135    16898
+    0x013E    25091
+    0x002A    6488074
+    0x0096    6626130
+    0x00A1    6946827
+    0x0081    7028432
+    0x000C    10492473
+    0x013F    #E8E8E8
+    0x016C    46067.30100092592
+…</code></pre>
+              </details>
             </li>
             <li class="read">
               <h3><span class="num">08</span>プロパティ</h3>
-              <p>
-                テーブルやクエリなどのオブジェクトのプロパティを表示します。
-              </p>
-              <code class="cmd">jetdb prop sales.accdb Customers</code>
+              <p>テーブルやクエリなどのオブジェクトのプロパティを表示します。</p>
+              <code class="cmd">jetdb prop testV2010.accdb Table1</code>
+              <details class="output">
+                <summary>出力を見る</summary>
+                <pre><code>Object: Table1
+
+  Table Properties:
+    Orientation  0
+    OrderByOn    no
+    NameMap      (496 bytes)
+    GUID         {5A29A676-1145-4D1A-AE47-9F5415CDF2F1}
+    DefaultView  2
+
+  Column: A
+    ColumnWidth         -1
+    ColumnOrder         0
+    ColumnHidden        no
+    Required            no
+    AllowZeroLength     no
+    DisplayControl      109
+…</code></pre>
+              </details>
             </li>
           </ul>
         </div>

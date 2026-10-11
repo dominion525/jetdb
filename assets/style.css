@@ -328,6 +328,7 @@ pre {
 .reads {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  align-items: start;
   gap: 16px;
   margin: 0;
   padding: 0;
@@ -379,6 +380,47 @@ pre {
   color: var(--code-text);
   border-radius: var(--radius-sm);
   font-size: 0.8125rem;
+}
+
+.output {
+  margin-top: 6px;
+}
+
+.output summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  color: var(--accent-text);
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+
+.output summary::-webkit-details-marker {
+  display: none;
+}
+
+.output summary::before {
+  content: "▸";
+  display: inline-block;
+  transition: transform 0.15s;
+}
+
+.output[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.output pre {
+  margin: 4px 0 0;
+  padding: 12px 14px;
+  background: var(--code-bg);
+  color: var(--code-text);
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  line-height: 1.6;
+  overflow-x: auto;
 }
 
 /* 比較表 */
