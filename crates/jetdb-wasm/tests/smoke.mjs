@@ -26,6 +26,7 @@ function check(Database, build) {
   checkRelationships(Database, build);
   checkDdl(Database, build);
   checkQueries(Database, build);
+  checkModules(Database, build);
   checkProperties(Database, build);
   checkErrors(Database, build);
   checkStringArguments(Database, build);
@@ -246,6 +247,29 @@ function checkQueries(Database, build) {
   assert.ok(sports.querySql(hidden).startsWith("TRANSFORM Count("), build);
 }
 
+function checkModules(Database, build) {
+  const db = Database.open(read("vbaV2007.accdb"));
+  assert.deepEqual(
+    db.modules(),
+    [
+      { name: "Class1", type: "ClassOrDocument" },
+      { name: "Form_Form1", type: "ClassOrDocument" },
+      { name: "Module1", type: "Standard" },
+    ],
+    build,
+  );
+  const source = db.moduleSource("Module1");
+  assert.ok(source.startsWith('Attribute VB_Name = "Module1"'), `${build}: ${source}`);
+  assert.ok(source.includes('Hello = "Hello, World!"'), `${build}: ${source}`);
+  assert.throws(() => db.moduleSource("NoSuchModule"), { name: "JetdbError", code: "MODULE_NOT_FOUND" }, build);
+  assert.deepEqual(openTest(Database).modules(), [], build);
+
+  // Japanese names and source.
+  const japanese = Database.open(read("vbaJapaneseV2007.accdb"));
+  assert.ok(japanese.modules().some((m) => m.name === "顧客クラス" && m.type === "ClassOrDocument"), build);
+  assert.ok(japanese.moduleSource("日本語モジュール").includes('あいさつ = "こんにちは、" & 名前 & "さん"'), build);
+}
+
 function checkProperties(Database, build) {
   const db = Database.open(read("V2010/calcFieldTestV2010.accdb"));
   const props = db.properties("Table1");
@@ -307,7 +331,7 @@ function checkStringArguments(Database, build) {
   // can still be read after it.
   const db = openTest(Database);
   const invalid = { name: "JetdbError", code: "INVALID_ARGUMENT" };
-  for (const method of ["columns", "indexes", "rows", "querySql"]) {
+  for (const method of ["columns", "indexes", "rows", "querySql", "moduleSource"]) {
     for (const value of [undefined, null, 42, {}]) {
       assert.throws(() => db[method](value), invalid, `${build}: ${method}(${value})`);
     }

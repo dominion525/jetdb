@@ -14,8 +14,9 @@ use jetdb::format::{index_flags, index_type, ColumnType, ObjectType};
 use jetdb::{
     calculated_column_types_in, entry_properties, find_table, query_to_sql, read_catalog,
     read_object_properties, read_queries_in, read_relationships_in, read_table_def,
-    read_table_rows_with, relationship_flags, timestamp, CatalogEntry, FileError, IndexColumnOrder,
-    PageReader, PropMapType, QueryDef, QueryType, TableDef, Value,
+    read_table_rows_with, read_vba_project, relationship_flags, timestamp, CatalogEntry, FileError,
+    IndexColumnOrder, PageReader, PropMapType, QueryDef, QueryType, TableDef, Value, VbaModule,
+    VbaModuleType,
 };
 
 /// A database opened from bytes in memory.
@@ -27,6 +28,8 @@ pub struct Database {
     /// The definitions of the saved queries, read when they are first needed,
     /// as the catalog is.
     queries: Option<Vec<QueryDef>>,
+    /// The VBA modules, read when they are first needed, as the catalog is.
+    modules: Option<Vec<VbaModule>>,
 }
 
 /// A column of a table, as `Database::columns` returns it.
@@ -101,6 +104,15 @@ pub struct RelationshipColumn {
 pub struct Query {
     pub name: String,
     /// The type name, such as `Select` or `MakeTable` (see [`query_type_name`]).
+    pub type_name: &'static str,
+}
+
+/// A VBA module, as `Database::modules` returns it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Module {
+    pub name: String,
+    /// `Standard`, or `ClassOrDocument` for a class module or the module of a
+    /// form or report (see [`module_type_name`]).
     pub type_name: &'static str,
 }
 
@@ -215,6 +227,7 @@ impl Database {
             reader,
             catalog: None,
             queries: None,
+            modules: None,
         })
     }
 
@@ -408,6 +421,32 @@ impl Database {
         Ok(query_to_sql(query))
     }
 
+    /// The VBA modules, sorted by name, as `jetdb vba list` lists them, and
+    /// none when the database has no VBA.
+    pub fn modules(&mut self) -> Result<Vec<Module>, FileError> {
+        let mut out: Vec<Module> = self
+            .vba_modules()?
+            .iter()
+            .map(|m| Module {
+                name: m.name.clone(),
+                type_name: module_type_name(m.module_type),
+            })
+            .collect();
+        out.sort_unstable_by(|a, b| a.name.cmp(&b.name));
+        Ok(out)
+    }
+
+    /// The source of the VBA module `name`, as `jetdb vba show` prints it.
+    pub fn module_source(&mut self, name: &str) -> Result<String, FileError> {
+        self.vba_modules()?
+            .iter()
+            .find(|m| m.name == name)
+            .map(|m| m.source.clone())
+            .ok_or_else(|| FileError::ModuleNotFound {
+                name: name.to_string(),
+            })
+    }
+
     /// The properties of the object `name`, of `object_type` when it is
     /// given, as `jetdb prop` reads them. Without a type, objects of several
     /// types sharing the name are an error, as there is no telling which one
@@ -536,6 +575,16 @@ impl Database {
         }
         Ok(self.queries.as_deref().expect("the queries were just read"))
     }
+
+    /// The VBA modules, read on the first call. Like the catalog, they are
+    /// not kept when they cannot be read, and the error comes from each call
+    /// that needs them.
+    fn vba_modules(&mut self) -> Result<&[VbaModule], FileError> {
+        if self.modules.is_none() {
+            self.modules = Some(read_vba_project(&mut self.reader)?.modules);
+        }
+        Ok(self.modules.as_deref().expect("the modules were just read"))
+    }
 }
 
 /// The name of a column type, as `jetdb schema` prints it but without the
@@ -572,6 +621,14 @@ fn query_type_name(query_type: QueryType) -> &'static str {
         QueryType::Ddl => "Ddl",
         QueryType::Passthrough => "Passthrough",
         QueryType::Union => "Union",
+    }
+}
+
+/// The name of a VBA module type, as JavaScript gets it.
+fn module_type_name(module_type: VbaModuleType) -> &'static str {
+    match module_type {
+        VbaModuleType::Standard => "Standard",
+        VbaModuleType::ClassOrDocument => "ClassOrDocument",
     }
 }
 
@@ -1180,6 +1237,75 @@ mod tests {
         assert_eq!(error_code(&error), "INVALID_FILE", "{error}");
         let sql = db.ddl(dialect("postgres"), None, true, false).unwrap();
         assert!(sql.contains("CREATE TABLE \"Table1\""), "{sql}");
+    }
+
+    fn module(name: &str, type_name: &'static str) -> Module {
+        Module {
+            name: name.to_string(),
+            type_name,
+        }
+    }
+
+    #[test]
+    fn modules_and_their_source() {
+        for (file, expected) in [
+            (
+                "vbaV2000.mdb",
+                vec![
+                    module("Class1", "ClassOrDocument"),
+                    module("Form_Form1", "ClassOrDocument"),
+                    module("Module1", "Standard"),
+                ],
+            ),
+            (
+                "vbaV2007.accdb",
+                vec![
+                    module("Class1", "ClassOrDocument"),
+                    module("Form_Form1", "ClassOrDocument"),
+                    module("Module1", "Standard"),
+                ],
+            ),
+            (
+                "vbaJapaneseV2007.accdb",
+                vec![
+                    module("VbaJapaneseGenerator", "Standard"),
+                    module("日本語モジュール", "Standard"),
+                    module("顧客クラス", "ClassOrDocument"),
+                ],
+            ),
+        ] {
+            let bytes = skip_if_missing!(file);
+            let mut db = Database::open(bytes.clone(), None).unwrap();
+            assert_eq!(db.modules().unwrap(), expected, "{file}");
+
+            // The source of each module is the source the library reads, as
+            // jetdb vba show prints it.
+            let mut reader =
+                PageReader::open_reader_with_password(Cursor::new(bytes), None).unwrap();
+            for read in read_vba_project(&mut reader).unwrap().modules {
+                assert_eq!(
+                    db.module_source(&read.name).unwrap(),
+                    read.source,
+                    "{file}: {}",
+                    read.name
+                );
+            }
+            assert!(matches!(
+                db.module_source("NoSuchModule"),
+                Err(FileError::ModuleNotFound { .. })
+            ));
+        }
+    }
+
+    #[test]
+    fn modules_of_a_database_without_vba() {
+        let bytes = skip_if_missing!("V2003/testV2003.mdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        assert_eq!(db.modules().unwrap(), []);
+        assert!(matches!(
+            db.module_source("Module1"),
+            Err(FileError::ModuleNotFound { .. })
+        ));
     }
 
     fn query(name: &str, type_name: &'static str) -> Query {
