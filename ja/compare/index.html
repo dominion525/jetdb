@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>jetdb — ほかのツールとの比較（全項目）</title>
+<meta name="description" content="Microsoft Access のデータベースを読む OSS（jetdb、MDB Tools、Jackcess、mdb-reader、access-parser、MMKiwi.MdbReader）を、対応バージョン・機能・暗号化・DDL の方言で比べた表です。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@400;600&family=Noto+Sans+JP:wght@400;600;800&display=swap">
+<link rel="stylesheet" href="/assets/style.css">
+<script src="/assets/main.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main">本文へ移動</a>
+
+<header class="site-header">
+      <div class="container header-inner">
+        <a class="logo" href="/ja/">jet<span>db</span></a>
+        <nav class="header-nav" aria-label="ページ内">
+          <a class="nav-link" href="/ja/#features">特徴</a>
+          <a class="nav-link" href="/ja/#compare">比較</a>
+          <a class="nav-link" href="/ja/#install">インストール</a>
+        </nav>
+        <div class="header-actions">
+          <a class="lang-switch" href="/compare/" hreflang="en" lang="en">English</a>
+          <a class="header-github" href="https://github.com/dominion525/jetdb"
+            >GitHub</a
+          >
+        </div>
+      </div>
+    </header>
+
+<main id="main">
+<section class="section">
+<div class="container container-wide">
+<p class="back-link"><a href="/ja/#compare">紹介ページの比較表に戻る</a></p>
+<h1 class="page-title" id="full-compare-title">ほかのツールとの比較（全項目）</h1>
+<p class="section-lead">Access のデータベースを読む OSS を、対応バージョン・機能・暗号化・DDL の方言で比べました。各ツールの最新のリリースのソースとドキュメントで調べています。</p>
+<div class="table-wrap" tabindex="0" role="region" aria-labelledby="full-compare-title">
+<table class="compare compare-full">
+<thead>
+<tr><th scope="col"><span class="visually-hidden">項目</span></th><th scope="col" class="me">jetdb<span class="ver">0.4.0</span></th><th scope="col">MDB Tools<span class="ver"><a href="https://github.com/mdbtools/mdbtools/releases/tag/v1.0.1">1.0.1</a></span></th><th scope="col">Jackcess<span class="ver"><a href="https://central.sonatype.com/artifact/com.healthmarketscience.jackcess/jackcess/5.0.3">5.0.3</a></span></th><th scope="col">Jackcess（フォーク）<span class="ver"><a href="https://github.com/spannm/jackcess/releases/tag/jackcess-5.1.7">5.1.7</a></span></th><th scope="col">mdb-reader<span class="ver"><a href="https://www.npmjs.com/package/mdb-reader/v/3.2.0">3.2.0</a></span></th><th scope="col">access-parser<span class="ver"><a href="https://github.com/claroty/access_parser/releases/tag/V0.0.6">0.0.6</a></span></th><th scope="col">MMKiwi.MdbReader<span class="ver"><a href="https://www.nuget.org/packages/MMKiwi.MdbReader/0.1.0-beta1">0.1.0-beta1</a></span></th></tr>
+</thead>
+<tbody>
+<tr class="group"><th scope="rowgroup">基本情報</th><td colspan="7"></td></tr>
+<tr><th scope="row">実装言語</th><td class="me">Rust</td><td>C</td><td>Java</td><td>Java</td><td>TypeScript</td><td>Python</td><td>C#</td></tr>
+<tr><th scope="row">ライセンス</th><td class="me">MIT OR Apache-2.0</td><td>LGPL / GPL</td><td>Apache-2.0</td><td>Apache-2.0</td><td>MIT</td><td>Apache-2.0</td><td>LGPL-2.0</td></tr>
+<tr><th scope="row">調べた版のリリース日</th><td class="me">—</td><td>2024-12-26</td><td>2026-10-06</td><td>2026-09-13</td><td>2026-02-18</td><td>2025-01-21</td><td>2024-07-05</td></tr>
+<tr><th scope="row">最終コミット</th><td class="me">2026-10-11</td><td>2026-09-29</td><td>2026-10-09</td><td>2026-10-10</td><td>2026-09-17</td><td>2025-01-21</td><td>2026-01-09</td></tr>
+<tr class="group"><th scope="rowgroup">対応バージョン</th><td colspan="7"></td></tr>
+<tr><th scope="row">Jet3（Access 97）</th><td class="me">○</td><td>○</td><td>○</td><td>○</td><td>○</td><td>○</td><td>○</td></tr>
+<tr><th scope="row">Jet4（Access 2000）</th><td class="me">○</td><td>○</td><td>○</td><td>○</td><td>○</td><td>○</td><td>○</td></tr>
+<tr><th scope="row">Jet4（Access 2002/2003）</th><td class="me">○</td><td>○</td><td>○</td><td>○</td><td>○</td><td>○</td><td>○</td></tr>
+<tr><th scope="row">ACE12（Access 2007）</th><td class="me">○</td><td>○</td><td>○</td><td>○</td><td>○</td><td>○</td><td>○</td></tr>
+<tr><th scope="row">ACE14（Access 2010/2013）</th><td class="me">○</td><td>○</td><td>○</td><td>○</td><td>○</td><td>○</td><td>○</td></tr>
+<tr><th scope="row">ACE16（Access 2016）</th><td class="me">○</td><td>○</td><td>○</td><td>○</td><td>○</td><td>×</td><td>○</td></tr>
+<tr><th scope="row">ACE17（Access 2019）</th><td class="me">○</td><td>○</td><td>○</td><td>○</td><td>○</td><td>×</td><td>○</td></tr>
+<tr><th scope="row">MSISAM（MS Money）</th><td class="me">×</td><td>?</td><td>△</td><td>△</td><td>△</td><td>×</td><td>×</td></tr>
+<tr class="group"><th scope="rowgroup">機能</th><td colspan="7"></td></tr>
+<tr><th scope="row">テーブルの読み取り</th><td class="me">○</td><td>○</td><td>○</td><td>○</td><td>○</td><td>△</td><td>△</td></tr>
+<tr><th scope="row">保存済みクエリの SQL</th><td class="me">○</td><td>△</td><td>○</td><td>○</td><td>×</td><td>×</td><td>×</td></tr>
+<tr><th scope="row">リレーションシップ</th><td class="me">○</td><td>△</td><td>○</td><td>○</td><td>×</td><td>×</td><td>×</td></tr>
+<tr><th scope="row">オブジェクトのプロパティ</th><td class="me">○</td><td>○</td><td>△</td><td>△</td><td>×</td><td>△</td><td>×</td></tr>
+<tr><th scope="row">VBA の取り出し</th><td class="me">○</td><td>×</td><td>×</td><td>×</td><td>×</td><td>×</td><td>×</td></tr>
+<tr><th scope="row">マクロ</th><td class="me">○</td><td>×</td><td>×</td><td>×</td><td>×</td><td>×</td><td>×</td></tr>
+<tr><th scope="row">フォーム/レポートの定義</th><td class="me">○</td><td>×</td><td>×</td><td>×</td><td>×</td><td>×</td><td>×</td></tr>
+<tr><th scope="row">DDL 生成</th><td class="me">○</td><td>○</td><td>×</td><td>×</td><td>×</td><td>×</td><td>×</td></tr>
+<tr><th scope="row">書き込み</th><td class="me">×</td><td>△</td><td>△</td><td>△</td><td>×</td><td>×</td><td>×</td></tr>
+<tr><th scope="row">DateTimeExtended 型</th><td class="me">○</td><td>×</td><td>○</td><td>○</td><td>○</td><td>×</td><td>×</td></tr>
+<tr><th scope="row">複合列</th><td class="me">△</td><td>△</td><td>○</td><td>○</td><td>△</td><td>△</td><td>×</td></tr>
+<tr><th scope="row">添付ファイル列の中身</th><td class="me">○</td><td>×</td><td>○</td><td>○</td><td>○</td><td>×</td><td>×</td></tr>
+<tr><th scope="row">CLI</th><td class="me">○</td><td>○</td><td>×</td><td>×</td><td>×</td><td>×</td><td>×</td></tr>
+<tr><th scope="row">ブラウザで動く</th><td class="me">○</td><td>×</td><td>×</td><td>×</td><td>○</td><td>×</td><td>×</td></tr>
+<tr class="group"><th scope="rowgroup">暗号化</th><td colspan="7"></td></tr>
+<tr><th scope="row">旧 Jet の RC4（.mdb）</th><td class="me">○</td><td>○</td><td>△</td><td>△</td><td>○</td><td>×</td><td>○</td></tr>
+<tr><th scope="row">RC4 CryptoAPI</th><td class="me">○</td><td>×</td><td>△</td><td>△</td><td>△</td><td>×</td><td>×</td></tr>
+<tr><th scope="row">Standard AES</th><td class="me">○</td><td>×</td><td>△</td><td>△</td><td>×</td><td>×</td><td>×</td></tr>
+<tr><th scope="row">Agile AES</th><td class="me">○</td><td>×</td><td>△</td><td>△</td><td>○</td><td>×</td><td>×</td></tr>
+<tr class="group"><th scope="rowgroup">DDL の方言</th><td colspan="7"></td></tr>
+<tr><th scope="row">SQLite</th><td class="me">○</td><td>○</td><td>×</td><td>×</td><td>×</td><td>×</td><td>×</td></tr>
+<tr><th scope="row">PostgreSQL</th><td class="me">○</td><td>○</td><td>×</td><td>×</td><td>×</td><td>×</td><td>×</td></tr>
+<tr><th scope="row">MySQL</th><td class="me">○</td><td>○</td><td>×</td><td>×</td><td>×</td><td>×</td><td>×</td></tr>
+<tr><th scope="row">Access SQL</th><td class="me">○</td><td>○</td><td>×</td><td>×</td><td>×</td><td>×</td><td>×</td></tr>
+<tr><th scope="row">Oracle</th><td class="me">×</td><td>○</td><td>×</td><td>×</td><td>×</td><td>×</td><td>×</td></tr>
+<tr><th scope="row">Sybase</th><td class="me">×</td><td>○</td><td>×</td><td>×</td><td>×</td><td>×</td><td>×</td></tr>
+</tbody>
+</table>
+</div>
+<p class="note">○ 対応　△ 一部対応・条件付き　× 非対応　? 判断できる根拠が見つからない</p>
+<ul class="note notes">
+<li>対応バージョンは、その版をコードで扱っているかで判定しました。</li>
+<li>複合列は、添付ファイル・複数値・版の履歴の列です。</li>
+<li>Access 2013 は Access 2010 と同じ形式（ACE14）で保存するため、行を分けていません。</li>
+<li>アーカイブされたツールと、リリースのないツールは載せていません。</li>
+</ul>
+<div class="tool-notes">
+<h3>jetdb</h3>
+<ul class="notes">
+<li>複合列は、添付ファイルの中身を返します。複数値と版の履歴は参照 ID だけです。</li>
+</ul>
+<h3>MDB Tools</h3>
+<ul class="notes">
+<li>ライセンスは、ライブラリが LGPL-2.0 以降、CLI が GPL-2.0 以降です。</li>
+<li>MSISAM を扱う処理も、拒否する処理もなく、開けるかどうかを判断できませんでした。</li>
+<li>クエリの SQL は SELECT だけを組み立て直します（JOIN・GROUP BY は出ません）。</li>
+<li>リレーションシップは、DDL の外部キーとしてだけ出せます（Oracle・PostgreSQL・MySQL）。</li>
+<li>書き込みは、ライブラリの API で行を追加・更新できるだけです。</li>
+<li>複合列は参照 ID だけです。</li>
+</ul>
+<h3>Jackcess</h3>
+<ul class="notes">
+<li>パスワード付きのファイルと MSISAM は、別のライブラリ Jackcess Encrypt を足すと開けます。</li>
+<li>プロパティは、データベース・テーブル・列のものを読めます。元の版はクエリのプロパティも読めます。</li>
+<li>書き込みは Jet4 と ACE だけです（Access 97 は読み取りだけ）。複合列の新規作成は、元の版の 5.0.3 からできます。</li>
+</ul>
+<h3>mdb-reader</h3>
+<ul class="notes">
+<li>MSISAM は、暗号化されたものを読めません。</li>
+<li>RC4 CryptoAPI は、非標準の形式を読めません。</li>
+<li>複合列は、添付ファイルの中身だけを返します。</li>
+</ul>
+<h3>access-parser</h3>
+<ul class="notes">
+<li>テーブルの列定義を返す公開 API がありません。</li>
+<li>プロパティは列ごとのものだけです。複合列は参照 ID だけです。</li>
+</ul>
+<h3>MMKiwi.MdbReader</h3>
+<ul class="notes">
+<li>Numeric・複合列・BigInt・DateTimeExtended の列を含むテーブルは、行を読めません。</li>
+</ul>
+</div>
+<p class="note survey-date">調査日: 2026-10-11（各ツールの最新のリリース）</p>
+</div>
+</section>
+</main>
+
+<footer class="site-footer">
+      <div class="container footer-inner">
+        <div>
+          <a class="logo" href="/ja/">jet<span>db</span></a>
+          <p class="footer-license">MIT OR Apache-2.0</p>
+        </div>
+        <ul class="footer-links">
+          <li><a href="https://github.com/dominion525/jetdb">GitHub</a></li>
+          <li>
+            <a
+              href="https://github.com/dominion525/jetdb/blob/main/docs/cli.ja.md"
+              >CLI のドキュメント</a
+            >
+          </li>
+          <li><a href="https://crates.io/crates/jetdb-cli">crates.io</a></li>
+          <li>
+            <a href="https://docs.rs/jetdb">Rust ライブラリ（docs.rs）</a>
+          </li>
+          <li>
+            <a
+              href="https://github.com/dominion525/jetdb/blob/main/README.ja.md#謝辞"
+              >謝辞</a
+            >
+          </li>
+        </ul>
+        <p class="footer-tm">
+          Microsoft Access は Microsoft Corporation の商標です。jetdb は
+          Microsoft とは関係のない個人のプロジェクトです。
+        </p>
+      </div>
+    </footer>
+</body>
+</html>

@@ -500,6 +500,67 @@ pre {
   font-size: 0.75rem;
 }
 
+.full-compare-link {
+  margin: 16px 0 0;
+  font-weight: 600;
+}
+
+/* 全項目の比較表のページ */
+
+.container-wide {
+  max-width: 1240px;
+}
+
+.back-link {
+  margin: 0 0 16px;
+  font-size: 0.875rem;
+}
+
+.page-title {
+  margin: 0 0 12px;
+  font-size: clamp(1.5rem, 1.1rem + 1.6vw, 3rem);
+  line-height: 1.35;
+  font-weight: 800;
+}
+
+.compare-full {
+  min-width: 960px;
+  font-size: 0.875rem;
+}
+
+.compare-full th,
+.compare-full td {
+  padding: 8px 10px;
+  white-space: nowrap;
+}
+
+.compare-full tr > th:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--bg);
+}
+
+.compare-full .group th:first-child,
+.compare-full .group td {
+  padding-top: 20px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.8125rem;
+  text-align: left;
+}
+
+.tool-notes h3 {
+  margin: 24px 0 4px;
+  font-size: 1rem;
+}
+
+.tool-notes .notes {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
 .notes {
   padding-left: 1.25em;
 }
