@@ -480,15 +480,32 @@ pre {
   color: var(--on-accent);
 }
 
-.compare .unknown {
-  color: var(--muted);
-  font-style: italic;
+.compare .ver {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+
+.compare .ver a {
+  color: inherit;
 }
 
 .note {
   margin: 12px 0 0;
   color: var(--muted);
   font-size: 0.875rem;
+}
+
+.survey-date {
+  font-size: 0.75rem;
+}
+
+.notes {
+  padding-left: 1.25em;
+}
+
+.notes li + li {
+  margin-top: 2px;
 }
 
 /* AI */

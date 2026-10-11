@@ -283,18 +283,25 @@ Begin
               <thead>
                 <tr>
                   <th scope="col"><span class="visually-hidden">機能</span></th>
-                  <th scope="col" class="me">jetdb</th>
-                  <th scope="col">MDB Tools</th>
-                  <th scope="col">Jackcess</th>
-                  <th scope="col">mdb-reader</th>
+                  <th scope="col" class="me">jetdb<span class="ver">0.4.0</span></th>
+                  <th scope="col">MDB Tools<span class="ver"><a href="https://github.com/mdbtools/mdbtools/releases/tag/v1.0.1">1.0.1</a></span></th>
+                  <th scope="col">Jackcess<span class="ver"><a href="https://central.sonatype.com/artifact/com.healthmarketscience.jackcess/jackcess/5.0.3">5.0.3</a> / <a href="https://github.com/spannm/jackcess/releases/tag/jackcess-5.1.7">フォーク 5.1.7</a></span></th>
+                  <th scope="col">mdb-reader<span class="ver"><a href="https://www.npmjs.com/package/mdb-reader/v/3.2.0">3.2.0</a></span></th>
                 </tr>
               </thead>
               <tbody>
                 <tr>
+                  <th scope="row">実装言語</th>
+                  <td class="me">Rust</td>
+                  <td>C</td>
+                  <td>Java</td>
+                  <td>TypeScript</td>
+                </tr>
+                <tr>
                   <th scope="row">.mdb と .accdb の両方</th>
                   <td class="me">○</td>
-                  <td>×</td>
-                  <td>△</td>
+                  <td>○</td>
+                  <td>○</td>
                   <td>○</td>
                 </tr>
                 <tr>
@@ -307,21 +314,21 @@ Begin
                 <tr>
                   <th scope="row">マクロ</th>
                   <td class="me">○</td>
-                  <td class="unknown">?</td>
-                  <td class="unknown">?</td>
-                  <td class="unknown">?</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
                 </tr>
                 <tr>
                   <th scope="row">フォーム/レポートの定義</th>
                   <td class="me">○</td>
-                  <td class="unknown">?</td>
-                  <td class="unknown">?</td>
-                  <td class="unknown">?</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
                 </tr>
                 <tr>
                   <th scope="row">クエリの SQL</th>
                   <td class="me">○</td>
-                  <td>○</td>
+                  <td>△</td>
                   <td>○</td>
                   <td>×</td>
                 </tr>
@@ -331,6 +338,13 @@ Begin
                   <td>○</td>
                   <td>×</td>
                   <td>×</td>
+                </tr>
+                <tr>
+                  <th scope="row">添付ファイル列の中身</th>
+                  <td class="me">○</td>
+                  <td>×</td>
+                  <td>○</td>
+                  <td>○</td>
                 </tr>
                 <tr>
                   <th scope="row">パスワード付きの .accdb</th>
@@ -357,10 +371,12 @@ Begin
             </table>
           </div>
           <p class="note">○ 対応　△ 一部対応・条件付き　× 非対応</p>
-          <p class="note dummy-note">
-            <span class="dummy-badge">仮</span>他ツールの欄は 2026-02-19
-            の調査の値です。「?」は未調査です。
-          </p>
+          <ul class="note notes">
+            <li>MDB Tools のクエリの SQL は、SELECT だけを組み立て直します（JOIN・GROUP BY は出ません）。</li>
+            <li>Jackcess のパスワード付きの .accdb は、別のライブラリ Jackcess Encrypt を足すと開けます。Jackcess は元の版とフォークで結果が同じです。</li>
+            <li>mdb-reader のパスワード付きの .accdb は、Standard AES の暗号化に対応していません。</li>
+          </ul>
+          <p class="note survey-date">調査日: 2026-10-11（各ツールの最新のリリース）</p>
         </div>
       </section>
 
