@@ -12,11 +12,12 @@ use std::io::Cursor;
 use jetdb::ddl::{self, with_calculated_column_types, DdlDialect};
 use jetdb::format::{index_flags, index_type, ColumnType, ObjectType};
 use jetdb::{
-    calculated_column_types_in, entry_properties, find_table, query_to_sql, read_catalog,
-    read_object_properties, read_queries_in, read_relationships_in, read_table_def,
-    read_table_rows_with, read_vba_project, relationship_flags, timestamp, CatalogEntry, FileError,
-    IndexColumnOrder, PageReader, PropMapType, QueryDef, QueryType, TableDef, Value, VbaModule,
-    VbaModuleType,
+    calculated_column_types_in, control_type_name, entry_properties, find_table, list_forms,
+    query_to_sql, read_catalog, read_form_properties, read_object_properties, read_queries_in,
+    read_relationships_in, read_table_def, read_table_rows_with, read_vba_project,
+    relationship_flags, timestamp, BlobProperty, BlobValue, CatalogEntry, FileError,
+    FormObjectType, IndexColumnOrder, PageReader, PropMapType, QueryDef, QueryType, TableDef,
+    Value, VbaModule, VbaModuleType,
 };
 
 /// A database opened from bytes in memory.
@@ -141,6 +142,35 @@ pub struct Property {
     pub value: Cell,
 }
 
+/// A form or report, as `Database::forms` returns it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Form {
+    pub name: String,
+    /// `Form` or `Report`.
+    pub type_name: &'static str,
+}
+
+/// The design of a form or report, as `Database::form_properties` returns
+/// it: its own properties and its controls and sections.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FormDesign {
+    pub name: String,
+    /// `Form` or `Report`.
+    pub type_name: &'static str,
+    pub properties: Vec<Property>,
+    pub controls: Vec<Control>,
+}
+
+/// A control or section of a form or report.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Control {
+    pub name: String,
+    /// The control type, such as `TextBox` or `Detail`, or its number as
+    /// `0x....` for a type jetdb does not know, as `jetdb form props` shows it.
+    pub type_name: String,
+    pub properties: Vec<Property>,
+}
+
 /// Why `Database::properties` gave no properties.
 #[derive(Debug)]
 pub enum PropertiesError {
@@ -176,6 +206,22 @@ pub enum Cell {
     BigInt(i64),
     String(String),
     Bytes(Vec<u8>),
+}
+
+impl From<BlobValue> for Cell {
+    /// A color becomes the `#RRGGBB` string `jetdb form props` prints, and a
+    /// GUID its string.
+    fn from(value: BlobValue) -> Self {
+        match value {
+            BlobValue::Bool(v) => Cell::Bool(v),
+            BlobValue::Short(v) => Cell::Number(v.into()),
+            BlobValue::Long(v) => Cell::Number(v.into()),
+            BlobValue::Double(v) => Cell::Number(v),
+            color @ BlobValue::Color(_) => Cell::String(color.to_string()),
+            BlobValue::Guid(s) | BlobValue::Text(s) => Cell::String(s),
+            BlobValue::Binary(bytes) => Cell::Bytes(bytes),
+        }
+    }
 }
 
 impl From<Value> for Cell {
@@ -447,6 +493,50 @@ impl Database {
             })
     }
 
+    /// The forms and reports, sorted by name, as `jetdb form list` lists them.
+    pub fn forms(&mut self) -> Result<Vec<Form>, FileError> {
+        let mut out: Vec<Form> = list_forms(&mut self.reader)?
+            .into_iter()
+            .map(|f| Form {
+                name: f.name,
+                type_name: form_type_name(f.object_type),
+            })
+            .collect();
+        out.sort_unstable_by(|a, b| a.name.cmp(&b.name));
+        Ok(out)
+    }
+
+    /// The design of the form or report `name`, as `jetdb form props` shows
+    /// it: each property by its name, or by its number as `0x....` for one
+    /// jetdb does not know.
+    pub fn form_properties(&mut self, name: &str) -> Result<FormDesign, FileError> {
+        let read = read_form_properties(&mut self.reader, name)?;
+        let properties = |properties: Vec<BlobProperty>| {
+            properties
+                .into_iter()
+                .map(|p| Property {
+                    name: p.display_name(),
+                    value: p.value.into(),
+                })
+                .collect()
+        };
+        Ok(FormDesign {
+            name: read.form_name,
+            type_name: form_type_name(read.object_type),
+            properties: properties(read.properties),
+            controls: read
+                .controls
+                .into_iter()
+                .map(|c| Control {
+                    name: c.name,
+                    type_name: control_type_name(c.type_code)
+                        .map_or_else(|| format!("0x{:04X}", c.type_code), str::to_string),
+                    properties: properties(c.properties),
+                })
+                .collect(),
+        })
+    }
+
     /// The properties of the object `name`, of `object_type` when it is
     /// given, as `jetdb prop` reads them. Without a type, objects of several
     /// types sharing the name are an error, as there is no telling which one
@@ -621,6 +711,14 @@ fn query_type_name(query_type: QueryType) -> &'static str {
         QueryType::Ddl => "Ddl",
         QueryType::Passthrough => "Passthrough",
         QueryType::Union => "Union",
+    }
+}
+
+/// The name of a form type, as JavaScript gets it.
+fn form_type_name(form_type: FormObjectType) -> &'static str {
+    match form_type {
+        FormObjectType::Form => "Form",
+        FormObjectType::Report => "Report",
     }
 }
 
@@ -1237,6 +1335,94 @@ mod tests {
         assert_eq!(error_code(&error), "INVALID_FILE", "{error}");
         let sql = db.ddl(dialect("postgres"), None, true, false).unwrap();
         assert!(sql.contains("CREATE TABLE \"Table1\""), "{sql}");
+    }
+
+    fn form(name: &str, type_name: &'static str) -> Form {
+        Form {
+            name: name.to_string(),
+            type_name,
+        }
+    }
+
+    #[test]
+    fn forms_and_reports() {
+        let bytes = skip_if_missing!("formPropTest.accdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        assert_eq!(
+            db.forms().unwrap(),
+            [
+                form("F_Buttons", "Form"),
+                form("F_Table0", "Form"),
+                form("F_Table1", "Form"),
+                form("jp_フォーム_2", "Form"),
+            ]
+        );
+
+        let bytes = skip_if_missing!("saveastext/SportsAdmin/Sports.accdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        let forms = db.forms().unwrap();
+        let count = |type_name| forms.iter().filter(|f| f.type_name == type_name).count();
+        assert_eq!((count("Form"), count("Report")), (74, 42));
+        assert!(forms.windows(2).all(|w| w[0].name < w[1].name));
+    }
+
+    #[test]
+    fn form_properties_as_jetdb_form_props_shows_them() {
+        for (file, name) in [
+            ("formPropTest.accdb", "jp_フォーム_2"),
+            ("formPropTest.accdb", "F_Buttons"),
+            ("saveastext/SportsAdmin/Sports.accdb", "Statistical Reports"),
+            ("saveastext/SportsAdmin/Sports.accdb", "Field (High Jump)"),
+        ] {
+            let bytes = skip_if_missing!(file);
+            let mut db = Database::open(bytes.clone(), None).unwrap();
+            let design = db.form_properties(name).unwrap();
+            let mut reader =
+                PageReader::open_reader_with_password(Cursor::new(bytes), None).unwrap();
+            let read = read_form_properties(&mut reader, name).unwrap();
+            let names = |properties: &[Property]| -> Vec<String> {
+                properties.iter().map(|p| p.name.clone()).collect()
+            };
+            let read_names = |properties: &[BlobProperty]| -> Vec<String> {
+                properties.iter().map(BlobProperty::display_name).collect()
+            };
+            assert_eq!(design.name, name);
+            assert_eq!(names(&design.properties), read_names(&read.properties));
+            assert_eq!(design.controls.len(), read.controls.len(), "{name}");
+            for (control, read) in design.controls.iter().zip(&read.controls) {
+                assert_eq!(control.name, read.name);
+                let type_name = control_type_name(read.type_code)
+                    .map_or_else(|| format!("0x{:04X}", read.type_code), str::to_string);
+                assert_eq!(control.type_name, type_name);
+                assert_eq!(names(&control.properties), read_names(&read.properties));
+            }
+        }
+
+        // Values in the types JavaScript gets.
+        let bytes = skip_if_missing!("formPropTest.accdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        let design = db.form_properties("jp_フォーム_2").unwrap();
+        assert_eq!(design.type_name, "Form");
+        let value = |name| property(&design.properties, name);
+        assert_eq!(*value("RecordSource"), Cell::String("jp_クエリ_02".into()));
+        assert_eq!(*value("0x013A"), Cell::Bool(true));
+        assert_eq!(*value("0x0093"), Cell::Number(14085.0));
+        assert_eq!(*value("0x013F"), Cell::String("#E8E8E8".into()));
+        assert!(matches!(value("0x0178"), Cell::String(s) if s.starts_with('{')));
+        assert!(matches!(value("0x0179"), Cell::Bytes(b) if b.len() == 384));
+        assert!(matches!(
+            db.form_properties("NoSuchForm"),
+            Err(FileError::FormNotFound { .. })
+        ));
+
+        let bytes = skip_if_missing!("saveastext/SportsAdmin/Sports.accdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        let design = db.form_properties("Field (High Jump)").unwrap();
+        assert_eq!(design.type_name, "Report");
+        assert_eq!(
+            *property(&design.properties, "RecordSource"),
+            Cell::String("Field Events".into())
+        );
     }
 
     fn module(name: &str, type_name: &'static str) -> Module {

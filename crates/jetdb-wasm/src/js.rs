@@ -11,7 +11,8 @@ use crate::{
 };
 
 // Types for the TypeScript declarations. Version, Column, Index, Relationship,
-// Query, Module, ObjectProperties and Rows are used through unchecked_return_type, and
+// Query, Module, Form, FormProperties, ObjectProperties and Rows are used
+// through unchecked_return_type, and
 // DdlDialect through unchecked_param_type. TablesOptions, RelationshipsOptions,
 // QueriesOptions, PropertiesOptions and DdlOptions are extern types rather
 // than unchecked_param_type, which would make the parameter required.
@@ -132,6 +133,38 @@ export type ModuleType = "Standard" | "ClassOrDocument";
 export interface Module {
     name: string;
     type: ModuleType;
+}
+
+/** Whether an object with a design is a form or a report. */
+export type FormType = "Form" | "Report";
+
+/** A form or report. */
+export interface Form {
+    name: string;
+    type: FormType;
+}
+
+/** A control of a form or report, or one of its sections. */
+export interface Control {
+    name: string;
+    /**
+     * The control type, such as `TextBox` or `Detail`, or its number as
+     * `0x....` for a type jetdb does not know.
+     */
+    type: string;
+    properties: Property[];
+}
+
+/**
+ * The design of a form or report: its own properties, and its controls and
+ * sections. A property jetdb does not know is named by its number, as
+ * `0x....`; a color is a `#RRGGBB` string.
+ */
+export interface FormProperties {
+    name: string;
+    type: FormType;
+    properties: Property[];
+    controls: Control[];
 }
 
 /** The type of an object of a database. */
@@ -430,6 +463,54 @@ impl JsDatabase {
         self.inner
             .module_source(&string_arg(&name, "name")?)
             .map_err(to_js_error)
+    }
+
+    /// The forms and reports, sorted by name.
+    #[wasm_bindgen(unchecked_return_type = "Form[]")]
+    pub fn forms(&mut self) -> Result<Array, JsValue> {
+        let forms = self.inner.forms().map_err(to_js_error)?;
+        Ok(forms
+            .iter()
+            .map(|f| {
+                let object = Object::new();
+                set(&object, "name", f.name.as_str().into());
+                set(&object, "type", f.type_name.into());
+                object
+            })
+            .collect())
+    }
+
+    /// The design of a form or report, as `jetdb form props` shows it.
+    #[wasm_bindgen(js_name = formProperties, unchecked_return_type = "FormProperties")]
+    pub fn form_properties(
+        &mut self,
+        #[wasm_bindgen(unchecked_param_type = "string")] name: JsValue,
+    ) -> Result<Object, JsValue> {
+        let design = self
+            .inner
+            .form_properties(&string_arg(&name, "name")?)
+            .map_err(to_js_error)?;
+        let object = Object::new();
+        set(&object, "name", design.name.into());
+        set(&object, "type", design.type_name.into());
+        set(
+            &object,
+            "properties",
+            property_array(design.properties).into(),
+        );
+        let controls: Array = design
+            .controls
+            .into_iter()
+            .map(|c| {
+                let control = Object::new();
+                set(&control, "name", c.name.into());
+                set(&control, "type", c.type_name.into());
+                set(&control, "properties", property_array(c.properties).into());
+                control
+            })
+            .collect();
+        set(&object, "controls", controls.into());
+        Ok(object)
     }
 
     /// The properties of an object, such as a table or a query, as Access

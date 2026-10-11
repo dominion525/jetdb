@@ -17,6 +17,10 @@ import {
   type QueryType,
   type Module,
   type ModuleType,
+  type Form,
+  type FormType,
+  type FormProperties,
+  type Control,
   type ObjectProperties,
   type ObjectType,
   type Property,
@@ -143,6 +147,18 @@ if (vbaModule.type === "Class") {
 export const moduleSource: string = db.moduleSource("Module1");
 // @ts-expect-error: the module name is required.
 db.moduleSource();
+
+export const forms: Form[] = db.forms();
+export const formType: FormType = forms[0].type;
+// @ts-expect-error: Page is not a form type.
+if (formType === "Page") {
+}
+export const design: FormProperties = db.formProperties("Form1");
+export const control: { name: string; type: string; properties: Property[] } = design.controls[0];
+export const controls: Control[] = design.controls;
+export const formValue: Value = design.properties[0].value;
+// @ts-expect-error: the form name is required.
+db.formProperties();
 
 export const properties: ObjectProperties = db.properties("Table1");
 db.properties("Customers", { type: "Table" });
