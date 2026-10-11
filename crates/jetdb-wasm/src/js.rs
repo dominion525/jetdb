@@ -11,7 +11,7 @@ use crate::{
 };
 
 // Types for the TypeScript declarations. Version, Column, Index, Relationship,
-// Query, ObjectProperties and Rows are used through unchecked_return_type, and
+// Query, Module, ObjectProperties and Rows are used through unchecked_return_type, and
 // DdlDialect through unchecked_param_type. TablesOptions, RelationshipsOptions,
 // QueriesOptions, PropertiesOptions and DdlOptions are extern types rather
 // than unchecked_param_type, which would make the parameter required.
@@ -120,6 +120,18 @@ export type QueryType =
 export interface Query {
     name: string;
     type: QueryType;
+}
+
+/**
+ * The type of a VBA module. `ClassOrDocument` is a class module, or the module
+ * of a form or report.
+ */
+export type ModuleType = "Standard" | "ClassOrDocument";
+
+/** A VBA module. */
+export interface Module {
+    name: string;
+    type: ModuleType;
 }
 
 /** The type of an object of a database. */
@@ -390,6 +402,33 @@ impl JsDatabase {
     ) -> Result<String, JsValue> {
         self.inner
             .query_sql(&string_arg(&name, "name")?)
+            .map_err(to_js_error)
+    }
+
+    /// The VBA modules, sorted by name: none when the database has no VBA.
+    #[wasm_bindgen(unchecked_return_type = "Module[]")]
+    pub fn modules(&mut self) -> Result<Array, JsValue> {
+        let modules = self.inner.modules().map_err(to_js_error)?;
+        Ok(modules
+            .iter()
+            .map(|m| {
+                let object = Object::new();
+                set(&object, "name", m.name.as_str().into());
+                set(&object, "type", m.type_name.into());
+                object
+            })
+            .collect())
+    }
+
+    /// The source of a VBA module, with the `Attribute` lines that Access
+    /// keeps before it, as `jetdb vba show` prints it.
+    #[wasm_bindgen(js_name = moduleSource)]
+    pub fn module_source(
+        &mut self,
+        #[wasm_bindgen(unchecked_param_type = "string")] name: JsValue,
+    ) -> Result<String, JsValue> {
+        self.inner
+            .module_source(&string_arg(&name, "name")?)
             .map_err(to_js_error)
     }
 

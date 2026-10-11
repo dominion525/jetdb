@@ -15,6 +15,8 @@ import {
   type DdlDialect,
   type Query,
   type QueryType,
+  type Module,
+  type ModuleType,
   type ObjectProperties,
   type ObjectType,
   type Property,
@@ -132,6 +134,15 @@ db.queries({ system: "yes" });
 export const querySql: string = db.querySql("Query1");
 // @ts-expect-error: the query name is required.
 db.querySql();
+
+export const modules: Module[] = db.modules();
+export const vbaModule: { name: string; type: ModuleType } = modules[0];
+// @ts-expect-error: Class is not a module type; it is ClassOrDocument.
+if (vbaModule.type === "Class") {
+}
+export const moduleSource: string = db.moduleSource("Module1");
+// @ts-expect-error: the module name is required.
+db.moduleSource();
 
 export const properties: ObjectProperties = db.properties("Table1");
 db.properties("Customers", { type: "Table" });
