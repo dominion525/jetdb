@@ -357,6 +357,77 @@ mod tests {
         ("Form_Form1", VbaModuleType::ClassOrDocument),
     ];
 
+    /// The source Access held for each module when vba-japanese-generator.bas
+    /// made it, from tblVbaExpected, by module name.
+    fn expected_sources(reader: &mut PageReader) -> Vec<(String, String)> {
+        let catalog = catalog::read_catalog(reader).unwrap();
+        let entry = catalog.iter().find(|e| e.name == "tblVbaExpected").unwrap();
+        let table = crate::table::read_table_def(reader, &entry.name, entry.table_page).unwrap();
+        let column = |name: &str| table.columns.iter().position(|c| c.name == name).unwrap();
+        let (name, source) = (column("ModuleName"), column("Source"));
+        crate::data::read_table_rows(reader, &table)
+            .unwrap()
+            .rows
+            .into_iter()
+            .map(|row| match (&row[name], &row[source]) {
+                (crate::data::Value::Text(n), crate::data::Value::Text(s)) => {
+                    (n.clone(), s.clone())
+                }
+                other => panic!("unexpected row {other:?}"),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn japanese_module_names_and_source() {
+        // Made by testdata/vba-generators/vba-japanese-generator.bas: the
+        // names, comments, identifiers and strings are Japanese, with
+        // characters whose code page 932 mapping differs between converters.
+        for file in [
+            "vbaJapaneseV2000.mdb",
+            "vbaJapaneseV2003.mdb",
+            "vbaJapaneseV2007.accdb",
+        ] {
+            let path = skip_if_missing!(file);
+            let mut reader = PageReader::open(&path).unwrap();
+            let expected = expected_sources(&mut reader);
+            assert_eq!(expected.len(), 2, "{file}");
+            let project = read_vba_project(&mut reader).unwrap();
+            for (name, source) in &expected {
+                let module = project
+                    .modules
+                    .iter()
+                    .find(|m| &m.name == name)
+                    .unwrap_or_else(|| panic!("{file}: no module {name}"));
+                // Access keeps the Attribute lines out of the source it shows.
+                let read: Vec<&str> = module
+                    .source
+                    .lines()
+                    .filter(|line| !line.starts_with("Attribute "))
+                    .collect();
+                let shown: Vec<&str> = source.lines().collect();
+                assert_eq!(read, shown, "{file}: {name}");
+            }
+            let module_type = |name: &str| {
+                project
+                    .modules
+                    .iter()
+                    .find(|m| m.name == name)
+                    .map(|m| m.module_type)
+            };
+            assert_eq!(
+                module_type("日本語モジュール"),
+                Some(VbaModuleType::Standard),
+                "{file}"
+            );
+            assert_eq!(
+                module_type("顧客クラス"),
+                Some(VbaModuleType::ClassOrDocument),
+                "{file}"
+            );
+        }
+    }
+
     #[test]
     fn vba_v2003() {
         let path = skip_if_missing!("vbaV2003.mdb");

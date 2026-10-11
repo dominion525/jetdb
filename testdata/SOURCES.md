@@ -177,6 +177,18 @@ This file was created by the jetdb project using Microsoft Access for Microsoft 
 
 It was made with the VBA module `bigint-generators/bigint-generator.bas` (`CreateBigIntTestTable`), imported into a new, empty `.accdb` and run once from the Immediate window.
 
+## Created independently: Japanese VBA test databases
+
+These files were created by the jetdb project using Microsoft Access for Microsoft 365 MSO (Version 2609 Build 16.0.20430.20092, 64-bit), on Windows whose language for non-Unicode programs is Japanese (code page 932).
+
+| File | Purpose |
+|------|---------|
+| vbaJapaneseV2007.accdb | A standard module `日本語モジュール` and a class module `顧客クラス`, with Japanese comments, identifiers and strings, and characters whose code page 932 mapping differs between converters (`～`, `①`, `髙`, half-width katakana). `tblVbaExpected` holds the source Access shows for each module |
+| vbaJapaneseV2003.mdb | A copy saved in the Access 2002-2003 format |
+| vbaJapaneseV2000.mdb | A copy saved in the Access 2000 format |
+
+They were made with the VBA module `vba-generators/vba-japanese-generator.bas` (`CreateJapaneseVbaModules`), imported into a new, empty `.accdb` and run once from the Immediate window. The two `.mdb` files are copies saved afterwards. Each also has the empty table `テーブル1` that Access makes in a new database.
+
 ## Created independently
 
 These files were created by the jetdb project using Microsoft Access for Microsoft 365 MSO (Version 2602 Build 16.0.19725.20014, 64-bit).
