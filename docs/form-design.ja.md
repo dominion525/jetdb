@@ -215,16 +215,22 @@ type の値:
 
 ### prop_id マッピング
 
-判明済みの prop_id は名前で表示し、未知のものは `0xXXXX` 形式で数値表示する。
+判明済みの prop_id は名前で表示し、未知のものは `0xXXXX` 形式で数値表示する。名前の付くプロパティの値はすべて文字列で、値が文字列でない ID は、その場所では別のプロパティなので数値で表示する。たとえば 0x0068 は、フォームでは OnKeyDown だが、キー操作のイベントを持たないラベルでは色を持つ。名前は、データにあるものについて、`Sports.accdb`（ruddj/SportsAdmin）のフォームとレポート 116 個の、Access の SaveAsText の出力と突き合わせて確かめた。どの値も、その名前のプロパティと一致した。ただし、12 個のフォームとレポートでは、フォーム・レポート自体の FontName が、SaveAsText の出力に無かった。
 
 | ID | プロパティ名 | 用途 |
 |--------|--------------|------|
 | 0x0011 | Caption | コントロール表示テキスト |
 | 0x0012 | ColumnWidths | コンボボックス列幅 |
 | 0x0014 | Name | コントロール名 |
+| 0x0016 | EventProcPrefix | イベントプロシージャ名の接頭辞 |
+| 0x0017 | DefaultValue | 既定値 |
 | 0x001B | ControlSource | フィールドバインド先 |
 | 0x0022 | FontName | フォント名（コントロールレベル） |
 | 0x0026 | Format | 表示書式 |
+| 0x004C | OLEClass | オブジェクトフレームの OLE クラス |
+| 0x004D | OnOpen | 開く時 |
+| 0x004E | OnClose | 閉じる時 |
+| 0x0056 | AfterUpdate | 更新後処理 |
 | 0x005B | RowSource | コンボボックスデータソース (SQL) |
 | 0x005D | RowSourceType | データソース種別 (Table/Query) |
 | 0x0068 | OnKeyDown | キークリック時 |
@@ -235,15 +241,24 @@ type の値:
 | 0x006D | OnMouseMove | マウスボタン移動時 |
 | 0x0073 | OnGotFocus | フォーカス取得後 |
 | 0x0074 | OnLostFocus | フォーカス喪失後 |
+| 0x0079 | OnNoData | レポートのデータなし時 |
 | 0x007E | OnClick | クリック時 |
+| 0x007F | OnLoad | 読み込み時 |
+| 0x0084 | SourceObject | サブフォームに表示するフォーム・レポート |
+| 0x0087 | StatusBarText | ステータスバーテキスト |
 | 0x009C | RecordSource | フォーム/レポートのデータソース |
 | 0x00A0 | FontName | フォームレベルフォント名 |
+| 0x00DA | HelpFile | ヘルプファイル |
 | 0x00DE | OnEnter | フォーカス取得時 |
 | 0x00DF | OnExit | フォーカス喪失時 |
 | 0x00E0 | OnDblClick | ダブルクリック時 |
 | 0x00F5 | Filter | フィルタ条件 |
 | 0x010A | LabelType | ラベル種別 |
+| 0x0112 | Class | オブジェクトフレームのクラス |
+| 0x0130 | ShortcutMenuBar | ショートカットメニュー |
+| 0x013D | ControlTipText | コントロールヒントテキスト |
 | 0x015A | InputMask | 入力マスク |
+| 0x0161 | Toolbar | ツールバー |
 
 頻出する未知 ID:
 

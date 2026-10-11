@@ -200,14 +200,25 @@ pub fn read_form_type_info(reader: &mut PageReader, name: &str) -> Result<FormTy
 }
 
 /// Return the known property name for a given prop_id, or `None`.
+///
+/// Every named property holds text. The same ID can hold a value of another
+/// type where the property does not apply, as a different property: 0x0068
+/// is `OnKeyDown` on a form, but holds a color on a label, which has no key
+/// events. [`BlobProperty::name`] names only text values for this reason.
 pub fn prop_id_name(prop_id: u16) -> Option<&'static str> {
     match prop_id {
         0x0011 => Some("Caption"),
         0x0012 => Some("ColumnWidths"),
         0x0014 => Some("Name"),
+        0x0016 => Some("EventProcPrefix"),
+        0x0017 => Some("DefaultValue"),
         0x001B => Some("ControlSource"),
         0x0022 => Some("FontName"),
         0x0026 => Some("Format"),
+        0x004C => Some("OLEClass"),
+        0x004D => Some("OnOpen"),
+        0x004E => Some("OnClose"),
+        0x0056 => Some("AfterUpdate"),
         0x005B => Some("RowSource"),
         0x005D => Some("RowSourceType"),
         0x0068 => Some("OnKeyDown"),
@@ -218,15 +229,24 @@ pub fn prop_id_name(prop_id: u16) -> Option<&'static str> {
         0x006D => Some("OnMouseMove"),
         0x0073 => Some("OnGotFocus"),
         0x0074 => Some("OnLostFocus"),
+        0x0079 => Some("OnNoData"),
         0x007E => Some("OnClick"),
+        0x007F => Some("OnLoad"),
+        0x0084 => Some("SourceObject"),
+        0x0087 => Some("StatusBarText"),
         0x009C => Some("RecordSource"),
         0x00A0 => Some("FontName"),
+        0x00DA => Some("HelpFile"),
         0x00DE => Some("OnEnter"),
         0x00DF => Some("OnExit"),
         0x00E0 => Some("OnDblClick"),
         0x00F5 => Some("Filter"),
         0x010A => Some("LabelType"),
+        0x0112 => Some("Class"),
+        0x0130 => Some("ShortcutMenuBar"),
+        0x013D => Some("ControlTipText"),
         0x015A => Some("InputMask"),
+        0x0161 => Some("Toolbar"),
         _ => None,
     }
 }
@@ -271,9 +291,14 @@ pub fn control_type_name(type_code: u16) -> Option<&'static str> {
 }
 
 impl BlobProperty {
-    /// Return the known property name, or `None` for unknown IDs.
+    /// Return the known property name, or `None` for unknown IDs and for a
+    /// value that is not text, which is another property (see
+    /// [`prop_id_name`]).
     pub fn name(&self) -> Option<&'static str> {
-        prop_id_name(self.prop_id)
+        match self.value {
+            BlobValue::Text(_) => prop_id_name(self.prop_id),
+            _ => None,
+        }
     }
 
     /// Return a display label: the known name or `0xXXXX`.
@@ -1273,6 +1298,20 @@ mod tests {
     }
 
     #[test]
+    fn names_only_text_values() {
+        // 0x0068 is OnKeyDown on a form, but holds a color on a label.
+        let property = |value| BlobProperty {
+            prop_id: 0x0068,
+            value,
+        };
+        let event = property(BlobValue::Text("[Event Procedure]".to_string()));
+        assert_eq!(event.name(), Some("OnKeyDown"));
+        let color = property(BlobValue::Color(0));
+        assert_eq!(color.name(), None);
+        assert_eq!(color.display_name(), "0x0068");
+    }
+
+    #[test]
     fn prop_id_name_unknown() {
         assert_eq!(prop_id_name(0xFFFF), None);
     }
@@ -1281,7 +1320,7 @@ mod tests {
     fn blob_property_display_name() {
         let known = BlobProperty {
             prop_id: 0x009C,
-            value: BlobValue::Bool(true),
+            value: BlobValue::Text("Orders".to_string()),
         };
         assert_eq!(known.display_name(), "RecordSource");
 
@@ -1736,7 +1775,8 @@ mod tests {
     }
 
     /// A quoted string of SaveAsText, with `\"` and `\\` for a quote and a
-    /// backslash.
+    /// backslash, and `\ooo` for a character by its octal code, such as
+    /// `\015\012` for a line break.
     fn saved_string(text: &str) -> Option<String> {
         let inner = text.strip_prefix('"')?.strip_suffix('"')?;
         let mut out = String::new();
@@ -1746,6 +1786,10 @@ mod tests {
                 ('\\', Some(next @ ('"' | '\\'))) => {
                     out.push(next);
                     chars.next();
+                }
+                ('\\', Some('0'..='7')) => {
+                    let octal: String = chars.by_ref().take(3).collect();
+                    out.push(char::from(u8::from_str_radix(&octal, 8).unwrap()));
                 }
                 _ => out.push(c),
             }
@@ -1842,6 +1886,28 @@ mod tests {
                     "{name}: {key}"
                 );
             }
+            // Every property jetdb names holds the value Access saved under
+            // that name.
+            let mut named = 0;
+            let mut check_named =
+                |properties: &[BlobProperty], saved: &HashMap<String, String>, at: &str| {
+                    for p in properties {
+                        let Some(key) = p.name() else { continue };
+                        assert_eq!(
+                            Some(p.value.to_string()),
+                            saved.get(key).cloned(),
+                            "{name}: {at}.{key}"
+                        );
+                        named += 1;
+                    }
+                };
+            check_named(&read.properties, &saved.properties, "(itself)");
+            for object in &saved.objects {
+                if let Some(control) = read.controls.iter().find(|c| c.name == object.name) {
+                    check_named(&control.properties, &object.properties, &object.name);
+                }
+            }
+            assert!(named > controls, "{name}: {named}");
             assert_eq!(read.controls.len(), controls, "{name}");
             assert_eq!(saved.objects.len(), controls, "{name}");
             let mut compared = 0;

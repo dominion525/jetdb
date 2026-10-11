@@ -215,16 +215,22 @@ type values:
 
 ### prop_id Mapping
 
-Known prop_id values are displayed by name; unknown ones are shown in `0xXXXX` numeric format.
+Known prop_id values are displayed by name; unknown ones are shown in `0xXXXX` numeric format. Every named property holds text: an ID whose value is not text belongs to another property in that place and is shown by number. For example, 0x0068 is OnKeyDown on a form, but holds a color on a label, which has no key events. Where the data has them, the names were checked against the SaveAsText output of Access for the 116 forms and reports of `Sports.accdb` (ruddj/SportsAdmin): each value matched the property of that name, except that 12 forms and reports have a FontName of their own that their SaveAsText output does not have.
 
 | ID | Property Name | Purpose |
 |--------|--------------|------|
 | 0x0011 | Caption | Control display text |
 | 0x0012 | ColumnWidths | Combo box column widths |
 | 0x0014 | Name | Control name |
+| 0x0016 | EventProcPrefix | Prefix of the event procedure names |
+| 0x0017 | DefaultValue | Default value |
 | 0x001B | ControlSource | Field binding target |
 | 0x0022 | FontName | Font name (control level) |
 | 0x0026 | Format | Display format |
+| 0x004C | OLEClass | OLE class of an object frame |
+| 0x004D | OnOpen | Open event |
+| 0x004E | OnClose | Close event |
+| 0x0056 | AfterUpdate | After update event |
 | 0x005B | RowSource | Combo box data source (SQL) |
 | 0x005D | RowSourceType | Data source type (Table/Query) |
 | 0x0068 | OnKeyDown | Key down event |
@@ -235,15 +241,24 @@ Known prop_id values are displayed by name; unknown ones are shown in `0xXXXX` n
 | 0x006D | OnMouseMove | Mouse move event |
 | 0x0073 | OnGotFocus | After receiving focus |
 | 0x0074 | OnLostFocus | After losing focus |
+| 0x0079 | OnNoData | Report no data event |
 | 0x007E | OnClick | Click event |
+| 0x007F | OnLoad | Load event |
+| 0x0084 | SourceObject | Form or report shown in a subform |
+| 0x0087 | StatusBarText | Status bar text |
 | 0x009C | RecordSource | Form/report data source |
 | 0x00A0 | FontName | Form-level font name |
+| 0x00DA | HelpFile | Help file |
 | 0x00DE | OnEnter | Enter (focus received) event |
 | 0x00DF | OnExit | Exit (focus lost) event |
 | 0x00E0 | OnDblClick | Double-click event |
 | 0x00F5 | Filter | Filter condition |
 | 0x010A | LabelType | Label type |
+| 0x0112 | Class | Class of an object frame |
+| 0x0130 | ShortcutMenuBar | Shortcut menu |
+| 0x013D | ControlTipText | Control tip text |
 | 0x015A | InputMask | Input mask |
+| 0x0161 | Toolbar | Toolbar |
 
 Frequently occurring unknown IDs:
 
