@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>jetdb — .mdb / .accdb を、Access 無しで丸ごと読める</title>
+    <meta
+      name="description"
+      content="jetdb は Microsoft Access のデータベース（.mdb / .accdb）を読む CLI ツールです。テーブルのデータだけでなく、クエリ・VBA・マクロ・フォームまで取り出せます。macOS・Linux・Windows で動きます。"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@400;600&family=Noto+Sans+JP:wght@400;600;800&display=swap"
+    />
+    <link rel="stylesheet" href="/assets/style.css" />
+    <script src="/assets/main.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">本文へ移動</a>
+
+    <header class="site-header">
+      <div class="container header-inner">
+        <a class="logo" href="/ja/">jet<span>db</span></a>
+        <nav class="header-nav" aria-label="ページ内">
+          <a class="nav-link" href="#features">特徴</a>
+          <a class="nav-link" href="#compare">比較</a>
+          <a class="nav-link" href="#install">インストール</a>
+        </nav>
+        <div class="header-actions">
+          <a class="lang-switch" href="/" hreflang="en" lang="en">English</a>
+          <a class="header-github" href="https://github.com/dominion525/jetdb"
+            >GitHub</a
+          >
+        </div>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="hero">
+        <div class="container">
+          <p class="eyebrow">Access 97〜2019 に対応</p>
+          <h1>.mdb / .accdb を、<br />Access 無しで丸ごと読める</h1>
+          <p class="lead">
+            jetdb は Microsoft Access のデータベース（.mdb / .accdb）を読む CLI
+            ツールです。テーブルのデータだけでなく、クエリ・VBA・マクロ・フォームまで取り出せます。macOS・Linux・Windows
+            で動きます。
+          </p>
+          <div class="cta">
+            <a class="btn btn-primary" href="#install">インストール</a>
+            <a class="btn btn-ghost" href="https://github.com/dominion525/jetdb"
+              >GitHub</a
+            >
+          </div>
+          <pre
+            class="terminal"
+            aria-label="コマンドの例"
+          ><code><span class="t-comment"># テーブルの一覧</span>
+<span class="t-prompt">$</span> jetdb tables sales.accdb
+<span class="t-comment"># VBA のソースを取り出す</span>
+<span class="t-prompt">$</span> jetdb vba show sales.accdb Module1
+<span class="t-comment"># PostgreSQL 向けの DDL を作る</span>
+<span class="t-prompt">$</span> jetdb schema sales.accdb --ddl postgres</code></pre>
+        </div>
+      </section>
+
+      <section class="section" id="features" aria-labelledby="no-access-title">
+        <div class="container">
+          <h2 id="no-access-title">Access も ODBC ドライバも要りません</h2>
+          <p class="section-lead">
+            Rust だけで書かれていて、C のライブラリにも依存しません。手元に .mdb
+            / .accdb しか無くても、そのまま開けます。
+          </p>
+          <div class="points">
+            <div class="point">
+              <h3>macOS・Linux・Windows</h3>
+              <p>Windows や Access のライセンスが無い環境でも動きます。</p>
+            </div>
+            <div class="point">
+              <h3>Access 97〜2019</h3>
+              <p>
+                Jet3（Access 97）から ACE17（Access 2019）まで、.mdb と .accdb
+                の両方を読めます。
+              </p>
+            </div>
+            <div class="point">
+              <h3>パスワード付きのファイル</h3>
+              <p>
+                パスワード付きの .accdb（Agile、RC4 CryptoAPI、Standard
+                AES）も、<code>--password</code> を付けるだけで開けます。
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section-alt" aria-labelledby="reads-title">
+        <div class="container">
+          <h2 id="reads-title">データだけでなく、アプリごと読める</h2>
+          <p class="section-lead">
+            テーブルを抜き出すだけでなく、Access
+            アプリを作り直すときに要るものまで取り出せます。
+          </p>
+          <ul class="reads">
+            <li class="read">
+              <h3><span class="num">01</span>テーブルのデータ</h3>
+              <p>CSV で書き出します。</p>
+              <code class="cmd">jetdb export sales.accdb Customers</code>
+            </li>
+            <li class="read">
+              <h3><span class="num">02</span>スキーマ</h3>
+              <p>列・索引・リレーションシップを表示します。</p>
+              <code class="cmd">jetdb schema sales.accdb</code>
+            </li>
+            <li class="read">
+              <h3><span class="num">03</span>DDL</h3>
+              <p>SQLite・PostgreSQL・MySQL・Access SQL 向けに作ります。</p>
+              <code class="cmd">jetdb schema sales.accdb --ddl sqlite</code>
+            </li>
+            <li class="read">
+              <h3><span class="num">04</span>クエリの SQL</h3>
+              <p>保存済みクエリの SQL を復元します。</p>
+              <code class="cmd"
+                >jetdb queries show sales.accdb MonthlySales</code
+              >
+            </li>
+            <li class="read">
+              <h3><span class="num">05</span>VBA</h3>
+              <p>
+                標準モジュール・クラスモジュール・フォームのモジュールのソースを取り出します。
+              </p>
+              <code class="cmd">jetdb vba show sales.accdb Module1</code>
+            </li>
+            <li class="read">
+              <h3><span class="num">06</span>マクロ</h3>
+              <p>名前付きマクロを SaveAsText 形式のテキストで表示します。</p>
+              <code class="cmd">jetdb macro show sales.accdb AutoExec</code>
+            </li>
+            <li class="read">
+              <h3><span class="num">07</span>フォーム/レポート</h3>
+              <p>
+                フォームやレポートと、そのコントロールのプロパティを表示します。
+              </p>
+              <code class="cmd">jetdb form list sales.accdb</code>
+            </li>
+            <li class="read">
+              <h3><span class="num">08</span>プロパティ</h3>
+              <p>
+                テーブルやクエリなどのオブジェクトのプロパティを表示します。
+              </p>
+              <code class="cmd">jetdb prop sales.accdb Customers</code>
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="section" id="compare" aria-labelledby="compare-title">
+        <div class="container">
+          <h2 id="compare-title">ほかのツールとの比較</h2>
+          <div
+            class="table-wrap"
+            tabindex="0"
+            role="region"
+            aria-labelledby="compare-title"
+          >
+            <table class="compare">
+              <thead>
+                <tr>
+                  <th scope="col"><span class="visually-hidden">機能</span></th>
+                  <th scope="col" class="me">jetdb</th>
+                  <th scope="col">MDB Tools</th>
+                  <th scope="col">Jackcess</th>
+                  <th scope="col">mdb-reader</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row">.mdb と .accdb の両方</th>
+                  <td class="me">○</td>
+                  <td>×</td>
+                  <td>△</td>
+                  <td>○</td>
+                </tr>
+                <tr>
+                  <th scope="row">VBA の取り出し</th>
+                  <td class="me">○</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                </tr>
+                <tr>
+                  <th scope="row">マクロ</th>
+                  <td class="me">○</td>
+                  <td class="unknown">?</td>
+                  <td class="unknown">?</td>
+                  <td class="unknown">?</td>
+                </tr>
+                <tr>
+                  <th scope="row">フォーム/レポートの定義</th>
+                  <td class="me">○</td>
+                  <td class="unknown">?</td>
+                  <td class="unknown">?</td>
+                  <td class="unknown">?</td>
+                </tr>
+                <tr>
+                  <th scope="row">クエリの SQL</th>
+                  <td class="me">○</td>
+                  <td>○</td>
+                  <td>○</td>
+                  <td>×</td>
+                </tr>
+                <tr>
+                  <th scope="row">DDL 生成</th>
+                  <td class="me">○</td>
+                  <td>○</td>
+                  <td>×</td>
+                  <td>×</td>
+                </tr>
+                <tr>
+                  <th scope="row">パスワード付きの .accdb</th>
+                  <td class="me">○</td>
+                  <td>×</td>
+                  <td>△</td>
+                  <td>△</td>
+                </tr>
+                <tr>
+                  <th scope="row">CLI</th>
+                  <td class="me">○</td>
+                  <td>○</td>
+                  <td>×</td>
+                  <td>×</td>
+                </tr>
+                <tr>
+                  <th scope="row">ブラウザで動く</th>
+                  <td class="me">○</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>○</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="note">○ 対応　△ 一部対応・条件付き　× 非対応</p>
+          <p class="note dummy-note">
+            <span class="dummy-badge">仮</span>他ツールの欄は 2026-02-19
+            の調査の値です。「?」は未調査です。
+          </p>
+        </div>
+      </section>
+
+      <section class="section section-alt" aria-labelledby="ai-title">
+        <div class="container">
+          <h2 id="ai-title">AI エージェントにそのまま渡せる</h2>
+          <p class="section-lead">
+            特別な連携が無くても、AI エージェントが CLI を呼ぶだけで Access
+            のファイルを読めます。VBA やクエリまで読めるので、Access
+            アプリを丸ごと AI に渡せます。
+          </p>
+          <div class="points">
+            <div class="point">
+              <h3>素直なテキスト出力</h3>
+              <p>
+                CSV、SQL、VBA
+                のソースなど、そのまま読めて加工しやすい形で出します。
+              </p>
+            </div>
+            <div class="point">
+              <h3>いつも同じ順に並ぶ</h3>
+              <p>
+                一覧は名前の順に並びます。同じファイルからは同じ結果が出ます。
+              </p>
+            </div>
+            <div class="point">
+              <h3>空ならエラーにしない</h3>
+              <p>
+                テーブルやクエリが無いときは、空の出力で正常に終わります。エラーは
+                <code>jetdb:</code> で始まる 1 行で標準エラーに出します。
+              </p>
+            </div>
+          </div>
+          <div class="skill">
+            <p>Claude Code では、Skill としても入れられます。</p>
+            <div class="cmd-block">
+              <pre><code>/plugin marketplace add dominion525/agent-skills
+/plugin install jetdb-cli@dominion525-skills</code></pre>
+              <button class="copy-btn" type="button" hidden>コピー</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="browser-title">
+        <div class="container split">
+          <div>
+            <h2 id="browser-title">ブラウザでも動きます</h2>
+            <p class="section-lead">
+              WebAssembly 版（npm パッケージ
+              <code>jetdb-wasm</code>）を使うと、ブラウザや Node.js
+              から、テーブルのデータ・クエリの SQL・DDL
+              を読めます。ファイルはブラウザの外に出ません。
+            </p>
+          </div>
+          <div class="split-action">
+            <a class="btn btn-outline dummy" href="#" aria-disabled="true"
+              >デモを開く<span class="dummy-badge">ダミー</span></a
+            >
+          </div>
+        </div>
+      </section>
+
+      <section class="section section-alt" aria-labelledby="readonly-title">
+        <div class="container">
+          <h2 id="readonly-title">元のファイルは書き換えません</h2>
+          <p class="section-lead">
+            jetdb
+            はファイルを読み取り専用で開きます。人から渡されたファイルや、一つしか無い古いファイルも、壊す心配をせずに調べられます。
+          </p>
+        </div>
+      </section>
+
+      <section
+        class="section install"
+        id="install"
+        aria-labelledby="install-title"
+      >
+        <div class="container">
+          <h2 id="install-title">インストール</h2>
+          <div class="tabs" role="tablist" aria-labelledby="install-title">
+            <button
+              class="tab"
+              type="button"
+              role="tab"
+              id="tab-binary"
+              aria-controls="panel-binary"
+              aria-selected="true"
+            >
+              ビルド済みバイナリ
+            </button>
+            <button
+              class="tab"
+              type="button"
+              role="tab"
+              id="tab-brew"
+              aria-controls="panel-brew"
+              aria-selected="false"
+            >
+              Homebrew
+            </button>
+            <button
+              class="tab"
+              type="button"
+              role="tab"
+              id="tab-cargo"
+              aria-controls="panel-cargo"
+              aria-selected="false"
+            >
+              cargo
+            </button>
+          </div>
+
+          <div
+            class="panel"
+            role="tabpanel"
+            id="panel-binary"
+            aria-labelledby="tab-binary"
+            tabindex="0"
+          >
+            <h3 class="panel-title">ビルド済みバイナリ</h3>
+            <p>
+              GitHub
+              のリリースから、使う環境のファイルを落として展開してください。
+            </p>
+            <ul class="downloads">
+              <li>
+                <a
+                  href="https://github.com/dominion525/jetdb/releases/latest/download/jetdb-aarch64-apple-darwin.tar.gz"
+                  >macOS（Apple Silicon）</a
+                >
+              </li>
+              <li>
+                <a
+                  href="https://github.com/dominion525/jetdb/releases/latest/download/jetdb-x86_64-apple-darwin.tar.gz"
+                  >macOS（Intel）</a
+                >
+              </li>
+              <li>
+                <a
+                  href="https://github.com/dominion525/jetdb/releases/latest/download/jetdb-x86_64-unknown-linux-gnu.tar.gz"
+                  >Linux（x86_64）</a
+                >
+              </li>
+              <li>
+                <a
+                  href="https://github.com/dominion525/jetdb/releases/latest/download/jetdb-x86_64-pc-windows-msvc.zip"
+                  >Windows（x86_64）</a
+                >
+              </li>
+            </ul>
+            <p class="note">
+              <a href="https://github.com/dominion525/jetdb/releases/latest"
+                >すべてのリリース</a
+              >
+            </p>
+          </div>
+
+          <div
+            class="panel"
+            role="tabpanel"
+            id="panel-brew"
+            aria-labelledby="tab-brew"
+            tabindex="0"
+          >
+            <h3 class="panel-title">
+              Homebrew <span class="dummy-badge">ダミー</span>
+            </h3>
+            <div class="cmd-block dummy">
+              <pre><code>brew install dominion525/tap/jetdb</code></pre>
+              <button class="copy-btn" type="button" hidden>コピー</button>
+            </div>
+          </div>
+
+          <div
+            class="panel"
+            role="tabpanel"
+            id="panel-cargo"
+            aria-labelledby="tab-cargo"
+            tabindex="0"
+          >
+            <h3 class="panel-title">cargo</h3>
+            <p>Rust の環境があれば、crates.io から入れられます。</p>
+            <div class="cmd-block">
+              <pre><code>cargo install jetdb-cli</code></pre>
+              <button class="copy-btn" type="button" hidden>コピー</button>
+            </div>
+          </div>
+
+          <p class="copy-status visually-hidden" role="status"></p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container footer-inner">
+        <div>
+          <a class="logo" href="/ja/">jet<span>db</span></a>
+          <p class="footer-license">MIT OR Apache-2.0</p>
+        </div>
+        <ul class="footer-links">
+          <li><a href="https://github.com/dominion525/jetdb">GitHub</a></li>
+          <li>
+            <a
+              href="https://github.com/dominion525/jetdb/blob/main/docs/cli.ja.md"
+              >CLI のドキュメント</a
+            >
+          </li>
+          <li><a href="https://crates.io/crates/jetdb-cli">crates.io</a></li>
+          <li>
+            <a href="https://docs.rs/jetdb">Rust ライブラリ（docs.rs）</a>
+          </li>
+          <li>
+            <a
+              href="https://github.com/dominion525/jetdb/blob/main/README.ja.md#謝辞"
+              >謝辞</a
+            >
+          </li>
+        </ul>
+        <p class="footer-tm">
+          Microsoft Access は Microsoft Corporation の商標です。jetdb は
+          Microsoft とは関係のない個人のプロジェクトです。
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>
