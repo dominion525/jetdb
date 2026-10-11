@@ -4,6 +4,7 @@
   --text: #1a1c1f;
   --muted: #5a5f66;
   --border: #e4e5e7;
+  --border-strong: #c9ccd1;
   --accent: #f2c14e;
   --accent-rgb: 242 193 78;
   --accent-text: #8c6a00;
@@ -65,6 +66,7 @@ pre {
   background: rgb(var(--accent-rgb) / 0.18);
   padding: 0.1em 0.35em;
   border-radius: 4px;
+  white-space: nowrap;
 }
 
 :focus-visible {
@@ -303,8 +305,7 @@ pre {
 .point {
   padding: 20px 22px;
   background: var(--bg);
-  border: 1px solid var(--border);
-  border-left: 4px solid var(--accent);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius);
 }
 
@@ -371,6 +372,7 @@ pre {
 
 .read .cmd {
   display: block;
+  white-space: normal;
   margin-top: auto;
   padding: 8px 12px;
   background: var(--code-bg);
