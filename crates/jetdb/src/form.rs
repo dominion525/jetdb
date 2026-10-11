@@ -913,6 +913,7 @@ fn format_guid(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
 
     fn test_data_path(relative: &str) -> Option<std::path::PathBuf> {
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
@@ -1717,5 +1718,157 @@ mod tests {
         assert_eq!(props.len(), 1);
         assert_eq!(props[0].prop_id, 0x00BB);
         assert!(matches!(props[0].value, BlobValue::Color(0x00FF0000)));
+    }
+
+    /// An object with a name in the SaveAsText output of Access: the type of
+    /// its `Begin` block and its string properties.
+    struct SavedObject {
+        name: String,
+        type_name: String,
+        properties: HashMap<String, String>,
+    }
+
+    /// A form or report in the SaveAsText output of Access: the string
+    /// properties of the form or report itself, and its named objects.
+    struct Saved {
+        properties: HashMap<String, String>,
+        objects: Vec<SavedObject>,
+    }
+
+    /// A quoted string of SaveAsText, with `\"` and `\\` for a quote and a
+    /// backslash.
+    fn saved_string(text: &str) -> Option<String> {
+        let inner = text.strip_prefix('"')?.strip_suffix('"')?;
+        let mut out = String::new();
+        let mut chars = inner.chars();
+        while let Some(c) = chars.next() {
+            match (c, chars.clone().next()) {
+                ('\\', Some(next @ ('"' | '\\'))) => {
+                    out.push(next);
+                    chars.next();
+                }
+                _ => out.push(c),
+            }
+        }
+        Some(out)
+    }
+
+    /// Reads the string properties of a form or report from its SaveAsText
+    /// output. A long string goes on in quoted lines of its own.
+    fn read_saveastext(text: &str) -> Saved {
+        let mut saved = Saved {
+            properties: HashMap::new(),
+            objects: Vec::new(),
+        };
+        // The open blocks: `Begin <Type>`, or `<Key> = Begin` for binary data.
+        let mut blocks: Vec<(String, HashMap<String, String>)> = Vec::new();
+        let mut last_key: Option<String> = None;
+        for line in text.trim_start_matches('\u{feff}').lines().map(str::trim) {
+            let properties = match blocks.len() {
+                0 => None,
+                1 => Some(&mut saved.properties),
+                _ => blocks.last_mut().map(|(_, p)| p),
+            };
+            if let (Some(key), Some(more), Some(properties)) =
+                (&last_key, saved_string(line), properties)
+            {
+                properties.get_mut(key).unwrap().push_str(&more);
+                continue;
+            }
+            last_key = None;
+            if line == "End" {
+                if let Some((type_name, properties)) = blocks.pop() {
+                    if let Some(name) = properties.get("Name").cloned() {
+                        saved.objects.push(SavedObject {
+                            name,
+                            type_name,
+                            properties,
+                        });
+                    }
+                }
+            } else if line == "Begin" || line.starts_with("Begin ") {
+                blocks.push((line["Begin".len()..].trim().to_string(), HashMap::new()));
+            } else if line.ends_with(" = Begin") {
+                blocks.push((String::new(), HashMap::new()));
+            } else if let Some((key, value)) = line.split_once(" =") {
+                let properties = match blocks.len() {
+                    0 => continue,
+                    1 => &mut saved.properties,
+                    _ => &mut blocks.last_mut().unwrap().1,
+                };
+                if let Some(value) = saved_string(value) {
+                    properties.insert(key.to_string(), value);
+                    last_key = Some(key.to_string());
+                }
+            }
+        }
+        saved
+    }
+
+    /// The name jetdb gives the type that SaveAsText names `saved`.
+    fn jetdb_type_name(saved: &str) -> &str {
+        match saved {
+            "Section" => "Detail",
+            "BreakHeader" => "GroupHeader",
+            "Subform" => "SubForm",
+            other => other,
+        }
+    }
+
+    #[test]
+    fn form_and_report_match_saveastext_of_access() {
+        // Fetched by scripts/fetch-testdata.sh: a form and a report with many
+        // controls, and the SaveAsText output of each from Access.
+        let path = skip_if_missing!("saveastext/SportsAdmin/Sports.accdb");
+        let mut reader = PageReader::open(&path).unwrap();
+        let keys = ["RecordSource", "Caption", "ControlSource"];
+        let value = |properties: &[BlobProperty], key: &str| {
+            properties
+                .iter()
+                .find(|p| p.name() == Some(key))
+                .map(|p| p.value.to_string())
+        };
+        for (name, file, controls) in [
+            ("Statistical Reports", "forms/Statistical Reports.bas", 69),
+            ("Field (High Jump)", "reports/Field (High Jump).bas", 78),
+        ] {
+            let text = std::fs::read_to_string(path.parent().unwrap().join(file)).unwrap();
+            let saved = read_saveastext(&text);
+            let read = read_form_properties(&mut reader, name).unwrap();
+            for key in keys {
+                assert_eq!(
+                    value(&read.properties, key),
+                    saved.properties.get(key).cloned(),
+                    "{name}: {key}"
+                );
+            }
+            assert_eq!(read.controls.len(), controls, "{name}");
+            assert_eq!(saved.objects.len(), controls, "{name}");
+            let mut compared = 0;
+            for object in &saved.objects {
+                let control = read
+                    .controls
+                    .iter()
+                    .find(|c| c.name == object.name)
+                    .unwrap_or_else(|| panic!("{name}: no control {}", object.name));
+                assert_eq!(
+                    control_type_name(control.type_code),
+                    Some(jetdb_type_name(&object.type_name)),
+                    "{name}: {}",
+                    object.name
+                );
+                for key in keys {
+                    let saved_value = object.properties.get(key).cloned();
+                    compared += usize::from(saved_value.is_some());
+                    assert_eq!(
+                        value(&control.properties, key),
+                        saved_value,
+                        "{name}: {}.{key}",
+                        object.name
+                    );
+                }
+            }
+            assert!(compared > 0, "{name}");
+        }
     }
 }

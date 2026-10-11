@@ -19,6 +19,8 @@ TESTDATA_DIR="$PROJECT_DIR/testdata"
 FILES=(
     "V1997/nwind.mdb|https://raw.githubusercontent.com/mdbtools/mdbtestdata/156fc65bb35ac50a8d3428ca8861af3c775a6b6b/data/nwind.mdb|4682dfc91be526e6508948cc53adf5c63d70fdf7f2cc1f1403ee76b66ac914b2"
     "saveastext/SportsAdmin/Sports.accdb|https://raw.githubusercontent.com/ruddj/SportsAdmin/a5b908665035125f92e6f44a0c78f7710e82cb95/Sports.accdb|30cd8eef5935091a797348a5e6073cd27aab18c4ed5f96a9da33ebac857fbca7"
+    "saveastext/SportsAdmin/forms/Statistical Reports.bas|https://raw.githubusercontent.com/ruddj/SportsAdmin/a5b908665035125f92e6f44a0c78f7710e82cb95/Source/forms/Statistical%20Reports.bas|be8163208f2b86689431c3532935a4a4cb2459e8b509840582dd46c8b3fde0d0"
+    "saveastext/SportsAdmin/reports/Field (High Jump).bas|https://raw.githubusercontent.com/ruddj/SportsAdmin/a5b908665035125f92e6f44a0c78f7710e82cb95/Source/reports/Field%20%28High%20Jump%29.bas|dd141206267811454c831b7900b4c53ccc48a878a2c7af55b236886bbdefa173"
     "saveastext/SportsAdmin/macros/ApplyFilter.bas|https://raw.githubusercontent.com/ruddj/SportsAdmin/a5b908665035125f92e6f44a0c78f7710e82cb95/Source/macros/ApplyFilter.bas|2ae3d71f8cc906ec8d3c4b15842ee2407d53d06b3ab0c362a292c64ec20fe41c"
     "saveastext/SportsAdmin/macros/AutoExec.bas|https://raw.githubusercontent.com/ruddj/SportsAdmin/a5b908665035125f92e6f44a0c78f7710e82cb95/Source/macros/AutoExec.bas|0e633ddfb2518a3fd13f1369208c06e19933520c10f4f0cc3c966f6d7cb526ae"
     "saveastext/SportsAdmin/macros/AutoKeys.bas|https://raw.githubusercontent.com/ruddj/SportsAdmin/a5b908665035125f92e6f44a0c78f7710e82cb95/Source/macros/AutoKeys.bas|e00d18f91ffb5408abafa25b78f72e0593261121fb8672bc2c23892b36cf066f"
