@@ -158,8 +158,18 @@ pub struct FormDesign {
     pub name: String,
     /// `Form` or `Report`.
     pub type_name: &'static str,
-    pub properties: Vec<Property>,
+    pub properties: Vec<FormProperty>,
     pub controls: Vec<Control>,
+}
+
+/// A property of a form or report, or of one of its controls: its number,
+/// which stays the same as jetdb learns more names, and its name, or the
+/// number as `0x....` for one jetdb does not know.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FormProperty {
+    pub id: u16,
+    pub name: String,
+    pub value: Cell,
 }
 
 /// A control or section of a form or report.
@@ -169,7 +179,10 @@ pub struct Control {
     /// The control type, such as `TextBox` or `Detail`, or its number as
     /// `0x....` for a type jetdb does not know, as `jetdb form props` shows it.
     pub type_name: String,
-    pub properties: Vec<Property>,
+    /// The number of the control type, which stays the same as jetdb learns
+    /// more names.
+    pub type_code: u16,
+    pub properties: Vec<FormProperty>,
 }
 
 /// A macro, with the SaveAsText text `jetdb macro` prints for it: `None` for a
@@ -527,7 +540,8 @@ impl Database {
         let properties = |properties: Vec<BlobProperty>| {
             properties
                 .into_iter()
-                .map(|p| Property {
+                .map(|p| FormProperty {
+                    id: p.prop_id,
                     name: p.display_name(),
                     value: p.value.into(),
                 })
@@ -544,6 +558,7 @@ impl Database {
                     name: c.name,
                     type_name: control_type_name(c.type_code)
                         .map_or_else(|| format!("0x{:04X}", c.type_code), str::to_string),
+                    type_code: c.type_code,
                     properties: properties(c.properties),
                 })
                 .collect(),
@@ -1530,11 +1545,15 @@ mod tests {
             let mut reader =
                 PageReader::open_reader_with_password(Cursor::new(bytes), None).unwrap();
             let read = read_form_properties(&mut reader, name).unwrap();
-            let names = |properties: &[Property]| -> Vec<String> {
-                properties.iter().map(|p| p.name.clone()).collect()
+            // Each property by its number and its name.
+            let names = |properties: &[FormProperty]| -> Vec<(u16, String)> {
+                properties.iter().map(|p| (p.id, p.name.clone())).collect()
             };
-            let read_names = |properties: &[BlobProperty]| -> Vec<String> {
-                properties.iter().map(BlobProperty::display_name).collect()
+            let read_names = |properties: &[BlobProperty]| -> Vec<(u16, String)> {
+                properties
+                    .iter()
+                    .map(|p| (p.prop_id, p.display_name()))
+                    .collect()
             };
             assert_eq!(design.name, name);
             assert_eq!(names(&design.properties), read_names(&read.properties));
@@ -1544,6 +1563,7 @@ mod tests {
                 let type_name = control_type_name(read.type_code)
                     .map_or_else(|| format!("0x{:04X}", read.type_code), str::to_string);
                 assert_eq!(control.type_name, type_name);
+                assert_eq!(control.type_code, read.type_code);
                 assert_eq!(names(&control.properties), read_names(&read.properties));
             }
         }
@@ -1553,7 +1573,7 @@ mod tests {
         let mut db = Database::open(bytes, None).unwrap();
         let design = db.form_properties("jp_フォーム_2").unwrap();
         assert_eq!(design.type_name, "Form");
-        let value = |name| property(&design.properties, name);
+        let value = |name| form_property(&design.properties, name);
         assert_eq!(*value("RecordSource"), Cell::String("jp_クエリ_02".into()));
         assert_eq!(*value("0x013A"), Cell::Bool(true));
         assert_eq!(*value("0x0093"), Cell::Number(14085.0));
@@ -1571,13 +1591,28 @@ mod tests {
         let design = db.form_properties("Field (High Jump)").unwrap();
         assert_eq!(design.type_name, "Report");
         assert_eq!(
-            *property(&design.properties, "RecordSource"),
+            *form_property(&design.properties, "RecordSource"),
             Cell::String("Field Events".into())
         );
+        // A property jetdb names has its number too.
+        let record_source = design
+            .properties
+            .iter()
+            .find(|p| p.name == "RecordSource")
+            .unwrap();
+        assert_eq!(record_source.id, 0x009C);
         // The same 32-bit type holds numbers that are not colors: 0x00DB is
         // HelpContextId, which SaveAsText writes as 270.
         let design = db.form_properties("Statistical Reports").unwrap();
-        assert_eq!(*property(&design.properties, "0x00DB"), Cell::Number(270.0));
+        assert_eq!(
+            *form_property(&design.properties, "0x00DB"),
+            Cell::Number(270.0)
+        );
+    }
+
+    /// The value of the form property `name`.
+    fn form_property<'a>(properties: &'a [FormProperty], name: &str) -> &'a Cell {
+        &properties.iter().find(|p| p.name == name).unwrap().value
     }
 
     fn module(name: &str, type_name: &'static str) -> Module {
