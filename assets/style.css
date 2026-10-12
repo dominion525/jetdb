@@ -298,7 +298,8 @@ pre {
 
 .points {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  /* 広い画面では 2 列、狭い画面では 1 列 */
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
   gap: 16px;
 }
 
@@ -712,6 +713,45 @@ pre {
 
 .panel p {
   margin: 0 0 12px;
+}
+
+.install-sub {
+  margin: 0 0 12px;
+  font-size: 1.125rem;
+}
+
+.install-sub + .tabs {
+  margin-top: 0;
+}
+
+.panel ~ .install-sub {
+  margin-top: 48px;
+}
+
+.lib-ways {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
+  gap: 24px 32px;
+}
+
+/* 説明文の行数が違っても、コマンドの箱の高さをそろえる */
+.lib-way {
+  display: flex;
+  flex-direction: column;
+}
+
+.lib-way .cmd-block {
+  margin-top: auto;
+}
+
+.lib-way h4 {
+  margin: 0 0 4px;
+  font-size: 1rem;
+}
+
+.lib-way p {
+  margin: 0 0 10px;
+  color: var(--muted);
 }
 
 .downloads {

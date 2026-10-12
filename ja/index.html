@@ -70,7 +70,7 @@
           <h2 id="no-access-title">Access も ODBC ドライバも要りません</h2>
           <p class="section-lead">
             Rust だけで書かれていて、C のライブラリにも依存しません。手元に .mdb
-            / .accdb しか無くても、そのまま開けます。
+            / .accdb しか無くても、そのまま開けます。CLI のほか、Rust のライブラリとしても使えます。
           </p>
           <div class="points">
             <div class="point">
@@ -90,6 +90,10 @@
                 パスワード付きの .accdb（Agile、RC4 CryptoAPI、Standard
                 AES）も、<code>--password</code> を付けるだけで開けます。
               </p>
+            </div>
+            <div class="point">
+              <h3>元のファイルは書き換えません</h3>
+              <p>読み取り専用で開き、ロックファイル（.laccdb）も作りません。人から渡されたファイルも、壊す心配をせずに調べられます。</p>
             </div>
           </div>
         </div>
@@ -483,24 +487,15 @@ End</code></pre>
         </div>
       </section>
 
-      <section class="section section-alt" aria-labelledby="readonly-title">
-        <div class="container">
-          <h2 id="readonly-title">元のファイルは書き換えません</h2>
-          <p class="section-lead">
-            jetdb
-            はファイルを読み取り専用で開きます。人から渡されたファイルや、一つしか無い古いファイルも、壊す心配をせずに調べられます。
-          </p>
-        </div>
-      </section>
-
       <section
-        class="section install"
+        class="section section-alt install"
         id="install"
         aria-labelledby="install-title"
       >
         <div class="container">
           <h2 id="install-title">インストール</h2>
-          <div class="tabs" role="tablist" aria-labelledby="install-title">
+          <h3 class="install-sub" id="install-cli-title">CLI を入れる</h3>
+          <div class="tabs" role="tablist" aria-labelledby="install-cli-title">
             <button
               class="tab"
               type="button"
@@ -606,6 +601,26 @@ End</code></pre>
             <div class="cmd-block">
               <pre><code>cargo install jetdb-cli</code></pre>
               <button class="copy-btn" type="button" hidden>コピー</button>
+            </div>
+          </div>
+
+          <h3 class="install-sub" id="install-lib-title">ライブラリとして使う</h3>
+          <div class="lib-ways">
+            <div class="lib-way">
+              <h4>Rust</h4>
+              <p>crates.io から追加します。使い方は<a href="https://github.com/dominion525/jetdb/blob/main/docs/lib.ja.md">ライブラリのドキュメント</a>と <a href="https://docs.rs/jetdb">docs.rs</a> にあります。</p>
+              <div class="cmd-block">
+                <pre><code>cargo add jetdb</code></pre>
+                <button class="copy-btn" type="button" hidden>コピー</button>
+              </div>
+            </div>
+            <div class="lib-way">
+              <h4>JavaScript（ブラウザ・Node.js）<span class="dummy-badge">ダミー</span></h4>
+              <p>WebAssembly 版を npm から入れます。</p>
+              <div class="cmd-block dummy">
+                <pre><code>npm install jetdb-wasm</code></pre>
+                <button class="copy-btn" type="button" hidden>コピー</button>
+              </div>
             </div>
           </div>
 
