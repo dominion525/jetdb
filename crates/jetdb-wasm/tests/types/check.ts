@@ -21,6 +21,8 @@ import {
   type FormType,
   type FormProperties,
   type Control,
+  type Macro,
+  type MacroStatement,
   type ObjectProperties,
   type ObjectType,
   type Property,
@@ -159,6 +161,38 @@ export const controls: Control[] = design.controls;
 export const formValue: Value = design.properties[0].value;
 // @ts-expect-error: the form name is required.
 db.formProperties();
+
+export const macroNames: string[] = db.macros();
+export const namedMacro: Macro = db.macro("Macro1");
+export const macroText: string | null = namedMacro.text;
+export function actionNames(statements: MacroStatement[]): string[] {
+  return statements.flatMap((s) => {
+    switch (s.kind) {
+      case "action":
+        return [s.name];
+      case "if":
+        return s.branches.flatMap((b) => actionNames(b.statements));
+      case "group":
+      case "submacro":
+      case "dataBlock":
+        return actionNames(s.statements);
+      case "comment":
+      case "unknown":
+        return [];
+    }
+  });
+}
+if (namedMacro.source.kind === "embedded") {
+  const control: string | null = namedMacro.source.control;
+  void control;
+}
+export const embedded: Macro[] = db.embeddedMacros("Form1");
+export const dataMacros: Macro[] = db.dataMacros("Table1");
+export const dataText: string = db.dataMacrosText("Table1");
+// @ts-expect-error: the text of a macro may be null.
+export const notNull: string = namedMacro.text;
+// @ts-expect-error: the macro name is required.
+db.macro();
 
 export const properties: ObjectProperties = db.properties("Table1");
 db.properties("Customers", { type: "Table" });

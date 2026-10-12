@@ -1,17 +1,18 @@
 //! The JavaScript interface: thin `wasm-bindgen` wrappers over [`crate::Database`].
 
 use jetdb::format::ObjectType;
+use jetdb::{MacroSource, MacroStatement, MacroXmlElement};
 use js_sys::{Array, ArrayBuffer, BigInt, Object, Reflect, Symbol, Uint8Array};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 
 use crate::{
-    error_code, Cell, Column, Database, Index, PropertiesError, Property, PropertyGroup,
-    Relationship,
+    error_code, form_type_name, Cell, Column, Database, Index, Macro, PropertiesError, Property,
+    PropertyGroup, Relationship,
 };
 
 // Types for the TypeScript declarations. Version, Column, Index, Relationship,
-// Query, Module, Form, FormProperties, ObjectProperties and Rows are used
+// Query, Module, Form, FormProperties, Macro, ObjectProperties and Rows are used
 // through unchecked_return_type, and
 // DdlDialect through unchecked_param_type. TablesOptions, RelationshipsOptions,
 // QueriesOptions, PropertiesOptions and DdlOptions are extern types rather
@@ -165,6 +166,74 @@ export interface FormProperties {
     type: FormType;
     properties: Property[];
     controls: Control[];
+}
+
+/** A name and its value, such as an argument of a macro action. */
+export interface NameValue {
+    name: string;
+    value: string;
+}
+
+/** A parameter of a named data macro, with the attributes of its element. */
+export interface MacroParameter {
+    name: string;
+    attributes: NameValue[];
+}
+
+/** Where a macro is. */
+export type MacroSource =
+    | { kind: "named"; name: string }
+    | {
+          kind: "embedded";
+          objectType: FormType;
+          objectName: string;
+          /** The control the event belongs to, or null for the form or report itself. */
+          control: string | null;
+          event: string;
+      }
+    | {
+          kind: "data";
+          table: string;
+          event: string | null;
+          name: string | null;
+          parameters: MacroParameter[];
+      };
+
+/** A macro XML element jetdb does not interpret, as it is. */
+export interface MacroXmlElement {
+    name: string;
+    attributes: NameValue[];
+    text: string;
+    children: MacroXmlElement[];
+}
+
+/** One statement of a macro. */
+export type MacroStatement =
+    | { kind: "action"; name: string; arguments: NameValue[] }
+    | { kind: "comment"; text: string }
+    | { kind: "if"; branches: { condition: string | null; statements: MacroStatement[] }[] }
+    | { kind: "group"; description: string; statements: MacroStatement[] }
+    | { kind: "submacro"; name: string; statements: MacroStatement[] }
+    | {
+          kind: "dataBlock";
+          /** The record block, such as `ForEachRecord` or `EditRecord`. */
+          type: string;
+          data: NameValue[];
+          statements: MacroStatement[];
+      }
+    | { kind: "unknown"; element: MacroXmlElement };
+
+/**
+ * A macro: where it is, its statements, and the XML and SaveAsText text
+ * Access keeps for it. The XML is empty for a macro saved before Access 2010.
+ * The text is that of `jetdb macro show` or `jetdb macro embedded`; it is null
+ * for a data macro, whose text `dataMacrosText` gives for its whole table.
+ */
+export interface Macro {
+    source: MacroSource;
+    statements: MacroStatement[];
+    xml: string;
+    text: string | null;
 }
 
 /** The type of an object of a database. */
@@ -513,6 +582,61 @@ impl JsDatabase {
         Ok(object)
     }
 
+    /// The names of the named macros, sorted.
+    pub fn macros(&mut self) -> Result<Vec<String>, JsValue> {
+        self.inner.macros().map_err(to_js_error)
+    }
+
+    /// A named macro.
+    #[wasm_bindgen(js_name = macro, unchecked_return_type = "Macro")]
+    pub fn named_macro(
+        &mut self,
+        #[wasm_bindgen(unchecked_param_type = "string")] name: JsValue,
+    ) -> Result<Object, JsValue> {
+        let m = self
+            .inner
+            .named_macro(&string_arg(&name, "name")?)
+            .map_err(to_js_error)?;
+        Ok(macro_object(m))
+    }
+
+    /// The macros embedded in the events of a form or report.
+    #[wasm_bindgen(js_name = embeddedMacros, unchecked_return_type = "Macro[]")]
+    pub fn embedded_macros(
+        &mut self,
+        #[wasm_bindgen(unchecked_param_type = "string")] form: JsValue,
+    ) -> Result<Array, JsValue> {
+        let macros = self
+            .inner
+            .embedded_macros(&string_arg(&form, "form")?)
+            .map_err(to_js_error)?;
+        Ok(macros.into_iter().map(macro_object).collect())
+    }
+
+    /// The data macros of a table.
+    #[wasm_bindgen(js_name = dataMacros, unchecked_return_type = "Macro[]")]
+    pub fn data_macros(
+        &mut self,
+        #[wasm_bindgen(unchecked_param_type = "string")] table: JsValue,
+    ) -> Result<Array, JsValue> {
+        let macros = self
+            .inner
+            .data_macros(&string_arg(&table, "table")?)
+            .map_err(to_js_error)?;
+        Ok(macros.into_iter().map(macro_object).collect())
+    }
+
+    /// The SaveAsText text of all the data macros of a table, as
+    /// `jetdb macro data` prints it.
+    #[wasm_bindgen(js_name = dataMacrosText)]
+    pub fn data_macros_text(
+        &mut self,
+        #[wasm_bindgen(unchecked_param_type = "string")] table: JsValue,
+    ) -> Result<String, JsValue> {
+        self.inner
+            .data_macros_text(&string_arg(&table, "table")?)
+            .map_err(to_js_error)
+    }
     /// The properties of an object, such as a table or a query, as Access
     /// keeps them. When objects of different types share the name, the type
     /// option chooses one.
@@ -757,6 +881,154 @@ fn properties_error(error: PropertiesError, name: &str) -> JsValue {
     }
 }
 
+fn macro_object(m: Macro) -> Object {
+    let object = Object::new();
+    set(&object, "source", source_object(m.def.source).into());
+    set(
+        &object,
+        "statements",
+        statement_array(m.def.statements).into(),
+    );
+    set(&object, "xml", m.def.xml.into());
+    set(&object, "text", optional_string(m.text));
+    object
+}
+
+fn source_object(source: MacroSource) -> Object {
+    let object = Object::new();
+    match source {
+        MacroSource::Named { name } => {
+            set(&object, "kind", "named".into());
+            set(&object, "name", name.into());
+        }
+        MacroSource::Embedded {
+            object_kind,
+            object_name,
+            control,
+            event,
+        } => {
+            set(&object, "kind", "embedded".into());
+            set(&object, "objectType", form_type_name(object_kind).into());
+            set(&object, "objectName", object_name.into());
+            set(&object, "control", optional_string(control));
+            set(&object, "event", event.into());
+        }
+        MacroSource::Data {
+            table,
+            event,
+            name,
+            parameters,
+        } => {
+            set(&object, "kind", "data".into());
+            set(&object, "table", table.into());
+            set(&object, "event", optional_string(event));
+            set(&object, "name", optional_string(name));
+            let parameters: Array = parameters
+                .into_iter()
+                .map(|p| {
+                    let parameter = Object::new();
+                    set(&parameter, "name", p.name.into());
+                    set(&parameter, "attributes", name_values(p.attributes).into());
+                    parameter
+                })
+                .collect();
+            set(&object, "parameters", parameters.into());
+        }
+    }
+    object
+}
+
+fn statement_array(statements: Vec<MacroStatement>) -> Array {
+    statements.into_iter().map(statement_object).collect()
+}
+
+fn statement_object(statement: MacroStatement) -> Object {
+    let object = Object::new();
+    match statement {
+        MacroStatement::Action { name, arguments } => {
+            set(&object, "kind", "action".into());
+            set(&object, "name", name.into());
+            let arguments = arguments.into_iter().map(|a| (a.name, a.value)).collect();
+            set(&object, "arguments", name_values(arguments).into());
+        }
+        MacroStatement::Comment(text) => {
+            set(&object, "kind", "comment".into());
+            set(&object, "text", text.into());
+        }
+        MacroStatement::Conditional { branches } => {
+            set(&object, "kind", "if".into());
+            let branches: Array = branches
+                .into_iter()
+                .map(|b| {
+                    let branch = Object::new();
+                    set(&branch, "condition", optional_string(b.condition));
+                    set(&branch, "statements", statement_array(b.statements).into());
+                    branch
+                })
+                .collect();
+            set(&object, "branches", branches.into());
+        }
+        MacroStatement::Group {
+            description,
+            statements,
+        } => {
+            set(&object, "kind", "group".into());
+            set(&object, "description", description.into());
+            set(&object, "statements", statement_array(statements).into());
+        }
+        MacroStatement::SubMacro { name, statements } => {
+            set(&object, "kind", "submacro".into());
+            set(&object, "name", name.into());
+            set(&object, "statements", statement_array(statements).into());
+        }
+        MacroStatement::DataBlock {
+            kind,
+            data,
+            statements,
+        } => {
+            set(&object, "kind", "dataBlock".into());
+            set(&object, "type", kind.into());
+            set(&object, "data", name_values(data).into());
+            set(&object, "statements", statement_array(statements).into());
+        }
+        MacroStatement::Unknown(element) => {
+            set(&object, "kind", "unknown".into());
+            set(&object, "element", element_object(element).into());
+        }
+    }
+    object
+}
+
+fn element_object(element: MacroXmlElement) -> Object {
+    let object = Object::new();
+    set(&object, "name", element.name.into());
+    set(
+        &object,
+        "attributes",
+        name_values(element.attributes).into(),
+    );
+    set(&object, "text", element.text.into());
+    let children: Array = element.children.into_iter().map(element_object).collect();
+    set(&object, "children", children.into());
+    object
+}
+
+/// Name and value pairs as `{ name, value }` objects.
+fn name_values(pairs: Vec<(String, String)>) -> Array {
+    pairs
+        .into_iter()
+        .map(|(name, value)| {
+            let object = Object::new();
+            set(&object, "name", name.into());
+            set(&object, "value", value.into());
+            object
+        })
+        .collect()
+}
+
+fn optional_string(value: Option<String>) -> JsValue {
+    value.map_or(JsValue::NULL, JsValue::from)
+}
 fn property_array(properties: Vec<Property>) -> Array {
     properties
         .into_iter()
