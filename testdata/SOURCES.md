@@ -203,6 +203,16 @@ These files were created by the jetdb project using Microsoft Access for Microso
 | enc_vbaV2007.accdb | Password-protected VBA (Access 2007 format, Agile encryption) |
 | overflow_enc_vbaV2003.mdb | Password-protected VBA with overflow pages (Access 2003 format, Jet encryption) |
 
+## Created independently: sample database for the jetdb site
+
+This file was created by the jetdb project using Microsoft Access for Microsoft 365. jetdb reads it as the ACE12 format.
+
+| File | Purpose |
+|------|---------|
+| jetdb-sample.accdb | A small sales application whose command output the jetdb site shows: the tables `tblCustomers`, `tblProducts` and `tblOrders` with descriptions on the tables and columns, two relationships with referential integrity, the saved query `qryMonthlySales` (joins and `GROUP BY`), the standard module `modBilling`, the form `frmOrders` with its own module, and the named macro `mcrOpenOrders` |
+
+It was made with the VBA module `lp-sample-generators/lp-sample-generator.bas` (`CreateLpSample`), imported into a new, empty `.accdb` and run once from the Immediate window. The module creates the sample as a separate file through a second Access instance, so neither the module nor its log is in the sample.
+
 ## Contributed
 
 These files were created with Microsoft Access by [@semenenkov](https://github.com/semenenkov) and contributed along with the changes that use them.
