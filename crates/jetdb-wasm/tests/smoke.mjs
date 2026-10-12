@@ -27,6 +27,7 @@ function check(Database, build) {
   checkDdl(Database, build);
   checkQueries(Database, build);
   checkModules(Database, build);
+  checkForms(Database, build);
   checkProperties(Database, build);
   checkErrors(Database, build);
   checkStringArguments(Database, build);
@@ -270,6 +271,42 @@ function checkModules(Database, build) {
   assert.ok(japanese.moduleSource("日本語モジュール").includes('あいさつ = "こんにちは、" & 名前 & "さん"'), build);
 }
 
+function checkForms(Database, build) {
+  const db = Database.open(read("formPropTest.accdb"));
+  assert.deepEqual(
+    db.forms(),
+    [
+      { name: "F_Buttons", type: "Form" },
+      { name: "F_Table0", type: "Form" },
+      { name: "F_Table1", type: "Form" },
+      { name: "jp_フォーム_2", type: "Form" },
+    ],
+    build,
+  );
+  const design = db.formProperties("jp_フォーム_2");
+  assert.equal(design.name, "jp_フォーム_2", build);
+  assert.equal(design.type, "Form", build);
+  const value = (properties, name) => properties.find((p) => p.name === name).value;
+  assert.equal(value(design.properties, "RecordSource"), "jp_クエリ_02", build);
+  assert.equal(value(design.properties, "0x013A"), true, build);
+  assert.equal(value(design.properties, "0x0093"), 14085, build);
+  assert.equal(value(design.properties, "0x013F"), "#E8E8E8", build);
+  assert.ok(value(design.properties, "0x0179") instanceof Uint8Array, build);
+  assert.equal(design.controls.length, 21, build);
+  assert.deepEqual(
+    { name: design.controls[0].name, type: design.controls[0].type },
+    { name: "フォームヘッダー", type: "FormHeader" },
+    build,
+  );
+  assert.throws(() => db.formProperties("NoSuchForm"), { name: "JetdbError", code: "FORM_NOT_FOUND" }, build);
+  assert.deepEqual(openTest(Database).forms(), [], build);
+
+  const sports = Database.open(read("saveastext/SportsAdmin/Sports.accdb"));
+  const report = sports.formProperties("Field (High Jump)");
+  assert.equal(report.type, "Report", build);
+  assert.equal(report.controls.length, 78, build);
+}
+
 function checkProperties(Database, build) {
   const db = Database.open(read("V2010/calcFieldTestV2010.accdb"));
   const props = db.properties("Table1");
@@ -331,7 +368,7 @@ function checkStringArguments(Database, build) {
   // can still be read after it.
   const db = openTest(Database);
   const invalid = { name: "JetdbError", code: "INVALID_ARGUMENT" };
-  for (const method of ["columns", "indexes", "rows", "querySql", "moduleSource"]) {
+  for (const method of ["columns", "indexes", "rows", "querySql", "moduleSource", "formProperties"]) {
     for (const value of [undefined, null, 42, {}]) {
       assert.throws(() => db[method](value), invalid, `${build}: ${method}(${value})`);
     }
