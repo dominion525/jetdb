@@ -571,12 +571,39 @@ pre {
 
 /* AI */
 
-.skill {
-  margin-top: 32px;
+.skill-install {
+  display: grid;
+  gap: 24px;
 }
 
-.skill > p {
-  margin: 0 0 8px;
+.skill-way h3 {
+  margin: 0 0 4px;
+  font-size: 1.0625rem;
+}
+
+.skill-way p {
+  margin: 0 0 10px;
+  color: var(--muted);
+}
+
+.sub-title {
+  margin: 40px 0 8px;
+  font-size: 1.0625rem;
+}
+
+.ai-facts {
+  max-width: 52em;
+  margin: 0;
+  padding-left: 1.25em;
+  color: var(--muted);
+}
+
+.ai-facts li + li {
+  margin-top: 4px;
+}
+
+.ai-facts strong {
+  color: var(--text);
 }
 
 /* コマンドとコピー */

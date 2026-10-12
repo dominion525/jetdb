@@ -421,40 +421,48 @@ End</code></pre>
         <div class="container">
           <h2 id="ai-title">AI エージェントにそのまま渡せる</h2>
           <p class="section-lead">
-            特別な連携が無くても、AI エージェントが CLI を呼ぶだけで Access
-            のファイルを読めます。VBA やクエリまで読めるので、Access
-            アプリを丸ごと AI に渡せます。
+            jetdb の Skill を入れると、AI エージェントが jetdb を使って Access
+            のファイルを読めるようになります。「この .accdb を PostgreSQL
+            に移したい」と頼めば、テーブルの定義からクエリ・VBA・フォームまで読んで、移行の作業を進められます。
           </p>
-          <div class="points">
-            <div class="point">
-              <h3>素直なテキスト出力</h3>
-              <p>
-                CSV、SQL、VBA
-                のソースなど、そのまま読めて加工しやすい形で出します。
-              </p>
-            </div>
-            <div class="point">
-              <h3>いつも同じ順に並ぶ</h3>
-              <p>
-                一覧は名前の順に並びます。同じファイルからは同じ結果が出ます。
-              </p>
-            </div>
-            <div class="point">
-              <h3>空ならエラーにしない</h3>
-              <p>
-                テーブルやクエリが無いときは、空の出力で正常に終わります。エラーは
-                <code>jetdb:</code> で始まる 1 行で標準エラーに出します。
-              </p>
-            </div>
-          </div>
-          <div class="skill">
-            <p>Claude Code では、Skill としても入れられます。</p>
-            <div class="cmd-block">
-              <pre><code>/plugin marketplace add dominion525/agent-skills
+          <div class="skill-install">
+            <div class="skill-way">
+              <h3>Claude Code</h3>
+              <p>Plugin Marketplace から入れます。</p>
+              <div class="cmd-block">
+                <pre><code>/plugin marketplace add dominion525/agent-skills
 /plugin install jetdb-cli@dominion525-skills</code></pre>
-              <button class="copy-btn" type="button" hidden>コピー</button>
+                <button class="copy-btn" type="button" hidden>コピー</button>
+              </div>
+            </div>
+            <div class="skill-way">
+              <h3>ほかのエージェント</h3>
+              <p>
+                skills CLI で入れます。Codex・Cursor・OpenCode
+                などに対応していて、入れ先は実行したときに選べます。
+              </p>
+              <div class="cmd-block">
+                <pre><code>npx skills add dominion525/agent-skills --skill jetdb-cli</code></pre>
+                <button class="copy-btn" type="button" hidden>コピー</button>
+              </div>
             </div>
           </div>
+          <h3 class="sub-title">Skill が無くても、CLI の作りが AI に向いています</h3>
+          <ul class="ai-facts">
+            <li>
+              <strong>素直なテキスト出力</strong>: CSV、SQL、VBA
+              のソースなど、そのまま読めて加工しやすい形で出します。
+            </li>
+            <li>
+              <strong>いつも同じ順に並ぶ</strong>:
+              一覧は名前の順に並びます。同じファイルからは同じ結果が出ます。
+            </li>
+            <li>
+              <strong>空ならエラーにしない</strong>:
+              テーブルやクエリが無いときは、空の出力で正常に終わります。エラーは
+              <code>jetdb:</code> で始まる 1 行で標準エラーに出します。
+            </li>
+          </ul>
         </div>
       </section>
 
