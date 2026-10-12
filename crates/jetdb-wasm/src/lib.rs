@@ -550,11 +550,16 @@ impl Database {
         })
     }
 
-    /// The names of the named macros, sorted, as `jetdb macro list` lists them.
-    pub fn macros(&mut self) -> Result<Vec<String>, FileError> {
+    /// The names of the named macros, sorted, without those Access makes for
+    /// itself and names with `~`, such as the `~TMPCLPMacro` the macro
+    /// designer makes on copy and paste, and with `include_system` all of them,
+    /// as `jetdb macro list` lists them. Access does not mark these in the
+    /// catalog, so they are told by their names.
+    pub fn macros(&mut self, include_system: bool) -> Result<Vec<String>, FileError> {
         let mut names: Vec<String> = list_macros(&mut self.reader)?
             .into_iter()
             .map(|m| m.name)
+            .filter(|name| include_system || !name.starts_with('~'))
             .collect();
         names.sort_unstable();
         Ok(names)
@@ -1397,6 +1402,18 @@ mod tests {
     }
 
     #[test]
+    fn macros_without_those_access_makes_for_itself() {
+        // ~TMPCLPMacro is the macro the macro designer makes on copy and paste.
+        let bytes = skip_if_missing!("V2010/macroTestV2010.accdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        let visible = ["AutoExec", "mcrConditions", "mcrLongText", "mcrSimple"];
+        assert_eq!(db.macros(false).unwrap(), visible);
+        let all = db.macros(true).unwrap();
+        assert_eq!(all[..4], visible);
+        assert_eq!(all[4..], ["~TMPCLPMacro"]);
+    }
+
+    #[test]
     fn macros_as_jetdb_macro_shows_them() {
         // Every named, embedded and data macro is the macro the library reads,
         // with the text jetdb macro show, embedded and data print.
@@ -1417,7 +1434,7 @@ mod tests {
                 .map(|m| m.name)
                 .collect();
             names.sort_unstable();
-            assert_eq!(db.macros().unwrap(), names, "{file}");
+            assert_eq!(db.macros(true).unwrap(), names, "{file}");
             for name in &names {
                 let def = read_macro(&mut reader, name).unwrap();
                 let read = db.named_macro(name).unwrap();

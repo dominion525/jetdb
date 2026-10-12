@@ -163,6 +163,9 @@ export const formValue: Value = design.properties[0].value;
 db.formProperties();
 
 export const macroNames: string[] = db.macros();
+db.macros({ system: true });
+// @ts-expect-error: system is a boolean.
+db.macros({ system: "yes" });
 export const namedMacro: Macro = db.macro("Macro1");
 export const macroText: string | null = namedMacro.text;
 export function actionNames(statements: MacroStatement[]): string[] {

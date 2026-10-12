@@ -310,7 +310,9 @@ function checkForms(Database, build) {
 
 function checkMacros(Database, build) {
   const db = Database.open(read("V2010/macroTestV2010.accdb"));
-  assert.deepEqual(db.macros(), ["AutoExec", "mcrConditions", "mcrLongText", "mcrSimple", "~TMPCLPMacro"], build);
+  assert.deepEqual(db.macros(), ["AutoExec", "mcrConditions", "mcrLongText", "mcrSimple"], build);
+  assert.equal(db.macros({ system: true }).at(-1), "~TMPCLPMacro", build);
+  assert.throws(() => db.macros({ system: "yes" }), { name: "JetdbError", code: "INVALID_ARGUMENT" }, build);
   const simple = db.macro("mcrSimple");
   assert.deepEqual(simple.source, { kind: "named", name: "mcrSimple" }, build);
   assert.deepEqual(

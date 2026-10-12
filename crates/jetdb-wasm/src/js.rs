@@ -13,10 +13,10 @@ use crate::{
 
 // Types for the TypeScript declarations. Version, Column, Index, Relationship,
 // Query, Module, Form, FormProperties, Macro, ObjectProperties and Rows are used
-// through unchecked_return_type, and
-// DdlDialect through unchecked_param_type. TablesOptions, RelationshipsOptions,
-// QueriesOptions, PropertiesOptions and DdlOptions are extern types rather
-// than unchecked_param_type, which would make the parameter required.
+// through unchecked_return_type, and DdlDialect through unchecked_param_type.
+// TablesOptions, RelationshipsOptions, QueriesOptions, MacrosOptions,
+// PropertiesOptions and DdlOptions are extern types rather than
+// unchecked_param_type, which would make the parameter required.
 #[wasm_bindgen(typescript_custom_section)]
 const TYPES: &str = r#"
 /** The database engine version. */
@@ -109,6 +109,15 @@ export interface QueriesOptions {
     /**
      * Include the system and hidden queries too, such as those Access makes
      * for forms and reports.
+     */
+    system?: boolean;
+}
+
+/** The options of `Database.macros`. */
+export interface MacrosOptions {
+    /**
+     * Include the macros Access makes for itself and names with `~`, such as
+     * the `~TMPCLPMacro` the macro designer makes on copy and paste.
      */
     system?: boolean;
 }
@@ -376,6 +385,9 @@ extern "C" {
     #[wasm_bindgen(typescript_type = "QueriesOptions")]
     pub type QueriesOptions;
 
+    #[wasm_bindgen(typescript_type = "MacrosOptions")]
+    pub type MacrosOptions;
+
     #[wasm_bindgen(typescript_type = "PropertiesOptions")]
     pub type PropertiesOptions;
 
@@ -583,9 +595,12 @@ impl JsDatabase {
         Ok(object)
     }
 
-    /// The names of the named macros, sorted.
-    pub fn macros(&mut self) -> Result<Vec<String>, JsValue> {
-        self.inner.macros().map_err(to_js_error)
+    /// The names of the named macros, sorted, without those Access makes for
+    /// itself and names with `~`. With `{ system: true }`, those are included
+    /// too.
+    pub fn macros(&mut self, options: Option<MacrosOptions>) -> Result<Vec<String>, JsValue> {
+        let include_system = option_bool(options.as_deref(), "system", false)?;
+        self.inner.macros(include_system).map_err(to_js_error)
     }
 
     /// A named macro.
