@@ -159,7 +159,8 @@ export interface Control {
 /**
  * The design of a form or report: its own properties, and its controls and
  * sections. A property jetdb does not know is named by its number, as
- * `0x....`; a color is a `#RRGGBB` string.
+ * `0x....`. A color is a number, `0x00BBGGRR` or negative for a system color,
+ * as Access writes it in SaveAsText.
  */
 export interface FormProperties {
     name: string;

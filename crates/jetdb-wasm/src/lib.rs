@@ -220,15 +220,17 @@ pub enum Cell {
 }
 
 impl From<BlobValue> for Cell {
-    /// A color becomes the `#RRGGBB` string `jetdb form props` prints, and a
-    /// GUID its string.
+    /// A GUID becomes its string. A 32-bit value (`BlobValue::Color`) becomes
+    /// the signed number Access writes in SaveAsText: the type holds colors,
+    /// as `0x00BBGGRR` or negative for a system color, but also other
+    /// numbers, such as `HelpContextId`.
     fn from(value: BlobValue) -> Self {
         match value {
             BlobValue::Bool(v) => Cell::Bool(v),
             BlobValue::Short(v) => Cell::Number(v.into()),
             BlobValue::Long(v) => Cell::Number(v.into()),
             BlobValue::Double(v) => Cell::Number(v),
-            color @ BlobValue::Color(_) => Cell::String(color.to_string()),
+            BlobValue::Color(v) => Cell::Number(f64::from(v as i32)),
             BlobValue::Guid(s) | BlobValue::Text(s) => Cell::String(s),
             BlobValue::Binary(bytes) => Cell::Bytes(bytes),
         }
@@ -1538,7 +1540,8 @@ mod tests {
         assert_eq!(*value("RecordSource"), Cell::String("jp_クエリ_02".into()));
         assert_eq!(*value("0x013A"), Cell::Bool(true));
         assert_eq!(*value("0x0093"), Cell::Number(14085.0));
-        assert_eq!(*value("0x013F"), Cell::String("#E8E8E8".into()));
+        // A color (DatasheetGridlinesColor) as the number Access writes.
+        assert_eq!(*value("0x013F"), Cell::Number(f64::from(0x00E8_E8E8)));
         assert!(matches!(value("0x0178"), Cell::String(s) if s.starts_with('{')));
         assert!(matches!(value("0x0179"), Cell::Bytes(b) if b.len() == 384));
         assert!(matches!(
@@ -1554,6 +1557,10 @@ mod tests {
             *property(&design.properties, "RecordSource"),
             Cell::String("Field Events".into())
         );
+        // The same 32-bit type holds numbers that are not colors: 0x00DB is
+        // HelpContextId, which SaveAsText writes as 270.
+        let design = db.form_properties("Statistical Reports").unwrap();
+        assert_eq!(*property(&design.properties, "0x00DB"), Cell::Number(270.0));
     }
 
     fn module(name: &str, type_name: &'static str) -> Module {
