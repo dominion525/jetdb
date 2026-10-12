@@ -197,8 +197,12 @@ export type MacroSource =
           kind: "embedded";
           objectType: FormType;
           objectName: string;
-          /** The control the event belongs to, or null for the form or report itself. */
+          /**
+           * The control the event belongs to, or null for the form or report
+           * itself and for a macro stored without XML.
+           */
           control: string | null;
+          /** The event, such as `OnClick`; empty for a macro stored without XML. */
           event: string;
       }
     | {
@@ -235,9 +239,16 @@ export type MacroStatement =
 
 /**
  * A macro: where it is, its statements, and the XML and SaveAsText text
- * Access keeps for it. The XML is empty for a macro saved before Access 2010.
- * The text is that of `jetdb macro show` or `jetdb macro embedded`; it is null
- * for a data macro, whose text `dataMacrosText` gives for its whole table.
+ * Access keeps for it.
+ *
+ * The XML is empty for a macro saved before Access 2010. For a data macro it
+ * is the XML document the macro was stored in, which may hold other data
+ * macros of the table too.
+ *
+ * The text is that of `jetdb macro show` or `jetdb macro embedded`. It is
+ * null for a data macro, whose text `dataMacrosText` gives for its whole
+ * table; for a named macro whose grid of actions could not be read; and for
+ * an embedded macro stored without XML.
  */
 export interface Macro {
     source: MacroSource;
@@ -520,7 +531,8 @@ impl JsDatabase {
             .map_err(to_js_error)
     }
 
-    /// The VBA modules, sorted by name: none when the database has no VBA.
+    /// The VBA modules, sorted by name: none when the database has no VBA,
+    /// and none for an Access 97 file, whose VBA jetdb does not read.
     #[wasm_bindgen(unchecked_return_type = "Module[]")]
     pub fn modules(&mut self) -> Result<Array, JsValue> {
         let modules = self.inner.modules().map_err(to_js_error)?;
@@ -547,7 +559,8 @@ impl JsDatabase {
             .map_err(to_js_error)
     }
 
-    /// The forms and reports, sorted by name.
+    /// The forms and reports, sorted by name. None for an Access 97 file,
+    /// whose form and report designs jetdb does not read.
     #[wasm_bindgen(unchecked_return_type = "Form[]")]
     pub fn forms(&mut self) -> Result<Array, JsValue> {
         let forms = self.inner.forms().map_err(to_js_error)?;
@@ -562,7 +575,9 @@ impl JsDatabase {
             .collect())
     }
 
-    /// The design of a form or report, as `jetdb form props` shows it.
+    /// The design of a form or report, as `jetdb form props` shows it. In an
+    /// Access 97 file, whose designs jetdb does not read, every name is
+    /// FORM_NOT_FOUND.
     #[wasm_bindgen(js_name = formProperties, unchecked_return_type = "FormProperties")]
     pub fn form_properties(
         &mut self,
@@ -616,7 +631,8 @@ impl JsDatabase {
         Ok(macro_object(m))
     }
 
-    /// The macros embedded in the events of a form or report.
+    /// The macros embedded in the events of a form or report. In an Access 97
+    /// file, whose designs jetdb does not read, every name is FORM_NOT_FOUND.
     #[wasm_bindgen(js_name = embeddedMacros, unchecked_return_type = "Macro[]")]
     pub fn embedded_macros(
         &mut self,
