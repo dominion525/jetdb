@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>jetdb — ブラウザで開くデモ</title>
+<meta name="description" content="Access のデータベース（.mdb / .accdb）を、ブラウザの中だけで開いてテーブルの一覧を出すデモです。ファイルはブラウザの外に送りません。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@400;600&family=Noto+Sans+JP:wght@400;600;800&display=swap">
+<link rel="stylesheet" href="/assets/style.css">
+<script src="/assets/main.js" defer></script>
+<script src="/assets/demo.js" type="module"></script>
+</head>
+<body>
+<a class="skip-link" href="#main">本文へ移動</a>
+
+<header class="site-header">
+      <div class="container header-inner">
+        <a class="logo" href="/ja/">jet<span>db</span></a>
+        <nav class="header-nav" aria-label="ページ内">
+          <a class="nav-link" href="/ja/#features">特徴</a>
+          <a class="nav-link" href="/ja/#compare">比較</a>
+          <a class="nav-link" href="/ja/#install">インストール</a>
+        </nav>
+        <div class="header-actions">
+          <a class="lang-switch" href="/demo/" hreflang="en" lang="en">English</a>
+          <a class="header-github" href="https://github.com/dominion525/jetdb"
+            >GitHub</a
+          >
+        </div>
+      </div>
+    </header>
+
+<main id="main">
+<section class="section">
+<div class="container">
+<p class="back-link"><a href="/ja/">紹介ページに戻る</a></p>
+<h1 class="page-title">ブラウザで開くデモ</h1>
+<p class="section-lead">Access のファイル（.mdb / .accdb）を選ぶと、ブラウザの中の jetdb（WebAssembly 版）で開いて、テーブルの一覧を出します。ファイルはブラウザの外に送りません。</p>
+<p class="note dummy-note"><span class="dummy-badge">仮</span>今はテーブルの一覧を出すだけの、動作を確かめるためのページです。パスワード付きのファイルは開けません。</p>
+
+<div class="demo">
+<label class="demo-file">
+<span>ファイルを選ぶ</span>
+<input type="file" id="demo-file" accept=".mdb,.accdb" disabled>
+</label>
+<p class="demo-status" id="demo-status" role="status">jetdb を読み込んでいます…</p>
+<div class="demo-result" id="demo-result" hidden>
+<dl class="demo-meta">
+<dt>ファイル</dt><dd id="demo-name"></dd>
+<dt>エンジンの版</dt><dd id="demo-version"></dd>
+<dt>テーブルの数</dt><dd id="demo-count"></dd>
+</dl>
+<ul class="demo-tables" id="demo-tables"></ul>
+</div>
+</div>
+<noscript><p class="note">このデモを動かすには JavaScript が必要です。</p></noscript>
+</div>
+</section>
+</main>
+
+<footer class="site-footer">
+      <div class="container footer-inner">
+        <div>
+          <a class="logo" href="/ja/">jet<span>db</span></a>
+          <p class="footer-license">MIT OR Apache-2.0</p>
+        </div>
+        <ul class="footer-links">
+          <li><a href="https://github.com/dominion525/jetdb">GitHub</a></li>
+          <li>
+            <a
+              href="https://github.com/dominion525/jetdb/blob/main/docs/cli.ja.md"
+              >CLI のドキュメント</a
+            >
+          </li>
+          <li><a href="https://crates.io/crates/jetdb-cli">crates.io</a></li>
+          <li>
+            <a href="https://docs.rs/jetdb">Rust ライブラリ（docs.rs）</a>
+          </li>
+          <li>
+            <a
+              href="https://github.com/dominion525/jetdb/blob/main/README.ja.md#謝辞"
+              >謝辞</a
+            >
+          </li>
+        </ul>
+        <p class="footer-tm">
+          Microsoft Access は Microsoft Corporation の商標です。jetdb は
+          Microsoft とは関係のない個人のプロジェクトです。
+        </p>
+      </div>
+    </footer>
+</body>
+</html>

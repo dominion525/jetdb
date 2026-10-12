@@ -764,6 +764,63 @@ pre {
   outline-offset: 4px;
 }
 
+/* デモのページ */
+
+.demo {
+  max-width: 680px;
+  margin-top: 32px;
+  padding: 24px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+}
+
+.demo-file {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  font-weight: 600;
+}
+
+.demo-file input {
+  min-height: 44px;
+  font: inherit;
+  font-weight: 400;
+}
+
+.demo-status {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+
+.demo-meta {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 16px;
+  margin: 16px 0;
+}
+
+.demo-meta dt {
+  color: var(--muted);
+}
+
+.demo-meta dd {
+  margin: 0;
+  font-weight: 600;
+}
+
+.demo-tables {
+  margin: 0;
+  padding: 12px 16px 12px 2em;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+}
+
 /* フッター */
 
 .site-footer {
