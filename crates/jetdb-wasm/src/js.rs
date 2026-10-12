@@ -7,8 +7,8 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 
 use crate::{
-    error_code, form_type_name, Cell, Column, Database, Index, Macro, PropertiesError, Property,
-    PropertyGroup, Relationship,
+    error_code, form_type_name, Cell, Column, Database, FormProperty, Index, Macro,
+    PropertiesError, Property, PropertyGroup, Relationship,
 };
 
 // Types for the TypeScript declarations. Version, Column, Index, Relationship,
@@ -162,7 +162,20 @@ export interface Control {
      * `0x....` for a type jetdb does not know.
      */
     type: string;
-    properties: Property[];
+    /** The number of the control type, which stays the same as jetdb learns more names. */
+    typeCode: number;
+    properties: FormProperty[];
+}
+
+/**
+ * A property of a form or report, or of one of its controls. `name` is the
+ * property name, or its number as `0x....` for one jetdb does not know; `id`
+ * is the number, which stays the same as jetdb learns more names.
+ */
+export interface FormProperty {
+    id: number;
+    name: string;
+    value: Value;
 }
 
 /**
@@ -174,7 +187,7 @@ export interface Control {
 export interface FormProperties {
     name: string;
     type: FormType;
-    properties: Property[];
+    properties: FormProperty[];
     controls: Control[];
 }
 
@@ -578,7 +591,7 @@ impl JsDatabase {
         set(
             &object,
             "properties",
-            property_array(design.properties).into(),
+            form_property_array(design.properties).into(),
         );
         let controls: Array = design
             .controls
@@ -587,7 +600,12 @@ impl JsDatabase {
                 let control = Object::new();
                 set(&control, "name", c.name.into());
                 set(&control, "type", c.type_name.into());
-                set(&control, "properties", property_array(c.properties).into());
+                set(&control, "typeCode", c.type_code.into());
+                set(
+                    &control,
+                    "properties",
+                    form_property_array(c.properties).into(),
+                );
                 control
             })
             .collect();
@@ -1045,6 +1063,19 @@ fn name_values(pairs: Vec<(String, String)>) -> Array {
 fn optional_string(value: Option<String>) -> JsValue {
     value.map_or(JsValue::NULL, JsValue::from)
 }
+fn form_property_array(properties: Vec<FormProperty>) -> Array {
+    properties
+        .into_iter()
+        .map(|p| {
+            let object = Object::new();
+            set(&object, "id", p.id.into());
+            set(&object, "name", p.name.into());
+            set(&object, "value", cell_value(p.value));
+            object
+        })
+        .collect()
+}
+
 fn property_array(properties: Vec<Property>) -> Array {
     properties
         .into_iter()

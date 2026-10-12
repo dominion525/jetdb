@@ -21,6 +21,7 @@ import {
   type FormType,
   type FormProperties,
   type Control,
+  type FormProperty,
   type Macro,
   type MacroStatement,
   type ObjectProperties,
@@ -156,7 +157,9 @@ export const formType: FormType = forms[0].type;
 if (formType === "Page") {
 }
 export const design: FormProperties = db.formProperties("Form1");
-export const control: { name: string; type: string; properties: Property[] } = design.controls[0];
+export const control: { name: string; type: string; typeCode: number; properties: FormProperty[] } =
+  design.controls[0];
+export const formProperty: { id: number; name: string; value: Value } = design.properties[0];
 export const controls: Control[] = design.controls;
 export const formValue: Value = design.properties[0].value;
 // @ts-expect-error: the form name is required.
