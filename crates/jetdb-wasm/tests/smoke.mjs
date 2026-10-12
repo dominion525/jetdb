@@ -28,6 +28,7 @@ function check(Database, build) {
   checkQueries(Database, build);
   checkModules(Database, build);
   checkForms(Database, build);
+  checkMacros(Database, build);
   checkProperties(Database, build);
   checkErrors(Database, build);
   checkStringArguments(Database, build);
@@ -307,6 +308,46 @@ function checkForms(Database, build) {
   assert.equal(report.controls.length, 78, build);
 }
 
+function checkMacros(Database, build) {
+  const db = Database.open(read("V2010/macroTestV2010.accdb"));
+  assert.deepEqual(db.macros(), ["AutoExec", "mcrConditions", "mcrLongText", "mcrSimple", "~TMPCLPMacro"], build);
+  const simple = db.macro("mcrSimple");
+  assert.deepEqual(simple.source, { kind: "named", name: "mcrSimple" }, build);
+  assert.deepEqual(
+    simple.statements[1],
+    {
+      kind: "action",
+      name: "MessageBox",
+      arguments: [
+        { name: "Message", value: "Hello" },
+        { name: "Beep", value: "No" },
+        { name: "Type", value: "Information" },
+        { name: "Title", value: "Title" },
+      ],
+    },
+    build,
+  );
+  assert.ok(simple.xml.includes("<UserInterfaceMacro"), build);
+  assert.ok(simple.text.startsWith("Version =196611"), `${build}: ${simple.text}`);
+  assert.throws(() => db.macro("NoSuchMacro"), { name: "JetdbError", code: "MACRO_NOT_FOUND" }, build);
+
+  const embedded = db.embeddedMacros("tblItems");
+  assert.ok(embedded.length > 0, build);
+  assert.equal(embedded[0].source.kind, "embedded", build);
+  assert.equal(embedded[0].source.objectName, "tblItems", build);
+  assert.equal(typeof embedded[0].text, "string", build);
+  assert.throws(() => db.embeddedMacros("NoSuchForm"), { name: "JetdbError", code: "FORM_NOT_FOUND" }, build);
+
+  const data = db.dataMacros("tblItems");
+  assert.ok(data.length > 0, build);
+  assert.equal(data[0].source.kind, "data", build);
+  assert.equal(data[0].source.table, "tblItems", build);
+  assert.equal(data[0].text, null, build);
+  assert.ok(db.dataMacrosText("tblItems").length > 0, build);
+  assert.throws(() => db.dataMacros("NoSuchTable"), { name: "JetdbError", code: "TABLE_NOT_FOUND" }, build);
+  assert.deepEqual(openTest(Database).macros(), [], build);
+}
+
 function checkProperties(Database, build) {
   const db = Database.open(read("V2010/calcFieldTestV2010.accdb"));
   const props = db.properties("Table1");
@@ -368,7 +409,7 @@ function checkStringArguments(Database, build) {
   // can still be read after it.
   const db = openTest(Database);
   const invalid = { name: "JetdbError", code: "INVALID_ARGUMENT" };
-  for (const method of ["columns", "indexes", "rows", "querySql", "moduleSource", "formProperties"]) {
+  for (const method of ["columns", "indexes", "rows", "querySql", "moduleSource", "formProperties", "macro", "embeddedMacros", "dataMacros", "dataMacrosText"]) {
     for (const value of [undefined, null, 42, {}]) {
       assert.throws(() => db[method](value), invalid, `${build}: ${method}(${value})`);
     }

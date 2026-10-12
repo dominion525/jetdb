@@ -12,12 +12,13 @@ use std::io::Cursor;
 use jetdb::ddl::{self, with_calculated_column_types, DdlDialect};
 use jetdb::format::{index_flags, index_type, ColumnType, ObjectType};
 use jetdb::{
-    calculated_column_types_in, control_type_name, entry_properties, find_table, list_forms,
-    query_to_sql, read_catalog, read_form_properties, read_object_properties, read_queries_in,
-    read_relationships_in, read_table_def, read_table_rows_with, read_vba_project,
-    relationship_flags, timestamp, BlobProperty, BlobValue, CatalogEntry, FileError,
-    FormObjectType, IndexColumnOrder, PageReader, PropMapType, QueryDef, QueryType, TableDef,
-    Value, VbaModule, VbaModuleType,
+    calculated_column_types_in, control_type_name, data_macros_to_text, embedded_macro_to_text,
+    entry_properties, find_table, list_forms, list_macros, query_to_sql, read_catalog,
+    read_data_macros, read_embedded_macros, read_form_properties, read_macro,
+    read_object_properties, read_queries_in, read_relationships_in, read_table_def,
+    read_table_rows_with, read_vba_project, relationship_flags, timestamp, BlobProperty, BlobValue,
+    CatalogEntry, FileError, FormObjectType, IndexColumnOrder, MacroDef, MacroGrid, PageReader,
+    PropMapType, QueryDef, QueryType, TableDef, Value, VbaModule, VbaModuleType,
 };
 
 /// A database opened from bytes in memory.
@@ -169,6 +170,16 @@ pub struct Control {
     /// `0x....` for a type jetdb does not know, as `jetdb form props` shows it.
     pub type_name: String,
     pub properties: Vec<Property>,
+}
+
+/// A macro, with the SaveAsText text `jetdb macro` prints for it: `None` for a
+/// data macro, whose text is that of all the data macros of its table
+/// (`Database::data_macros_text`), and for a named macro whose grid could
+/// not be read.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Macro {
+    pub def: MacroDef,
+    pub text: Option<String>,
 }
 
 /// Why `Database::properties` gave no properties.
@@ -537,6 +548,52 @@ impl Database {
         })
     }
 
+    /// The names of the named macros, sorted, as `jetdb macro list` lists them.
+    pub fn macros(&mut self) -> Result<Vec<String>, FileError> {
+        let mut names: Vec<String> = list_macros(&mut self.reader)?
+            .into_iter()
+            .map(|m| m.name)
+            .collect();
+        names.sort_unstable();
+        Ok(names)
+    }
+
+    /// The named macro `name`, with the text `jetdb macro show` prints.
+    pub fn named_macro(&mut self, name: &str) -> Result<Macro, FileError> {
+        let def = read_macro(&mut self.reader, name)?;
+        let text = def.grid.as_ref().map(MacroGrid::to_text);
+        Ok(Macro { def, text })
+    }
+
+    /// The macros embedded in the events of the form or report `form`, with
+    /// the text `jetdb macro embedded` prints for each.
+    pub fn embedded_macros(&mut self, form: &str) -> Result<Vec<Macro>, FileError> {
+        Ok(read_embedded_macros(&mut self.reader, form)?
+            .into_iter()
+            .map(|def| Macro {
+                text: embedded_macro_to_text(&def),
+                def,
+            })
+            .collect())
+    }
+
+    /// The data macros of the table `table`.
+    pub fn data_macros(&mut self, table: &str) -> Result<Vec<Macro>, FileError> {
+        Ok(read_data_macros(&mut self.reader, table)?
+            .into_iter()
+            .map(|def| Macro { def, text: None })
+            .collect())
+    }
+
+    /// The text of all the data macros of the table `table`, as
+    /// `jetdb macro data` prints it.
+    pub fn data_macros_text(&mut self, table: &str) -> Result<String, FileError> {
+        Ok(data_macros_to_text(&read_data_macros(
+            &mut self.reader,
+            table,
+        )?))
+    }
+
     /// The properties of the object `name`, of `object_type` when it is
     /// given, as `jetdb prop` reads them. Without a type, objects of several
     /// types sharing the name are an error, as there is no telling which one
@@ -715,7 +772,7 @@ fn query_type_name(query_type: QueryType) -> &'static str {
 }
 
 /// The name of a form type, as JavaScript gets it.
-fn form_type_name(form_type: FormObjectType) -> &'static str {
+pub(crate) fn form_type_name(form_type: FormObjectType) -> &'static str {
     match form_type {
         FormObjectType::Form => "Form",
         FormObjectType::Report => "Report",
@@ -1335,6 +1392,80 @@ mod tests {
         assert_eq!(error_code(&error), "INVALID_FILE", "{error}");
         let sql = db.ddl(dialect("postgres"), None, true, false).unwrap();
         assert!(sql.contains("CREATE TABLE \"Table1\""), "{sql}");
+    }
+
+    #[test]
+    fn macros_as_jetdb_macro_shows_them() {
+        // Every named, embedded and data macro is the macro the library reads,
+        // with the text jetdb macro show, embedded and data print.
+        let mut compared = (0, 0, 0);
+        for file in [
+            "V2003/macroTestV2003.mdb",
+            "V2010/macroTestV2010.accdb",
+            "V2010/macroGeneratedTestV2010.accdb",
+        ] {
+            let bytes = skip_if_missing!(file);
+            let mut db = Database::open(bytes.clone(), None).unwrap();
+            let mut reader =
+                PageReader::open_reader_with_password(Cursor::new(bytes), None).unwrap();
+
+            let mut names: Vec<String> = list_macros(&mut reader)
+                .unwrap()
+                .into_iter()
+                .map(|m| m.name)
+                .collect();
+            names.sort_unstable();
+            assert_eq!(db.macros().unwrap(), names, "{file}");
+            for name in &names {
+                let def = read_macro(&mut reader, name).unwrap();
+                let read = db.named_macro(name).unwrap();
+                assert_eq!(read.text, def.grid.as_ref().map(MacroGrid::to_text));
+                assert_eq!(read.def, def, "{file}: {name}");
+                compared.0 += 1;
+            }
+
+            for form in list_forms(&mut reader).unwrap() {
+                let defs = read_embedded_macros(&mut reader, &form.name).unwrap();
+                let read = db.embedded_macros(&form.name).unwrap();
+                let texts: Vec<_> = defs.iter().map(embedded_macro_to_text).collect();
+                assert_eq!(
+                    read.iter().map(|m| m.text.clone()).collect::<Vec<_>>(),
+                    texts
+                );
+                assert_eq!(read.into_iter().map(|m| m.def).collect::<Vec<_>>(), defs);
+                compared.1 += defs.len();
+            }
+
+            for table in db.tables(false).unwrap() {
+                let defs = read_data_macros(&mut reader, &table).unwrap();
+                let read = db.data_macros(&table).unwrap();
+                assert!(read.iter().all(|m| m.text.is_none()));
+                assert_eq!(read.into_iter().map(|m| m.def).collect::<Vec<_>>(), defs);
+                assert_eq!(
+                    db.data_macros_text(&table).unwrap(),
+                    data_macros_to_text(&defs)
+                );
+                compared.2 += defs.len();
+            }
+
+            assert!(matches!(
+                db.named_macro("NoSuchMacro"),
+                Err(FileError::MacroNotFound { .. })
+            ));
+            assert!(matches!(
+                db.embedded_macros("NoSuchForm"),
+                Err(FileError::FormNotFound { .. })
+            ));
+            assert!(matches!(
+                db.data_macros("NoSuchTable"),
+                Err(FileError::TableNotFound { .. })
+            ));
+        }
+        // Named, embedded and data macros were all compared.
+        assert!(
+            compared.0 > 0 && compared.1 > 0 && compared.2 > 0,
+            "{compared:?}"
+        );
     }
 
     fn form(name: &str, type_name: &'static str) -> Form {
