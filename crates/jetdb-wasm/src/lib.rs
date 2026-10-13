@@ -14,11 +14,12 @@ use jetdb::format::{index_flags, index_type, ColumnType, ObjectType};
 use jetdb::{
     calculated_column_types_in, control_type_name, data_macros_to_text, embedded_macro_to_text,
     entry_properties, find_table, list_forms, list_macros, query_to_sql, read_catalog,
-    read_data_macros, read_embedded_macros, read_form_properties, read_macro,
-    read_object_properties, read_queries_in, read_relationships_in, read_table_def,
-    read_table_rows_with, read_vba_project, relationship_flags, timestamp, BlobProperty, BlobValue,
-    CatalogEntry, FileError, FormObjectType, IndexColumnOrder, MacroDef, MacroGrid, PageReader,
-    PropMapType, QueryDef, QueryType, TableDef, Value, VbaModule, VbaModuleType,
+    read_data_macros, read_embedded_macros, read_embedded_macros_of_type, read_form_properties,
+    read_form_properties_of_type, read_macro, read_object_properties, read_queries_in,
+    read_relationships_in, read_table_def, read_table_rows_with, read_vba_project,
+    relationship_flags, timestamp, BlobProperty, BlobValue, CatalogEntry, FileError,
+    FormObjectType, IndexColumnOrder, MacroDef, MacroGrid, PageReader, PropMapType, QueryDef,
+    QueryType, TableDef, Value, VbaModule, VbaModuleType,
 };
 
 /// A database opened from bytes in memory.
@@ -519,7 +520,8 @@ impl Database {
             })
     }
 
-    /// The forms and reports, sorted by name, as `jetdb form list` lists them.
+    /// The forms and reports, sorted by name, as `jetdb form list` lists them,
+    /// and a form before a report of the same name.
     pub fn forms(&mut self) -> Result<Vec<Form>, FileError> {
         let mut out: Vec<Form> = list_forms(&mut self.reader)?
             .into_iter()
@@ -528,15 +530,23 @@ impl Database {
                 type_name: form_type_name(f.object_type),
             })
             .collect();
-        out.sort_unstable_by(|a, b| a.name.cmp(&b.name));
+        // Form sorts before Report.
+        out.sort_unstable_by(|a, b| (&a.name, a.type_name).cmp(&(&b.name, b.type_name)));
         Ok(out)
     }
 
     /// The design of the form or report `name`, as `jetdb form props` shows
     /// it: each property by its name, or by its number as `0x....` for one
     /// jetdb does not know.
-    pub fn form_properties(&mut self, name: &str) -> Result<FormDesign, FileError> {
-        let read = read_form_properties(&mut self.reader, name)?;
+    pub fn form_properties(
+        &mut self,
+        name: &str,
+        form_type: Option<FormObjectType>,
+    ) -> Result<FormDesign, PropertiesError> {
+        let read = match self.form_type(name, form_type)? {
+            Some(t) => read_form_properties_of_type(&mut self.reader, name, t)?,
+            None => read_form_properties(&mut self.reader, name)?,
+        };
         let properties = |properties: Vec<BlobProperty>| {
             properties
                 .into_iter()
@@ -589,8 +599,16 @@ impl Database {
 
     /// The macros embedded in the events of the form or report `form`, with
     /// the text `jetdb macro embedded` prints for each.
-    pub fn embedded_macros(&mut self, form: &str) -> Result<Vec<Macro>, FileError> {
-        Ok(read_embedded_macros(&mut self.reader, form)?
+    pub fn embedded_macros(
+        &mut self,
+        form: &str,
+        form_type: Option<FormObjectType>,
+    ) -> Result<Vec<Macro>, PropertiesError> {
+        let macros = match self.form_type(form, form_type)? {
+            Some(t) => read_embedded_macros_of_type(&mut self.reader, form, t)?,
+            None => read_embedded_macros(&mut self.reader, form)?,
+        };
+        Ok(macros
             .into_iter()
             .map(|def| Macro {
                 text: embedded_macro_to_text(&def),
@@ -743,6 +761,33 @@ impl Database {
             self.queries = Some(read_queries_in(reader, catalog)?);
         }
         Ok(self.queries.as_deref().expect("the queries were just read"))
+    }
+
+    /// The type of the form or report `name`: `given`, or the only one of the
+    /// name, or `None` when there is none. A form and a report of the same
+    /// name are an error without `given`, as there is no telling which one
+    /// is meant.
+    fn form_type(
+        &mut self,
+        name: &str,
+        given: Option<FormObjectType>,
+    ) -> Result<Option<FormObjectType>, PropertiesError> {
+        if given.is_some() {
+            return Ok(given);
+        }
+        let mut types: Vec<FormObjectType> = Vec::new();
+        for entry in list_forms(&mut self.reader)? {
+            if entry.name == name && !types.contains(&entry.object_type) {
+                types.push(entry.object_type);
+            }
+        }
+        match types.as_slice() {
+            [_, _, ..] => Err(PropertiesError::SeveralTypes(vec![
+                ObjectType::Form,
+                ObjectType::Report,
+            ])),
+            _ => Ok(types.first().copied()),
+        }
     }
 
     /// The VBA modules, read on the first call. Like the catalog, they are
@@ -1460,7 +1505,7 @@ mod tests {
 
             for form in list_forms(&mut reader).unwrap() {
                 let defs = read_embedded_macros(&mut reader, &form.name).unwrap();
-                let read = db.embedded_macros(&form.name).unwrap();
+                let read = db.embedded_macros(&form.name, None).unwrap();
                 let texts: Vec<_> = defs.iter().map(embedded_macro_to_text).collect();
                 assert_eq!(
                     read.iter().map(|m| m.text.clone()).collect::<Vec<_>>(),
@@ -1487,8 +1532,8 @@ mod tests {
                 Err(FileError::MacroNotFound { .. })
             ));
             assert!(matches!(
-                db.embedded_macros("NoSuchForm"),
-                Err(FileError::FormNotFound { .. })
+                db.embedded_macros("NoSuchForm", None),
+                Err(PropertiesError::File(FileError::FormNotFound { .. }))
             ));
             assert!(matches!(
                 db.data_macros("NoSuchTable"),
@@ -1500,6 +1545,46 @@ mod tests {
             compared.0 > 0 && compared.1 > 0 && compared.2 > 0,
             "{compared:?}"
         );
+    }
+
+    #[test]
+    fn form_and_report_of_the_same_name() {
+        // sameNameTestV2007.accdb has a form and a report both named Shared.
+        let bytes = skip_if_missing!("V2007/sameNameTestV2007.accdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        assert_eq!(
+            db.forms().unwrap(),
+            [form("Shared", "Form"), form("Shared", "Report")]
+        );
+        // Without a type there is no telling which one is meant.
+        assert!(matches!(
+            db.form_properties("Shared", None),
+            Err(PropertiesError::SeveralTypes(_))
+        ));
+        assert!(matches!(
+            db.embedded_macros("Shared", None),
+            Err(PropertiesError::SeveralTypes(_))
+        ));
+        for (form_type, type_name, caption, event) in [
+            (FormObjectType::Form, "Form", "Shared form", "OnLoad"),
+            (FormObjectType::Report, "Report", "Shared report", "OnOpen"),
+        ] {
+            let design = db.form_properties("Shared", Some(form_type)).unwrap();
+            assert_eq!(design.type_name, type_name);
+            assert_eq!(
+                *form_property(&design.properties, "Caption"),
+                Cell::String(caption.into())
+            );
+            let macros = db.embedded_macros("Shared", Some(form_type)).unwrap();
+            let events: Vec<&str> = macros
+                .iter()
+                .map(|m| match &m.def.source {
+                    jetdb::MacroSource::Embedded { event, .. } => event.as_str(),
+                    other => panic!("{other:?}"),
+                })
+                .collect();
+            assert_eq!(events, [event], "{type_name}");
+        }
     }
 
     fn form(name: &str, type_name: &'static str) -> Form {
@@ -1541,7 +1626,7 @@ mod tests {
         ] {
             let bytes = skip_if_missing!(file);
             let mut db = Database::open(bytes.clone(), None).unwrap();
-            let design = db.form_properties(name).unwrap();
+            let design = db.form_properties(name, None).unwrap();
             let mut reader =
                 PageReader::open_reader_with_password(Cursor::new(bytes), None).unwrap();
             let read = read_form_properties(&mut reader, name).unwrap();
@@ -1571,7 +1656,7 @@ mod tests {
         // Values in the types JavaScript gets.
         let bytes = skip_if_missing!("formPropTest.accdb");
         let mut db = Database::open(bytes, None).unwrap();
-        let design = db.form_properties("jp_フォーム_2").unwrap();
+        let design = db.form_properties("jp_フォーム_2", None).unwrap();
         assert_eq!(design.type_name, "Form");
         let value = |name| form_property(&design.properties, name);
         assert_eq!(*value("RecordSource"), Cell::String("jp_クエリ_02".into()));
@@ -1582,13 +1667,13 @@ mod tests {
         assert!(matches!(value("0x0178"), Cell::String(s) if s.starts_with('{')));
         assert!(matches!(value("0x0179"), Cell::Bytes(b) if b.len() == 384));
         assert!(matches!(
-            db.form_properties("NoSuchForm"),
-            Err(FileError::FormNotFound { .. })
+            db.form_properties("NoSuchForm", None),
+            Err(PropertiesError::File(FileError::FormNotFound { .. }))
         ));
 
         let bytes = skip_if_missing!("saveastext/SportsAdmin/Sports.accdb");
         let mut db = Database::open(bytes, None).unwrap();
-        let design = db.form_properties("Field (High Jump)").unwrap();
+        let design = db.form_properties("Field (High Jump)", None).unwrap();
         assert_eq!(design.type_name, "Report");
         assert_eq!(
             *form_property(&design.properties, "RecordSource"),
@@ -1603,7 +1688,7 @@ mod tests {
         assert_eq!(record_source.id, 0x009C);
         // The same 32-bit type holds numbers that are not colors: 0x00DB is
         // HelpContextId, which SaveAsText writes as 270.
-        let design = db.form_properties("Statistical Reports").unwrap();
+        let design = db.form_properties("Statistical Reports", None).unwrap();
         assert_eq!(
             *form_property(&design.properties, "0x00DB"),
             Cell::Number(270.0)

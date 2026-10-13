@@ -164,6 +164,10 @@ export const controls: Control[] = design.controls;
 export const formValue: Value = design.properties[0].value;
 // @ts-expect-error: the form name is required.
 db.formProperties();
+db.formProperties("Shared", { type: "Report" });
+db.embeddedMacros("Shared", { type: "Form" });
+// @ts-expect-error: Page is not a form type.
+db.formProperties("Shared", { type: "Page" });
 
 export const macroNames: string[] = db.macros();
 db.macros({ system: true });

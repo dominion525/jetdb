@@ -326,3 +326,42 @@ fn form_dump_propdata() {
     );
     assert!(!output.stdout.is_empty(), "PropData should not be empty");
 }
+
+// ---------------------------------------------------------------------------
+// A form and a report of the same name: --type chooses one
+// ---------------------------------------------------------------------------
+
+#[test]
+fn form_props_shared_name_needs_type() {
+    // sameNameTestV2007.accdb has a form and a report both named Shared.
+    let path = skip_if_missing!("V2007/sameNameTestV2007.accdb");
+    let output = jetdb_bin()
+        .args(["form", "props", path.to_str().unwrap(), "Shared"])
+        .output()
+        .expect("failed to run jetdb");
+    assert!(!output.status.success(), "should fail without --type");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(
+            "objects of several types are named Shared: form, report; choose one with --type"
+        ),
+        "got: {stderr}"
+    );
+
+    for (object_type, header) in [("form", "Form: Shared"), ("report", "Report: Shared")] {
+        let output = jetdb_bin()
+            .args([
+                "form",
+                "props",
+                "--type",
+                object_type,
+                path.to_str().unwrap(),
+                "Shared",
+            ])
+            .output()
+            .expect("failed to run jetdb");
+        assert!(output.status.success(), "{object_type}");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.starts_with(header), "{object_type}: {stdout}");
+    }
+}

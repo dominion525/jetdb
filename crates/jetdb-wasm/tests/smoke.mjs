@@ -304,6 +304,14 @@ function checkForms(Database, build) {
   assert.throws(() => db.formProperties("NoSuchForm"), { name: "JetdbError", code: "FORM_NOT_FOUND" }, build);
   assert.deepEqual(openTest(Database).forms(), [], build);
 
+  // A form and a report both named Shared: the type option chooses one.
+  const shared = Database.open(read("V2007/sameNameTestV2007.accdb"));
+  assert.deepEqual(shared.forms(), [{ name: "Shared", type: "Form" }, { name: "Shared", type: "Report" }], build);
+  assert.throws(() => shared.formProperties("Shared"), { name: "JetdbError", code: "INVALID_ARGUMENT" }, build);
+  assert.equal(shared.formProperties("Shared", { type: "Report" }).type, "Report", build);
+  assert.equal(shared.embeddedMacros("Shared", { type: "Report" })[0].source.event, "OnOpen", build);
+  assert.throws(() => shared.embeddedMacros("Shared", { type: "Page" }), { name: "JetdbError", code: "INVALID_ARGUMENT" }, build);
+
   const sports = Database.open(read("saveastext/SportsAdmin/Sports.accdb"));
   const report = sports.formProperties("Field (High Jump)");
   assert.equal(report.type, "Report", build);
