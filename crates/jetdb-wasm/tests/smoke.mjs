@@ -254,8 +254,8 @@ function checkModules(Database, build) {
   assert.deepEqual(
     db.modules(),
     [
-      { name: "Class1", type: "ClassOrDocument" },
-      { name: "Form_Form1", type: "ClassOrDocument" },
+      { name: "Class1", type: "Class" },
+      { name: "Form_Form1", type: "Document" },
       { name: "Module1", type: "Standard" },
     ],
     build,
@@ -268,7 +268,7 @@ function checkModules(Database, build) {
 
   // Japanese names and source.
   const japanese = Database.open(read("vbaJapaneseV2007.accdb"));
-  assert.ok(japanese.modules().some((m) => m.name === "顧客クラス" && m.type === "ClassOrDocument"), build);
+  assert.ok(japanese.modules().some((m) => m.name === "顧客クラス" && m.type === "Class"), build);
   assert.ok(japanese.moduleSource("日本語モジュール").includes('あいさつ = "こんにちは、" & 名前 & "さん"'), build);
 }
 

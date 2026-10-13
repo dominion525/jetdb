@@ -13,8 +13,12 @@ use crate::storage::{self, StorageEntry};
 /// VBA module type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VbaModuleType {
+    /// A standard module.
     Standard,
-    ClassOrDocument,
+    /// A class module.
+    Class,
+    /// The module of a form or report, which VBA calls a document module.
+    Document,
 }
 
 /// A single VBA module with its source code.
@@ -67,9 +71,11 @@ pub fn read_vba_project(reader: &mut PageReader) -> Result<VbaProject, FileError
 
 /// Extract VBA modules from CFB bytes using the ovba crate.
 fn extract_modules_from_cfb(cfb_bytes: Vec<u8>) -> Result<VbaProject, FileError> {
-    let project = ovba::open_project(cfb_bytes).map_err(|e| FileError::InvalidVbaProject {
-        reason: e.to_string(),
-    })?;
+    let project =
+        ovba::open_project(cfb_bytes.clone()).map_err(|e| FileError::InvalidVbaProject {
+            reason: e.to_string(),
+        })?;
+    let classes = class_module_names(&cfb_bytes, project.information.code_page);
 
     let mut modules = Vec::new();
     for module in &project.modules {
@@ -82,7 +88,12 @@ fn extract_modules_from_cfb(cfb_bytes: Vec<u8>) -> Result<VbaProject, FileError>
 
         let module_type = match module.module_type {
             ovba::ModuleType::Procedural => VbaModuleType::Standard,
-            ovba::ModuleType::DocClsDesigner => VbaModuleType::ClassOrDocument,
+            // ovba tells only standard modules from the others. The PROJECT
+            // stream names the class modules; the others are documents.
+            ovba::ModuleType::DocClsDesigner => match &classes {
+                Some(classes) if !classes.contains(&module.name) => VbaModuleType::Document,
+                _ => VbaModuleType::Class,
+            },
         };
 
         modules.push(VbaModule {
@@ -98,6 +109,28 @@ fn extract_modules_from_cfb(cfb_bytes: Vec<u8>) -> Result<VbaProject, FileError>
 // ---------------------------------------------------------------------------
 // Internal: MSysAccessStorage reading is now in crate::storage
 // ---------------------------------------------------------------------------
+
+/// The names of the class modules, from the `Class=` lines of the PROJECT
+/// stream, which the project's code page encodes. In Access databases the
+/// stream names standard modules with `Module=` and class modules with
+/// `Class=`, and does not list the modules of forms and reports. `None`
+/// when the stream cannot be read.
+fn class_module_names(cfb_bytes: &[u8], code_page: u16) -> Option<HashSet<String>> {
+    let mut cfb = cfb::CompoundFile::open(Cursor::new(cfb_bytes)).ok()?;
+    let mut data = Vec::new();
+    cfb.open_stream("/PROJECT")
+        .ok()?
+        .read_to_end(&mut data)
+        .ok()?;
+    let encoding = codepage::to_encoding(code_page).unwrap_or(encoding_rs::WINDOWS_1252);
+    let (text, _, _) = encoding.decode(&data);
+    Some(
+        text.lines()
+            .filter_map(|line| line.strip_prefix("Class="))
+            .map(|name| name.trim_end().to_string())
+            .collect(),
+    )
+}
 
 /// Extract the VBAProject subtree from a CFB and rebuild it as a root-level CFB.
 ///
@@ -353,8 +386,8 @@ mod tests {
 
     const EXPECTED_MODULES: &[(&str, VbaModuleType)] = &[
         ("Module1", VbaModuleType::Standard),
-        ("Class1", VbaModuleType::ClassOrDocument),
-        ("Form_Form1", VbaModuleType::ClassOrDocument),
+        ("Class1", VbaModuleType::Class),
+        ("Form_Form1", VbaModuleType::Document),
     ];
 
     /// The source Access held for each module when vba-japanese-generator.bas
@@ -422,7 +455,7 @@ mod tests {
             );
             assert_eq!(
                 module_type("顧客クラス"),
-                Some(VbaModuleType::ClassOrDocument),
+                Some(VbaModuleType::Class),
                 "{file}"
             );
         }

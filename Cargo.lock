@@ -395,6 +395,7 @@ dependencies = [
  "base64",
  "cbc",
  "cfb 0.14.0",
+ "codepage",
  "ecb",
  "encoding_rs",
  "log",

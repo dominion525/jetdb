@@ -144,8 +144,10 @@ db.querySql();
 
 export const modules: Module[] = db.modules();
 export const vbaModule: { name: string; type: ModuleType } = modules[0];
-// @ts-expect-error: Class is not a module type; it is ClassOrDocument.
-if (vbaModule.type === "Class") {
+if (vbaModule.type === "Class" || vbaModule.type === "Document") {
+}
+// @ts-expect-error: ClassOrDocument is not a module type; it is Class or Document.
+if (vbaModule.type === "ClassOrDocument") {
 }
 export const moduleSource: string = db.moduleSource("Module1");
 // @ts-expect-error: the module name is required.
