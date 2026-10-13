@@ -141,8 +141,8 @@ fn vba_project() {
     let project = read_vba_project(&mut reader).expect("failed to read VBA project");
 
     let expected = [
-        ("Class1", VbaModuleType::ClassOrDocument),
-        ("Form_Form1", VbaModuleType::ClassOrDocument),
+        ("Class1", VbaModuleType::Class),
+        ("Form_Form1", VbaModuleType::Document),
         ("Module1", VbaModuleType::Standard),
     ];
     let mut modules: Vec<_> = project.modules.iter().collect();
