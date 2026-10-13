@@ -114,8 +114,8 @@ pub struct Query {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Module {
     pub name: String,
-    /// `Standard`, or `ClassOrDocument` for a class module or the module of a
-    /// form or report (see [`module_type_name`]).
+    /// `Standard`, `Class`, or `Document` for the module of a form or report
+    /// (see [`module_type_name`]).
     pub type_name: &'static str,
 }
 
@@ -850,7 +850,8 @@ pub(crate) fn form_type_name(form_type: FormObjectType) -> &'static str {
 fn module_type_name(module_type: VbaModuleType) -> &'static str {
     match module_type {
         VbaModuleType::Standard => "Standard",
-        VbaModuleType::ClassOrDocument => "ClassOrDocument",
+        VbaModuleType::Class => "Class",
+        VbaModuleType::Document => "Document",
     }
 }
 
@@ -1713,16 +1714,16 @@ mod tests {
             (
                 "vbaV2000.mdb",
                 vec![
-                    module("Class1", "ClassOrDocument"),
-                    module("Form_Form1", "ClassOrDocument"),
+                    module("Class1", "Class"),
+                    module("Form_Form1", "Document"),
                     module("Module1", "Standard"),
                 ],
             ),
             (
                 "vbaV2007.accdb",
                 vec![
-                    module("Class1", "ClassOrDocument"),
-                    module("Form_Form1", "ClassOrDocument"),
+                    module("Class1", "Class"),
+                    module("Form_Form1", "Document"),
                     module("Module1", "Standard"),
                 ],
             ),
@@ -1731,7 +1732,7 @@ mod tests {
                 vec![
                     module("VbaJapaneseGenerator", "Standard"),
                     module("日本語モジュール", "Standard"),
-                    module("顧客クラス", "ClassOrDocument"),
+                    module("顧客クラス", "Class"),
                 ],
             ),
         ] {

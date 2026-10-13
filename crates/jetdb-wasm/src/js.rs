@@ -134,10 +134,10 @@ export interface Query {
 }
 
 /**
- * The type of a VBA module. `ClassOrDocument` is a class module, or the module
- * of a form or report.
+ * The type of a VBA module: a standard module, a class module, or the module
+ * of a form or report, which VBA calls a document module.
  */
-export type ModuleType = "Standard" | "ClassOrDocument";
+export type ModuleType = "Standard" | "Class" | "Document";
 
 /** A VBA module. */
 export interface Module {
