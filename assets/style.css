@@ -296,6 +296,11 @@ pre {
   font-size: 1.0625rem;
 }
 
+/* リード文のすぐ下の注記は、リード文に寄せる */
+.section-lead + .reads-note {
+  margin: -20px 0 32px;
+}
+
 .points {
   display: grid;
   /* 広い画面では 2 列、狭い画面では 1 列 */
