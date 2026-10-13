@@ -237,44 +237,28 @@ End</code></pre>
                 <pre><code>Form: frmOrders
 
   Form Properties:
-    0x013A        yes
-    0x0175        yes
-    0x0093        14080
-    0x00C2        15744
-    0x0135        16898
-    0x013E        25091
-    0x002A        6488074
-    0x0096        6626130
-    0x00A1        6750219
-    0x009E        6946829
-    0x0081        7027082
-    0x000C        10492368
-    0x013F        #E8E8E8
-    0x016C        46307.4496458912
-    0x0178        {41b564c5-f846-4c96-bb27-798ae1e6e040}
-    0x0179        (458 bytes)
+    …
     RecordSource  tblOrders
     Caption       Orders
-    FontName      ＭＳ Ｐゴシック
-    0x01C4        yes
+    …
 
-  Control: 詳細 (Detail)
-    Name    詳細
-    0x0178  {bac83569-383a-4230-b0ff-44be64817b53}
-    0x01DC  yes
+  …
 
-  Control: txtOrderID (TextBox)
-    Name           txtOrderID
-    ControlSource  OrderID
-    0x0178         {97642576-7729-4b9b-b26c-171ad144db31}
+  Control: txtQuantity (TextBox)
+    Name           txtQuantity
+    ControlSource  Quantity
+    StatusBarText  Number of units
+    0x0178         {dcda3ded-1a23-4514-a941-330580135978}
     0x0000         -1
 
-  Control: lblOrderID (Label)
-    Name     lblOrderID
-    Caption  OrderID
-    0x0178   {9f11d97c-dccb-4afb-bfea-a66fd683d9e4}
-    0x024B   300
-…</code></pre>
+  …
+
+  Control: btnShowTotal (CommandButton)
+    Name     btnShowTotal
+    Caption  Show total
+    OnClick  [Event Procedure]
+    0x0178   {7b9ce7cf-e676-4e99-9adb-0fbee36e25b7}
+    0x0000   -1</code></pre>
               </details>
             </li>
             <li class="read">
