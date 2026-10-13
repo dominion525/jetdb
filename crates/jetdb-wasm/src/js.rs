@@ -1,7 +1,7 @@
 //! The JavaScript interface: thin `wasm-bindgen` wrappers over [`crate::Database`].
 
 use jetdb::format::ObjectType;
-use jetdb::{MacroSource, MacroStatement, MacroXmlElement};
+use jetdb::{FormObjectType, MacroSource, MacroStatement, MacroXmlElement};
 use js_sys::{Array, ArrayBuffer, BigInt, Object, Reflect, Symbol, Uint8Array};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
@@ -15,7 +15,7 @@ use crate::{
 // Query, Module, Form, FormProperties, Macro, ObjectProperties and Rows are used
 // through unchecked_return_type, and DdlDialect through unchecked_param_type.
 // TablesOptions, RelationshipsOptions, QueriesOptions, MacrosOptions,
-// PropertiesOptions and DdlOptions are extern types rather than
+// FormOptions, PropertiesOptions and DdlOptions are extern types rather than
 // unchecked_param_type, which would make the parameter required.
 #[wasm_bindgen(typescript_custom_section)]
 const TYPES: &str = r#"
@@ -285,6 +285,15 @@ export interface PropertiesOptions {
     type?: ObjectType;
 }
 
+/** The options of `Database.formProperties` and `Database.embeddedMacros`. */
+export interface FormOptions {
+    /**
+     * Form or report, needed when a form and a report share the name. Without
+     * it, the only form or report of the name is read.
+     */
+    type?: FormType;
+}
+
 /** The properties of an object, as Access keeps them. */
 export interface ObjectProperties {
     /** The properties of the object itself. */
@@ -411,6 +420,9 @@ extern "C" {
 
     #[wasm_bindgen(typescript_type = "MacrosOptions")]
     pub type MacrosOptions;
+
+    #[wasm_bindgen(typescript_type = "FormOptions")]
+    pub type FormOptions;
 
     #[wasm_bindgen(typescript_type = "PropertiesOptions")]
     pub type PropertiesOptions;
@@ -595,11 +607,14 @@ impl JsDatabase {
     pub fn form_properties(
         &mut self,
         #[wasm_bindgen(unchecked_param_type = "string")] name: JsValue,
+        options: Option<FormOptions>,
     ) -> Result<Object, JsValue> {
+        let name = string_arg(&name, "name")?;
+        let form_type = form_type_option(options.as_deref())?;
         let design = self
             .inner
-            .form_properties(&string_arg(&name, "name")?)
-            .map_err(to_js_error)?;
+            .form_properties(&name, form_type)
+            .map_err(|e| properties_error(e, &name))?;
         let object = Object::new();
         set(&object, "name", design.name.into());
         set(&object, "type", design.type_name.into());
@@ -655,11 +670,14 @@ impl JsDatabase {
     pub fn embedded_macros(
         &mut self,
         #[wasm_bindgen(unchecked_param_type = "string")] form: JsValue,
+        options: Option<FormOptions>,
     ) -> Result<Array, JsValue> {
+        let form = string_arg(&form, "form")?;
+        let form_type = form_type_option(options.as_deref())?;
         let macros = self
             .inner
-            .embedded_macros(&string_arg(&form, "form")?)
-            .map_err(to_js_error)?;
+            .embedded_macros(&form, form_type)
+            .map_err(|e| properties_error(e, &form))?;
         Ok(macros.into_iter().map(macro_object).collect())
     }
 
@@ -912,6 +930,19 @@ fn relationship_object(relationship: &Relationship) -> Object {
 }
 
 /// The JavaScript error of `Database.properties` for the object `name`.
+/// The `type` option of `formProperties` and `embeddedMacros`.
+fn form_type_option(options: Option<&JsValue>) -> Result<Option<FormObjectType>, JsValue> {
+    match option_string(options, "type")?.as_deref() {
+        None => Ok(None),
+        Some("Form") => Ok(Some(FormObjectType::Form)),
+        Some("Report") => Ok(Some(FormObjectType::Report)),
+        Some(_) => Err(jetdb_error(
+            "INVALID_ARGUMENT",
+            "option type must be one of Form, Report",
+        )),
+    }
+}
+
 fn properties_error(error: PropertiesError, name: &str) -> JsValue {
     match error {
         PropertiesError::File(e) => to_js_error(e),
