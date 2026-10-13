@@ -435,6 +435,7 @@ Dump the raw binary stream from a form or report to standard output. The default
   - `typeinfo` — Control name and type list
   - `propdata` — Small property metadata
   - `blobdelta` — Delta data (usually empty)
+- `-t`, `--type <TYPE>` — `form` or `report`. A form and a report can share a name; the command then fails and asks for this option. Without it, the only form or report of the name is read
 
 ##### Output examples
 
@@ -449,10 +450,14 @@ $ jetdb form dump -s typeinfo database.accdb F_Menu > typeinfo.bin
 #### form controls — List control names from TypeInfo
 
 ```
-jetdb form controls <FILE> <NAME>
+jetdb form controls [OPTIONS] <FILE> <NAME>
 ```
 
 Parse the TypeInfo stream and list all controls in the form or report. Output is tab-separated: name, type code (hex), index.
+
+##### Options
+
+- `-t`, `--type <TYPE>` — `form` or `report`. A form and a report can share a name; the command then fails and asks for this option. Without it, the only form or report of the name is read
 
 ##### Output examples
 
@@ -469,12 +474,16 @@ Cmb_Status      ComboBox        5
 #### form props — Show form/report and control properties
 
 ```
-jetdb form props <FILE> <NAME>
+jetdb form props [OPTIONS] <FILE> <NAME>
 ```
 
 Parse the Blob binary stream and display properties for the form/report itself and each control. Properties include RecordSource, ControlSource, Filter, Caption, FontName, event handlers, and more.
 
 Known property IDs are displayed by name; unknown IDs are shown as `0xXXXX`. Binary values are shown as `(N bytes)`, GUIDs as `{...}`, and booleans as `yes`/`no`.
+
+##### Options
+
+- `-t`, `--type <TYPE>` — `form` or `report`. A form and a report can share a name; the command then fails and asks for this option. Without it, the only form or report of the name is read
 
 ##### Output examples
 
@@ -577,6 +586,7 @@ Show each embedded macro of the form or report as the `<event>EmMacro = Begin` .
 ##### Options
 
 - `--xml` — Show each embedded macro's XML instead, each followed by a newline. The `For` attribute names the control and `Event` the event.
+- `-t`, `--type <TYPE>` — `form` or `report`. A form and a report can share a name; the command then fails and asks for this option. Without it, the only form or report of the name is read
 
 ##### Output examples
 

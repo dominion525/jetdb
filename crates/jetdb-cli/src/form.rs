@@ -62,6 +62,10 @@ pub struct FormDumpArgs {
     /// Which stream to dump
     #[arg(short = 's', long = "stream", default_value = "blob")]
     pub stream: StreamArg,
+
+    /// Form or report, needed when a form and a report share the name
+    #[arg(short = 't', long = "type")]
+    pub object_type: Option<FormTypeArg>,
 }
 
 #[derive(Args)]
@@ -71,6 +75,10 @@ pub struct FormControlsArgs {
 
     /// Form or report name
     pub name: String,
+
+    /// Form or report, needed when a form and a report share the name
+    #[arg(short = 't', long = "type")]
+    pub object_type: Option<FormTypeArg>,
 }
 
 #[derive(Args)]
@@ -80,6 +88,45 @@ pub struct FormPropsArgs {
 
     /// Form or report name
     pub name: String,
+
+    /// Form or report, needed when a form and a report share the name
+    #[arg(short = 't', long = "type")]
+    pub object_type: Option<FormTypeArg>,
+}
+
+/// The type a `--type` option names.
+#[derive(Clone, Copy, ValueEnum)]
+pub enum FormTypeArg {
+    Form,
+    Report,
+}
+
+/// The type of the form or report named `name`: the one `given`, or the
+/// only one of that name, or `None` when there is none. A form and a report
+/// of the same name need `--type`.
+pub(crate) fn form_type_of(
+    reader: &mut PageReader,
+    name: &str,
+    given: Option<FormTypeArg>,
+) -> Result<Option<FormObjectType>, String> {
+    if let Some(given) = given {
+        return Ok(Some(match given {
+            FormTypeArg::Form => FormObjectType::Form,
+            FormTypeArg::Report => FormObjectType::Report,
+        }));
+    }
+    let mut types: Vec<FormObjectType> = Vec::new();
+    for entry in jetdb::list_forms(reader).map_err(|e| e.to_string())? {
+        if entry.name == name && !types.contains(&entry.object_type) {
+            types.push(entry.object_type);
+        }
+    }
+    match types.as_slice() {
+        [_, _, ..] => Err(format!(
+            "objects of several types are named {name}: form, report; choose one with --type"
+        )),
+        _ => Ok(types.first().copied()),
+    }
 }
 
 #[derive(Clone, ValueEnum)]
@@ -178,22 +225,31 @@ fn run_list(args: &FormListArgs, password: Option<&str>) -> Result<(), jetdb::Fi
     Ok(())
 }
 
-fn run_dump(args: &FormDumpArgs, password: Option<&str>) -> Result<(), jetdb::FileError> {
-    let mut reader = PageReader::open_with_password(&args.file, password)?;
-    let stream = jetdb::read_form_stream(&mut reader, &args.name, args.stream.to_stream_kind())?;
+fn run_dump(args: &FormDumpArgs, password: Option<&str>) -> Result<(), String> {
+    let mut reader =
+        PageReader::open_with_password(&args.file, password).map_err(|e| e.to_string())?;
+    let kind = args.stream.to_stream_kind();
+    let stream = match form_type_of(&mut reader, &args.name, args.object_type)? {
+        Some(t) => jetdb::read_form_stream_of_type(&mut reader, &args.name, t, kind),
+        None => jetdb::read_form_stream(&mut reader, &args.name, kind),
+    }
+    .map_err(|e| e.to_string())?;
 
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
-    handle
-        .write_all(&stream.data)
-        .map_err(jetdb::FileError::Io)?;
+    handle.write_all(&stream.data).map_err(|e| e.to_string())?;
 
     Ok(())
 }
 
-fn run_controls(args: &FormControlsArgs, password: Option<&str>) -> Result<(), jetdb::FileError> {
-    let mut reader = PageReader::open_with_password(&args.file, password)?;
-    let type_info = jetdb::read_form_type_info(&mut reader, &args.name)?;
+fn run_controls(args: &FormControlsArgs, password: Option<&str>) -> Result<(), String> {
+    let mut reader =
+        PageReader::open_with_password(&args.file, password).map_err(|e| e.to_string())?;
+    let type_info = match form_type_of(&mut reader, &args.name, args.object_type)? {
+        Some(t) => jetdb::read_form_type_info_of_type(&mut reader, &args.name, t),
+        None => jetdb::read_form_type_info(&mut reader, &args.name),
+    }
+    .map_err(|e| e.to_string())?;
 
     for ctrl in &type_info.controls {
         let type_name = jetdb::control_type_name(ctrl.type_code)
@@ -205,9 +261,14 @@ fn run_controls(args: &FormControlsArgs, password: Option<&str>) -> Result<(), j
     Ok(())
 }
 
-fn run_props(args: &FormPropsArgs, password: Option<&str>) -> Result<(), jetdb::FileError> {
-    let mut reader = PageReader::open_with_password(&args.file, password)?;
-    let form_props = jetdb::read_form_properties(&mut reader, &args.name)?;
+fn run_props(args: &FormPropsArgs, password: Option<&str>) -> Result<(), String> {
+    let mut reader =
+        PageReader::open_with_password(&args.file, password).map_err(|e| e.to_string())?;
+    let form_props = match form_type_of(&mut reader, &args.name, args.object_type)? {
+        Some(t) => jetdb::read_form_properties_of_type(&mut reader, &args.name, t),
+        None => jetdb::read_form_properties(&mut reader, &args.name),
+    }
+    .map_err(|e| e.to_string())?;
 
     let type_label = match form_props.object_type {
         FormObjectType::Form => "Form",

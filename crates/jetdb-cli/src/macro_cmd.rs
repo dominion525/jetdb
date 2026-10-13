@@ -4,8 +4,10 @@ use std::process::ExitCode;
 use clap::{Args, Subcommand};
 use jetdb::{
     data_macros_to_text, embedded_macro_to_text, list_macros, read_data_macros,
-    read_embedded_macros, read_macro, PageReader,
+    read_embedded_macros, read_embedded_macros_of_type, read_macro, PageReader,
 };
+
+use crate::form::{form_type_of, FormTypeArg};
 
 // ---------------------------------------------------------------------------
 // CLI definition
@@ -67,6 +69,10 @@ pub struct MacroEmbeddedArgs {
     /// Print each embedded macro's XML instead of SaveAsText text
     #[arg(long = "xml")]
     pub xml: bool,
+
+    /// Form or report, needed when a form and a report share the name
+    #[arg(short = 't', long = "type")]
+    pub object_type: Option<FormTypeArg>,
 }
 
 #[derive(Args)]
@@ -88,10 +94,10 @@ pub struct MacroDataArgs {
 
 pub fn cmd_macro(args: MacroArgs, password: Option<&str>) -> ExitCode {
     let result = match args.command {
-        MacroCommands::List(a) => run_list(&a, password),
-        MacroCommands::Show(a) => run_show(&a, password),
+        MacroCommands::List(a) => run_list(&a, password).map_err(|e| e.to_string()),
+        MacroCommands::Show(a) => run_show(&a, password).map_err(|e| e.to_string()),
         MacroCommands::Embedded(a) => run_embedded(&a, password),
-        MacroCommands::Data(a) => run_data(&a, password),
+        MacroCommands::Data(a) => run_data(&a, password).map_err(|e| e.to_string()),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -144,9 +150,15 @@ fn run_show(args: &MacroShowArgs, password: Option<&str>) -> Result<(), jetdb::F
     Ok(())
 }
 
-fn run_embedded(args: &MacroEmbeddedArgs, password: Option<&str>) -> Result<(), jetdb::FileError> {
-    let mut reader = PageReader::open_with_password(&args.file, password)?;
-    for def in read_embedded_macros(&mut reader, &args.name)? {
+fn run_embedded(args: &MacroEmbeddedArgs, password: Option<&str>) -> Result<(), String> {
+    let mut reader =
+        PageReader::open_with_password(&args.file, password).map_err(|e| e.to_string())?;
+    let macros = match form_type_of(&mut reader, &args.name, args.object_type)? {
+        Some(t) => read_embedded_macros_of_type(&mut reader, &args.name, t),
+        None => read_embedded_macros(&mut reader, &args.name),
+    }
+    .map_err(|e| e.to_string())?;
+    for def in macros {
         if args.xml {
             println!("{}", def.xml);
         } else if let Some(text) = embedded_macro_to_text(&def) {

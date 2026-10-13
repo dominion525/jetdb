@@ -196,3 +196,23 @@ fn macro_nonexistent_file() {
         "jetdb:",
     );
 }
+
+#[test]
+fn macro_embedded_shared_name_needs_type() {
+    // sameNameTestV2007.accdb has a form and a report both named Shared.
+    let path = skip_if_missing!("V2007/sameNameTestV2007.accdb");
+    let output = run(&["macro", "embedded", path.to_str().unwrap(), "Shared"]);
+    assert!(!output.status.success(), "should fail without --type");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("choose one with --type"), "got: {stderr}");
+
+    let report = stdout_of(&run(&[
+        "macro",
+        "embedded",
+        "-t",
+        "report",
+        path.to_str().unwrap(),
+        "Shared",
+    ]));
+    assert!(report.starts_with("OnOpenEmMacro = Begin"), "{report}");
+}

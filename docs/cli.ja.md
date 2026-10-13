@@ -430,6 +430,7 @@ jetdb form dump [OPTIONS] <FILE> <NAME>
   - `typeinfo` — コントロール名と型の一覧
   - `propdata` — プロパティメタデータ（小）
   - `blobdelta` — 差分データ（通常は空）
+- `-t`, `--type <TYPE>` — `form` か `report`。フォームとレポートは同じ名前を持てる。その場合は、このオプションが無いとエラーになる。無いときは、その名前の唯一のフォームかレポートを読む
 
 ##### 出力例
 
@@ -444,10 +445,14 @@ $ jetdb form dump -s typeinfo database.accdb F_メニュー > typeinfo.bin
 #### form controls — TypeInfo からコントロール名一覧を表示
 
 ```
-jetdb form controls <FILE> <NAME>
+jetdb form controls [OPTIONS] <FILE> <NAME>
 ```
 
 TypeInfo ストリームをパースして、フォーム/レポート内の全コントロールを一覧表示する。出力はタブ区切り: 名前、型コード（16進数）、インデックス。
+
+##### オプション
+
+- `-t`, `--type <TYPE>` — `form` か `report`。フォームとレポートは同じ名前を持てる。その場合は、このオプションが無いとエラーになる。無いときは、その名前の唯一のフォームかレポートを読む
 
 ##### 出力例
 
@@ -464,12 +469,16 @@ Cmb_ステータス      ComboBox        5
 #### form props — フォーム/レポートとコントロールのプロパティ表示
 
 ```
-jetdb form props <FILE> <NAME>
+jetdb form props [OPTIONS] <FILE> <NAME>
 ```
 
 Blob バイナリストリームをパースして、フォーム/レポート自体と各コントロールのプロパティを表示する。RecordSource、ControlSource、Filter、Caption、FontName、イベントハンドラ等が含まれる。
 
 既知のプロパティ ID は名前で表示、未知の ID は `0xXXXX` で表示。Binary 値は `(N bytes)`、GUID は `{...}`、Boolean は `yes`/`no` で表示。
+
+##### オプション
+
+- `-t`, `--type <TYPE>` — `form` か `report`。フォームとレポートは同じ名前を持てる。その場合は、このオプションが無いとエラーになる。無いときは、その名前の唯一のフォームかレポートを読む
 
 ##### 出力例
 
@@ -572,6 +581,7 @@ jetdb macro embedded [OPTIONS] <FILE> <NAME>
 ##### オプション
 
 - `--xml` — テキストの代わりに各埋め込みマクロの XML を 1 つずつ、それぞれの後に改行を付けて表示。`For` 属性がコントロール名、`Event` 属性がイベント名を表す。
+- `-t`, `--type <TYPE>` — `form` か `report`。フォームとレポートは同じ名前を持てる。その場合は、このオプションが無いとエラーになる。無いときは、その名前の唯一のフォームかレポートを読む
 
 ##### 出力例
 
