@@ -189,6 +189,17 @@ These files were created by the jetdb project using Microsoft Access for Microso
 
 They were made with the VBA module `vba-generators/vba-japanese-generator.bas` (`CreateJapaneseVbaModules`), imported into a new, empty `.accdb` and run once from the Immediate window. The two `.mdb` files are copies saved afterwards. Each also has the empty table `テーブル1` that Access makes in a new database.
 
+## Created independently: form and report of the same name
+
+These files were created by the jetdb project using Microsoft Access for Microsoft 365 MSO (Version 2609 Build 16.0.20430.20092, 64-bit).
+
+| File | Purpose |
+|------|---------|
+| V2007/sameNameTestV2007.accdb | A form and a report both named `Shared`, each with a caption, a control and an embedded macro of its own (the form an `OnLoad` macro, the report an `OnOpen` macro). `tblGenLog` records what was created, and `tblGenExport` holds Access's SaveAsText output of the form and the report |
+| V2000/sameNameTestV2000.mdb | A copy saved in the Access 2000 format, which keeps the embedded macros in `BlobDelta` |
+
+They were made with the VBA module `form-generators/same-name-generator.bas` (`CreateSameNameFormAndReport`), imported into a new, empty `.accdb` and run once from the Immediate window. The `.mdb` file is a copy saved afterwards. The form and the report have an empty `TypeInfo` stream, as objects made with `CreateForm` and `CreateReport` do.
+
 ## Created independently
 
 These files were created by the jetdb project using Microsoft Access for Microsoft 365 MSO (Version 2602 Build 16.0.19725.20014, 64-bit).

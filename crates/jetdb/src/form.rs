@@ -169,14 +169,36 @@ pub fn list_forms(reader: &mut PageReader) -> Result<Vec<FormEntry>, FileError> 
     Ok(result)
 }
 
-/// Read a raw binary stream from a named form or report.
+/// Read a raw binary stream from a named form or report: the form when a
+/// form and a report share the name.
 pub fn read_form_stream(
     reader: &mut PageReader,
     name: &str,
     stream_kind: StreamKind,
 ) -> Result<FormStream, FileError> {
+    read_stream(reader, name, None, stream_kind)
+}
+
+/// [`read_form_stream`] of the form or the report named `name`.
+pub fn read_form_stream_of_type(
+    reader: &mut PageReader,
+    name: &str,
+    object_type: FormObjectType,
+    stream_kind: StreamKind,
+) -> Result<FormStream, FileError> {
+    read_stream(reader, name, Some(object_type), stream_kind)
+}
+
+/// A stream of the form or report named `name`, of `object_type` when it
+/// is given and otherwise the form when a form and a report share the name.
+pub(crate) fn read_stream(
+    reader: &mut PageReader,
+    name: &str,
+    object_type: Option<FormObjectType>,
+    stream_kind: StreamKind,
+) -> Result<FormStream, FileError> {
     let entries = storage::read_storage_entries(reader)?;
-    let (object_type, stream_data) = find_stream(&entries, name, stream_kind)?;
+    let (object_type, stream_data) = find_stream(&entries, name, object_type, stream_kind)?;
 
     Ok(FormStream {
         name: name.to_string(),
@@ -186,10 +208,29 @@ pub fn read_form_stream(
     })
 }
 
-/// Read and parse TypeInfo for a named form or report.
+/// Read and parse TypeInfo for a named form or report: the form when a form
+/// and a report share the name.
 pub fn read_form_type_info(reader: &mut PageReader, name: &str) -> Result<FormTypeInfo, FileError> {
+    type_info(reader, name, None)
+}
+
+/// [`read_form_type_info`] of the form or the report named `name`.
+pub fn read_form_type_info_of_type(
+    reader: &mut PageReader,
+    name: &str,
+    object_type: FormObjectType,
+) -> Result<FormTypeInfo, FileError> {
+    type_info(reader, name, Some(object_type))
+}
+
+fn type_info(
+    reader: &mut PageReader,
+    name: &str,
+    object_type: Option<FormObjectType>,
+) -> Result<FormTypeInfo, FileError> {
     let entries = storage::read_storage_entries(reader)?;
-    let (object_type, stream_data) = find_stream(&entries, name, StreamKind::TypeInfo)?;
+    let (object_type, stream_data) =
+        find_stream(&entries, name, object_type, StreamKind::TypeInfo)?;
     let controls = parse_type_info(&stream_data)?;
 
     Ok(FormTypeInfo {
@@ -328,19 +369,40 @@ impl std::fmt::Display for BlobValue {
 /// Read and parse all properties from a named form or report.
 ///
 /// Parses the Blob binary to extract form-level and per-control properties.
-/// TypeInfo is used to associate control names and type codes.
+/// TypeInfo is used to associate control names and type codes. The form is
+/// read when a form and a report share the name.
 pub fn read_form_properties(
     reader: &mut PageReader,
     name: &str,
 ) -> Result<FormProperties, FileError> {
+    form_properties(reader, name, None)
+}
+
+/// [`read_form_properties`] of the form or the report named `name`.
+pub fn read_form_properties_of_type(
+    reader: &mut PageReader,
+    name: &str,
+    object_type: FormObjectType,
+) -> Result<FormProperties, FileError> {
+    form_properties(reader, name, Some(object_type))
+}
+
+fn form_properties(
+    reader: &mut PageReader,
+    name: &str,
+    object_type: Option<FormObjectType>,
+) -> Result<FormProperties, FileError> {
     let entries = storage::read_storage_entries(reader)?;
-    let (object_type, blob_data) = find_stream(&entries, name, StreamKind::Blob)?;
+    let (object_type, blob_data) = find_stream(&entries, name, object_type, StreamKind::Blob)?;
 
     // Try to get TypeInfo for control name/type mapping; not fatal if missing.
-    let type_info_controls = match find_stream(&entries, name, StreamKind::TypeInfo) {
-        Ok((_, ti_data)) => parse_type_info(&ti_data).unwrap_or_default(),
-        Err(_) => Vec::new(),
-    };
+    // It is that of the object the Blob is of, even when a report shares the
+    // name of a form.
+    let type_info_controls =
+        match find_stream(&entries, name, Some(object_type), StreamKind::TypeInfo) {
+            Ok((_, ti_data)) => parse_type_info(&ti_data).unwrap_or_default(),
+            Err(_) => Vec::new(),
+        };
 
     let (form_props, control_prop_groups) = parse_blob(&blob_data)?;
 
@@ -389,11 +451,13 @@ pub fn read_form_properties(
 
 /// Find a specific stream for a named form/report.
 ///
-/// Searches both Forms and Reports folders. Returns the object type and
-/// the stream binary data.
+/// Searches the Forms folder and then the Reports folder, or only the one
+/// of `object_type` when it is given. Returns the object type and the
+/// stream binary data.
 fn find_stream(
     entries: &[storage::StorageEntry],
     name: &str,
+    object_type: Option<FormObjectType>,
     stream_kind: StreamKind,
 ) -> Result<(FormObjectType, Vec<u8>), FileError> {
     let root_id = storage::find_root_id(entries);
@@ -403,6 +467,9 @@ fn find_stream(
         ("Forms", FormObjectType::Form),
         ("Reports", FormObjectType::Report),
     ] {
+        if object_type.is_some_and(|t| t != obj_type) {
+            continue;
+        }
         if let Some(folder) = entries
             .iter()
             .find(|e| e.parent_id == root_id && e.name == folder_name && storage::is_storage(e))
@@ -1857,6 +1924,76 @@ mod tests {
             "Subform" => "SubForm",
             other => other,
         }
+    }
+
+    #[test]
+    fn form_and_report_of_the_same_name() {
+        // Made by testdata/form-generators/same-name-generator.bas: a form and
+        // a report both named Shared, each with a caption and a control of
+        // its own.
+        let path = skip_if_missing!("V2007/sameNameTestV2007.accdb");
+        let mut reader = PageReader::open(&path).unwrap();
+        let caption = |p: &FormProperties| {
+            p.properties
+                .iter()
+                .find(|x| x.name() == Some("Caption"))
+                .map(|x| x.value.to_string())
+        };
+        let has_control =
+            |p: &FormProperties, name: &str| p.controls.iter().any(|c| c.name == name);
+
+        let form =
+            read_form_properties_of_type(&mut reader, "Shared", FormObjectType::Form).unwrap();
+        assert_eq!(form.object_type, FormObjectType::Form);
+        assert_eq!(caption(&form).as_deref(), Some("Shared form"));
+        assert!(has_control(&form, "btnFormOnly") && !has_control(&form, "lblReportOnly"));
+
+        let report =
+            read_form_properties_of_type(&mut reader, "Shared", FormObjectType::Report).unwrap();
+        assert_eq!(report.object_type, FormObjectType::Report);
+        assert_eq!(caption(&report).as_deref(), Some("Shared report"));
+        assert!(has_control(&report, "lblReportOnly") && !has_control(&report, "btnFormOnly"));
+
+        // Without a type, the form, as before.
+        let either = read_form_properties(&mut reader, "Shared").unwrap();
+        assert_eq!(either.object_type, FormObjectType::Form);
+
+        // The TypeInfo of the report. (Objects made with CreateForm and
+        // CreateReport have an empty TypeInfo, so only which object it is of
+        // is checked; the Blob above shows the two apart.)
+        let report_type_info = read_form_stream_of_type(
+            &mut reader,
+            "Shared",
+            FormObjectType::Report,
+            StreamKind::TypeInfo,
+        )
+        .unwrap();
+        assert_eq!(report_type_info.object_type, FormObjectType::Report);
+
+        let form_blob = read_form_stream_of_type(
+            &mut reader,
+            "Shared",
+            FormObjectType::Form,
+            StreamKind::Blob,
+        )
+        .unwrap();
+        let report_blob = read_form_stream_of_type(
+            &mut reader,
+            "Shared",
+            FormObjectType::Report,
+            StreamKind::Blob,
+        )
+        .unwrap();
+        assert_eq!(report_blob.object_type, FormObjectType::Report);
+        assert_ne!(form_blob.data, report_blob.data);
+
+        // A type that the name does not have is not found.
+        let path = skip_if_missing!("formPropTest.accdb");
+        let mut reader = PageReader::open(&path).unwrap();
+        assert!(matches!(
+            read_form_properties_of_type(&mut reader, "F_Buttons", FormObjectType::Report),
+            Err(FileError::FormNotFound { .. })
+        ));
     }
 
     #[test]

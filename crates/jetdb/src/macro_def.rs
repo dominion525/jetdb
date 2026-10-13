@@ -305,16 +305,41 @@ pub fn read_macro(reader: &mut PageReader, name: &str) -> Result<MacroDef, FileE
 /// grid found in both streams is returned once.
 ///
 /// Returns [`FileError::FormNotFound`] if there is no such form or report.
+/// The form is read when a form and a report share the name.
 pub fn read_embedded_macros(
     reader: &mut PageReader,
     object_name: &str,
 ) -> Result<Vec<MacroDef>, FileError> {
-    let stream = form::read_form_stream(reader, object_name, StreamKind::Blob)?;
+    embedded_macros(reader, object_name, None)
+}
+
+/// [`read_embedded_macros`] of the form or the report named `object_name`.
+pub fn read_embedded_macros_of_type(
+    reader: &mut PageReader,
+    object_name: &str,
+    object_type: FormObjectType,
+) -> Result<Vec<MacroDef>, FileError> {
+    embedded_macros(reader, object_name, Some(object_type))
+}
+
+fn embedded_macros(
+    reader: &mut PageReader,
+    object_name: &str,
+    object_type: Option<FormObjectType>,
+) -> Result<Vec<MacroDef>, FileError> {
+    let stream = form::read_stream(reader, object_name, object_type, StreamKind::Blob)?;
     let mut grids: Vec<Vec<u8>> = embedded_macro_grids(&stream.data)
         .into_iter()
         .map(<[u8]>::to_vec)
         .collect();
-    if let Ok(delta) = form::read_form_stream(reader, object_name, StreamKind::BlobDelta) {
+    // The BlobDelta of the object the Blob is of, even when a report shares
+    // the name of a form.
+    if let Ok(delta) = form::read_stream(
+        reader,
+        object_name,
+        Some(stream.object_type),
+        StreamKind::BlobDelta,
+    ) {
         for grid in embedded_macro_grids(&delta.data) {
             if !grids.iter().any(|g| g == grid) {
                 grids.push(grid.to_vec());
@@ -1305,6 +1330,50 @@ mod tests {
                 }
             }
         };
+    }
+
+    #[test]
+    fn embedded_macros_of_a_form_and_a_report_of_the_same_name() {
+        // Made by testdata/form-generators/same-name-generator.bas: the form
+        // Shared has an OnLoad macro and the report Shared an OnOpen macro.
+        // The Access 2000 format keeps them in BlobDelta.
+        for file in [
+            "V2007/sameNameTestV2007.accdb",
+            "V2000/sameNameTestV2000.mdb",
+        ] {
+            let path = skip_if_missing!(file);
+            let mut reader = PageReader::open(&path).unwrap();
+            let events = |macros: Vec<MacroDef>| -> Vec<(FormObjectType, String)> {
+                macros
+                    .into_iter()
+                    .map(|m| match m.source {
+                        MacroSource::Embedded {
+                            object_kind, event, ..
+                        } => (object_kind, event),
+                        other => panic!("{other:?}"),
+                    })
+                    .collect()
+            };
+            let form = read_embedded_macros_of_type(&mut reader, "Shared", FormObjectType::Form);
+            assert_eq!(
+                events(form.unwrap()),
+                [(FormObjectType::Form, "OnLoad".to_string())],
+                "{file}"
+            );
+            let report =
+                read_embedded_macros_of_type(&mut reader, "Shared", FormObjectType::Report);
+            assert_eq!(
+                events(report.unwrap()),
+                [(FormObjectType::Report, "OnOpen".to_string())],
+                "{file}"
+            );
+            // Without a type, the form, as before.
+            assert_eq!(
+                events(read_embedded_macros(&mut reader, "Shared").unwrap()),
+                [(FormObjectType::Form, "OnLoad".to_string())],
+                "{file}"
+            );
+        }
     }
 
     const MACRO_TEST_FILES: [&str; 3] = [

@@ -43,15 +43,16 @@ pub use data::{
     ReadResult, Value,
 };
 pub use form::{
-    control_type_name, list_forms, read_form_properties, read_form_stream, read_form_type_info,
+    control_type_name, list_forms, read_form_properties, read_form_properties_of_type,
+    read_form_stream, read_form_stream_of_type, read_form_type_info, read_form_type_info_of_type,
     BlobProperty, BlobValue, ControlInfo, ControlProperties, FormEntry, FormObjectType,
     FormProperties, FormStream, FormTypeInfo, StreamKind,
 };
 pub use macro_action::{macro_action, macro_argument_value_name, MacroAction, MACRO_ACTIONS};
 pub use macro_def::{
-    list_macros, read_data_macros, read_embedded_macros, read_macro, MacroArgument, MacroBranch,
-    MacroDef, MacroEntry, MacroGrid, MacroGridRow, MacroParameter, MacroSource, MacroStatement,
-    MacroXmlElement,
+    list_macros, read_data_macros, read_embedded_macros, read_embedded_macros_of_type, read_macro,
+    MacroArgument, MacroBranch, MacroDef, MacroEntry, MacroGrid, MacroGridRow, MacroParameter,
+    MacroSource, MacroStatement, MacroXmlElement,
 };
 pub use macro_text::{data_macros_to_text, embedded_macro_to_text};
 pub use prop::{
