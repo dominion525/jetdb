@@ -66,7 +66,7 @@
 <tr><th scope="row">マクロ</th><td class="me">○</td><td>×</td><td>×</td><td>×</td><td>×</td><td>×</td><td>×</td></tr>
 <tr><th scope="row">フォーム/レポートの定義</th><td class="me">○</td><td>×</td><td>×</td><td>×</td><td>×</td><td>×</td><td>×</td></tr>
 <tr><th scope="row">DDL 生成</th><td class="me">○</td><td>○</td><td>×</td><td>×</td><td>×</td><td>×</td><td>×</td></tr>
-<tr><th scope="row">書き込み</th><td class="me">×</td><td>△</td><td>△</td><td>△</td><td>×</td><td>×</td><td>×</td></tr>
+<tr><th scope="row">書き込み</th><td class="me">×</td><td>△</td><td>○</td><td>○</td><td>×</td><td>×</td><td>×</td></tr>
 <tr><th scope="row">DateTimeExtended 型</th><td class="me">○</td><td>×</td><td>○</td><td>○</td><td>○</td><td>×</td><td>×</td></tr>
 <tr><th scope="row">複合列</th><td class="me">△</td><td>△</td><td>○</td><td>○</td><td>△</td><td>△</td><td>×</td></tr>
 <tr><th scope="row">添付ファイル列の中身</th><td class="me">○</td><td>×</td><td>○</td><td>○</td><td>○</td><td>×</td><td>×</td></tr>
@@ -88,6 +88,7 @@
 </table>
 </div>
 <p class="note">○ 対応　△ 一部対応・条件付き　× 非対応　? 判断できる根拠が見つからない</p>
+<p class="note">○ は Access 2000 以降で使えるもの。Access 97 だけの例外は注記に書きます。</p>
 <ul class="note notes">
 <li>対応バージョンは、その版をコードで扱っているかで判定しました。</li>
 <li>複合列は、添付ファイル・複数値・版の履歴の列です。</li>
@@ -98,6 +99,7 @@
 <h3>jetdb</h3>
 <ul class="notes">
 <li>複合列は、添付ファイルの中身を返します。複数値と版の履歴は参照 ID だけです。</li>
+<li>Access 97 のフォーム/レポートは読めません。</li>
 </ul>
 <h3>MDB Tools</h3>
 <ul class="notes">
