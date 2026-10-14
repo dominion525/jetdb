@@ -30,10 +30,11 @@
 //! any other element is kept as [`MacroStatement::Unknown`] with its name,
 //! attributes, text, and children, so nothing in the XML is dropped.
 
+use crate::catalog::{read_catalog, CatalogEntry};
 use crate::data::{read_table_rows, Value};
 use crate::file::{FileError, PageReader};
 use crate::form::{self, FormObjectType, StreamKind};
-use crate::format::CATALOG_PAGE;
+use crate::format::{ObjectType, CATALOG_PAGE};
 use crate::macro_action::{macro_action, macro_argument_value_name};
 use crate::storage::{self, AccessStorage};
 use crate::table::read_table_def;
@@ -456,8 +457,6 @@ fn embedded_macro_grids(stream: &[u8]) -> Vec<&[u8]> {
     grids
 }
 
-/// `MSysObjects.Type` of a local table.
-const MSYSOBJECTS_TYPE_TABLE: i16 = 1;
 /// `MSysObjects.Type` of a macro.
 const MSYSOBJECTS_TYPE_MACRO: i16 = -32766;
 
@@ -467,18 +466,27 @@ const MSYSOBJECTS_TYPE_MACRO: i16 = -32766;
 /// [`FileError::TableNotFound`] if there is no such table. Each returned
 /// [`MacroDef::xml`] is the whole XML document stored for the table.
 pub fn read_data_macros(reader: &mut PageReader, table: &str) -> Result<Vec<MacroDef>, FileError> {
-    let (_, extra) = msysobjects_rows(reader, MSYSOBJECTS_TYPE_TABLE)?
-        .into_iter()
-        .find(|(name, _)| name == table)
+    read_data_macros_in(&read_catalog(reader)?, table)
+}
+
+/// [`read_data_macros`] with the catalog already read, whose entries keep
+/// the data macros of each table ([`CatalogEntry::lv_extra`]).
+pub fn read_data_macros_in(
+    catalog: &[CatalogEntry],
+    table: &str,
+) -> Result<Vec<MacroDef>, FileError> {
+    let entry = catalog
+        .iter()
+        .find(|e| e.object_type == ObjectType::Table && e.name == table)
         .ok_or_else(|| FileError::TableNotFound {
             name: table.to_string(),
         })?;
-    let Some(extra) = extra else {
+    let Some(extra) = &entry.lv_extra else {
         return Ok(Vec::new());
     };
 
     let mut macros = Vec::new();
-    for xml in extract_utf16_xml_documents(&extra) {
+    for xml in extract_utf16_xml_documents(extra) {
         macros.extend(data_macros_from_xml(table, xml)?);
     }
     Ok(macros)

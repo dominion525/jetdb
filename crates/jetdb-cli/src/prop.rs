@@ -180,6 +180,7 @@ mod tests {
             table_page: 0,
             flags: 0,
             lv_prop: None,
+            lv_extra: None,
         };
         let twice = [entry(ObjectType::Table), entry(ObjectType::Table)];
         assert_eq!(

@@ -1313,6 +1313,7 @@ mod tests {
             table_page: 0,
             flags,
             lv_prop: None,
+            lv_extra: None,
         };
         let hidden = jetdb::format::catalog_flags::HIDDEN;
         let catalog = [
