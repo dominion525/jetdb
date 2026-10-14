@@ -14,12 +14,30 @@ use crate::table;
 // ---------------------------------------------------------------------------
 
 /// A single entry from the MSysAccessStorage table.
+#[derive(Debug, Clone)]
 pub(crate) struct StorageEntry {
     pub id: i32,
     pub parent_id: i32,
     pub name: String,
     pub entry_type: i32,
     pub data: Vec<u8>,
+}
+
+/// The storage where Access keeps the designs of forms and reports, macros
+/// and the VBA project: the `MSysAccessStorage` table, or `MSysAccessObjects`
+/// in Access 97. [`read_access_storage`] reads it once for the `_in`
+/// functions, such as [`crate::list_forms_in`], which would otherwise each
+/// read the whole table again.
+#[derive(Debug, Clone)]
+pub struct AccessStorage {
+    pub(crate) entries: Vec<StorageEntry>,
+}
+
+/// Read the storage of forms, reports, macros and VBA (see [`AccessStorage`]).
+pub fn read_access_storage(reader: &mut PageReader) -> Result<AccessStorage, FileError> {
+    Ok(AccessStorage {
+        entries: read_storage_entries(reader)?,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -396,4 +414,109 @@ pub(crate) fn build_entry_path(
 
     parts.reverse();
     Some(format!("/{}", parts.join("/")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every `.mdb` and `.accdb` file under `dir`.
+    fn databases(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+        let mut out = Vec::new();
+        for entry in std::fs::read_dir(dir).unwrap().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                out.extend(databases(&path));
+            } else if matches!(
+                path.extension().and_then(|e| e.to_str()),
+                Some("mdb" | "accdb")
+            ) {
+                out.push(path);
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn the_in_functions_read_what_the_others_read() {
+        // For every test database that opens without a password, the
+        // functions given the storage already read give what the others give.
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata");
+        let (mut forms, mut macros, mut modules) = (0, 0, 0);
+        for path in databases(&root) {
+            let Ok(mut reader) = PageReader::open(&path) else {
+                continue;
+            };
+            let Ok(storage) = read_access_storage(&mut reader) else {
+                continue;
+            };
+            let at = path.display();
+            let debug = |value: &dyn std::fmt::Debug| format!("{value:?}");
+
+            assert_eq!(
+                debug(&crate::list_forms(&mut reader).ok()),
+                debug(&crate::list_forms_in(&storage).ok()),
+                "{at}"
+            );
+            for form in crate::list_forms(&mut reader).unwrap_or_default() {
+                let t = Some(form.object_type);
+                assert_eq!(
+                    debug(
+                        &crate::read_form_properties_of_type(
+                            &mut reader,
+                            &form.name,
+                            form.object_type
+                        )
+                        .ok()
+                    ),
+                    debug(&crate::read_form_properties_in(&storage, &form.name, t).ok()),
+                    "{at}: {}",
+                    form.name
+                );
+                assert_eq!(
+                    debug(
+                        &crate::read_embedded_macros_of_type(
+                            &mut reader,
+                            &form.name,
+                            form.object_type
+                        )
+                        .ok()
+                    ),
+                    debug(&crate::read_embedded_macros_in(&storage, &form.name, t).ok()),
+                    "{at}: {}",
+                    form.name
+                );
+                forms += 1;
+            }
+
+            let names = crate::list_macros(&mut reader).ok();
+            assert_eq!(
+                debug(&names),
+                debug(&crate::list_macros_in(&mut reader, &storage).ok()),
+                "{at}"
+            );
+            for entry in names.unwrap_or_default() {
+                assert_eq!(
+                    debug(&crate::read_macro(&mut reader, &entry.name).ok()),
+                    debug(&crate::read_macro_in(&mut reader, &storage, &entry.name).ok()),
+                    "{at}: {}",
+                    entry.name
+                );
+                macros += 1;
+            }
+
+            let project = crate::read_vba_project(&mut reader).ok();
+            modules += project.as_ref().map_or(0, |p| p.modules.len());
+            assert_eq!(
+                debug(&project),
+                debug(&crate::read_vba_project_in(&mut reader, &storage).ok()),
+                "{at}"
+            );
+        }
+        // Forms and reports, macros and modules were all compared.
+        assert!(
+            forms > 0 && macros > 0 && modules > 0,
+            "{forms} {macros} {modules}"
+        );
+    }
 }

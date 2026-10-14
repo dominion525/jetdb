@@ -43,16 +43,17 @@ pub use data::{
     ReadResult, Value,
 };
 pub use form::{
-    control_type_name, list_forms, read_form_properties, read_form_properties_of_type,
-    read_form_stream, read_form_stream_of_type, read_form_type_info, read_form_type_info_of_type,
-    BlobProperty, BlobValue, ControlInfo, ControlProperties, FormEntry, FormObjectType,
-    FormProperties, FormStream, FormTypeInfo, StreamKind,
+    control_type_name, list_forms, list_forms_in, read_form_properties, read_form_properties_in,
+    read_form_properties_of_type, read_form_stream, read_form_stream_of_type, read_form_type_info,
+    read_form_type_info_of_type, BlobProperty, BlobValue, ControlInfo, ControlProperties,
+    FormEntry, FormObjectType, FormProperties, FormStream, FormTypeInfo, StreamKind,
 };
 pub use macro_action::{macro_action, macro_argument_value_name, MacroAction, MACRO_ACTIONS};
 pub use macro_def::{
-    list_macros, read_data_macros, read_embedded_macros, read_embedded_macros_of_type, read_macro,
-    MacroArgument, MacroBranch, MacroDef, MacroEntry, MacroGrid, MacroGridRow, MacroParameter,
-    MacroSource, MacroStatement, MacroXmlElement,
+    list_macros, list_macros_in, read_data_macros, read_embedded_macros, read_embedded_macros_in,
+    read_embedded_macros_of_type, read_macro, read_macro_in, MacroArgument, MacroBranch, MacroDef,
+    MacroEntry, MacroGrid, MacroGridRow, MacroParameter, MacroSource, MacroStatement,
+    MacroXmlElement,
 };
 pub use macro_text::{data_macros_to_text, embedded_macro_to_text};
 pub use prop::{
@@ -60,4 +61,5 @@ pub use prop::{
     PropMapType, Property, PropertyMap,
 };
 pub use query::{query_to_sql, read_queries, read_queries_in, QueryDef, QueryType};
-pub use vba::{read_vba_project, VbaModule, VbaModuleType, VbaProject};
+pub use storage::{read_access_storage, AccessStorage};
+pub use vba::{read_vba_project, read_vba_project_in, VbaModule, VbaModuleType, VbaProject};
