@@ -541,6 +541,7 @@ mod tests {
             table_page: 100,
             flags,
             lv_prop: None,
+            lv_extra: None,
         }
     }
 

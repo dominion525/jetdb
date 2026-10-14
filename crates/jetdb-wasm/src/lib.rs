@@ -13,13 +13,13 @@ use jetdb::ddl::{self, with_calculated_column_types, DdlDialect};
 use jetdb::format::{index_flags, index_type, ColumnType, ObjectType};
 use jetdb::{
     calculated_column_types_in, control_type_name, data_macros_to_text, embedded_macro_to_text,
-    entry_properties, find_table, list_forms, list_macros, query_to_sql, read_catalog,
-    read_data_macros, read_embedded_macros, read_embedded_macros_of_type, read_form_properties,
-    read_form_properties_of_type, read_macro, read_object_properties, read_queries_in,
-    read_relationships_in, read_table_def, read_table_rows_with, read_vba_project,
-    relationship_flags, timestamp, BlobProperty, BlobValue, CatalogEntry, FileError,
-    FormObjectType, IndexColumnOrder, MacroDef, MacroGrid, PageReader, PropMapType, QueryDef,
-    QueryType, TableDef, Value, VbaModule, VbaModuleType,
+    entry_properties, find_table, list_forms_in, list_macros_in, query_to_sql, read_access_storage,
+    read_catalog, read_data_macros_in, read_embedded_macros_in, read_form_properties_in,
+    read_macro_in, read_object_properties, read_queries_in, read_relationships_in, read_table_def,
+    read_table_rows_with, read_vba_project_in, relationship_flags, timestamp, AccessStorage,
+    BlobProperty, BlobValue, CatalogEntry, FileError, FormObjectType, IndexColumnOrder, MacroDef,
+    MacroGrid, PageReader, PropMapType, QueryDef, QueryType, TableDef, Value, VbaModule,
+    VbaModuleType,
 };
 
 /// A database opened from bytes in memory.
@@ -33,6 +33,9 @@ pub struct Database {
     queries: Option<Vec<QueryDef>>,
     /// The VBA modules, read when they are first needed, as the catalog is.
     modules: Option<Vec<VbaModule>>,
+    /// The storage of forms, reports, macros and VBA, read when it is first
+    /// needed, as the catalog is.
+    storage: Option<AccessStorage>,
 }
 
 /// A column of a table, as `Database::columns` returns it.
@@ -301,6 +304,7 @@ impl Database {
             catalog: None,
             queries: None,
             modules: None,
+            storage: None,
         })
     }
 
@@ -523,7 +527,7 @@ impl Database {
     /// The forms and reports, sorted by name, as `jetdb form list` lists them,
     /// and a form before a report of the same name.
     pub fn forms(&mut self) -> Result<Vec<Form>, FileError> {
-        let mut out: Vec<Form> = list_forms(&mut self.reader)?
+        let mut out: Vec<Form> = list_forms_in(self.storage()?)?
             .into_iter()
             .map(|f| Form {
                 name: f.name,
@@ -543,10 +547,8 @@ impl Database {
         name: &str,
         form_type: Option<FormObjectType>,
     ) -> Result<FormDesign, PropertiesError> {
-        let read = match self.form_type(name, form_type)? {
-            Some(t) => read_form_properties_of_type(&mut self.reader, name, t)?,
-            None => read_form_properties(&mut self.reader, name)?,
-        };
+        let form_type = self.form_type(name, form_type)?;
+        let read = read_form_properties_in(self.storage()?, name, form_type)?;
         let properties = |properties: Vec<BlobProperty>| {
             properties
                 .into_iter()
@@ -581,7 +583,8 @@ impl Database {
     /// as `jetdb macro list` lists them. Access does not mark these in the
     /// catalog, so they are told by their names.
     pub fn macros(&mut self, include_system: bool) -> Result<Vec<String>, FileError> {
-        let mut names: Vec<String> = list_macros(&mut self.reader)?
+        let (reader, storage) = self.reader_and_storage()?;
+        let mut names: Vec<String> = list_macros_in(reader, storage)?
             .into_iter()
             .map(|m| m.name)
             .filter(|name| include_system || !name.starts_with('~'))
@@ -592,7 +595,8 @@ impl Database {
 
     /// The named macro `name`, with the text `jetdb macro show` prints.
     pub fn named_macro(&mut self, name: &str) -> Result<Macro, FileError> {
-        let def = read_macro(&mut self.reader, name)?;
+        let (reader, storage) = self.reader_and_storage()?;
+        let def = read_macro_in(reader, storage, name)?;
         let text = def.grid.as_ref().map(MacroGrid::to_text);
         Ok(Macro { def, text })
     }
@@ -604,10 +608,8 @@ impl Database {
         form: &str,
         form_type: Option<FormObjectType>,
     ) -> Result<Vec<Macro>, PropertiesError> {
-        let macros = match self.form_type(form, form_type)? {
-            Some(t) => read_embedded_macros_of_type(&mut self.reader, form, t)?,
-            None => read_embedded_macros(&mut self.reader, form)?,
-        };
+        let form_type = self.form_type(form, form_type)?;
+        let macros = read_embedded_macros_in(self.storage()?, form, form_type)?;
         Ok(macros
             .into_iter()
             .map(|def| Macro {
@@ -619,7 +621,7 @@ impl Database {
 
     /// The data macros of the table `table`.
     pub fn data_macros(&mut self, table: &str) -> Result<Vec<Macro>, FileError> {
-        Ok(read_data_macros(&mut self.reader, table)?
+        Ok(read_data_macros_in(self.catalog()?, table)?
             .into_iter()
             .map(|def| Macro { def, text: None })
             .collect())
@@ -628,8 +630,8 @@ impl Database {
     /// The text of all the data macros of the table `table`, as
     /// `jetdb macro data` prints it.
     pub fn data_macros_text(&mut self, table: &str) -> Result<String, FileError> {
-        Ok(data_macros_to_text(&read_data_macros(
-            &mut self.reader,
+        Ok(data_macros_to_text(&read_data_macros_in(
+            self.catalog()?,
             table,
         )?))
     }
@@ -776,7 +778,7 @@ impl Database {
             return Ok(given);
         }
         let mut types: Vec<FormObjectType> = Vec::new();
-        for entry in list_forms(&mut self.reader)? {
+        for entry in list_forms_in(self.storage()?)? {
             if entry.name == name && !types.contains(&entry.object_type) {
                 types.push(entry.object_type);
             }
@@ -790,12 +792,31 @@ impl Database {
         }
     }
 
+    /// The storage of forms, reports, macros and VBA, read on the first call.
+    /// Like the catalog, it is not kept when it cannot be read, and the error
+    /// comes from each call that needs it.
+    fn storage(&mut self) -> Result<&AccessStorage, FileError> {
+        if self.storage.is_none() {
+            self.storage = Some(read_access_storage(&mut self.reader)?);
+        }
+        Ok(self.storage.as_ref().expect("the storage was just read"))
+    }
+
+    /// The reader together with the storage, read on the first call, for the
+    /// library functions that take both.
+    fn reader_and_storage(&mut self) -> Result<(&mut PageReader, &AccessStorage), FileError> {
+        self.storage()?;
+        let storage = self.storage.as_ref().expect("the storage was just read");
+        Ok((&mut self.reader, storage))
+    }
+
     /// The VBA modules, read on the first call. Like the catalog, they are
     /// not kept when they cannot be read, and the error comes from each call
     /// that needs them.
     fn vba_modules(&mut self) -> Result<&[VbaModule], FileError> {
         if self.modules.is_none() {
-            self.modules = Some(read_vba_project(&mut self.reader)?.modules);
+            let (reader, storage) = self.reader_and_storage()?;
+            self.modules = Some(read_vba_project_in(reader, storage)?.modules);
         }
         Ok(self.modules.as_deref().expect("the modules were just read"))
     }
@@ -900,6 +921,12 @@ fn not_found_code(error: &FileError) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // The library functions that read the storage or the catalog themselves,
+    // which the tests compare Database with.
+    use jetdb::{
+        list_forms, list_macros, read_data_macros, read_embedded_macros, read_form_properties,
+        read_macro, read_vba_project,
+    };
 
     fn test_data(relative: &str) -> Option<Vec<u8>> {
         let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -1313,6 +1340,7 @@ mod tests {
             table_page: 0,
             flags,
             lv_prop: None,
+            lv_extra: None,
         };
         let hidden = jetdb::format::catalog_flags::HIDDEN;
         let catalog = [
@@ -1546,6 +1574,20 @@ mod tests {
             compared.0 > 0 && compared.1 > 0 && compared.2 > 0,
             "{compared:?}"
         );
+    }
+
+    #[test]
+    fn storage_read_once_and_kept() {
+        // The storage of forms, macros and VBA is read by the first call that
+        // needs it and kept for the others.
+        let bytes = skip_if_missing!("V2010/macroGeneratedTestV2010.accdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        assert!(db.storage.is_none());
+        let forms = db.forms().unwrap();
+        assert!(db.storage.is_some());
+        assert_eq!(forms.len(), 2);
+        assert!(!db.macros(false).unwrap().is_empty());
+        assert!(!db.embedded_macros("frmEmbedded", None).unwrap().is_empty());
     }
 
     #[test]

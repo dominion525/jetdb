@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::{Cursor, Read as _, Write};
 
 use crate::file::{FileError, PageReader};
-use crate::storage::{self, StorageEntry};
+use crate::storage::{self, AccessStorage, StorageEntry};
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -44,10 +44,19 @@ pub struct VbaProject {
 /// Tries `MSysAccessStorage` (Jet4/ACE) first, then falls back to
 /// `MSysAccessObjects` (Jet3/Access 97) for older databases.
 pub fn read_vba_project(reader: &mut PageReader) -> Result<VbaProject, FileError> {
+    let storage = storage::read_access_storage(reader)?;
+    read_vba_project_in(reader, &storage)
+}
+
+/// [`read_vba_project`] in the storage already read.
+pub fn read_vba_project_in(
+    reader: &mut PageReader,
+    storage: &AccessStorage,
+) -> Result<VbaProject, FileError> {
     // Try MSysAccessStorage first (Jet4/ACE format)
-    let entries = storage::read_storage_entries(reader)?;
+    let entries = &storage.entries;
     if !entries.is_empty() {
-        let project = build_cfb_and_extract(&entries)?;
+        let project = build_cfb_and_extract(entries)?;
         if !project.modules.is_empty() {
             return Ok(project);
         }

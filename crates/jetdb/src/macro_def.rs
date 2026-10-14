@@ -30,12 +30,13 @@
 //! any other element is kept as [`MacroStatement::Unknown`] with its name,
 //! attributes, text, and children, so nothing in the XML is dropped.
 
+use crate::catalog::{read_catalog, CatalogEntry};
 use crate::data::{read_table_rows, Value};
 use crate::file::{FileError, PageReader};
 use crate::form::{self, FormObjectType, StreamKind};
-use crate::format::CATALOG_PAGE;
+use crate::format::{ObjectType, CATALOG_PAGE};
 use crate::macro_action::{macro_action, macro_argument_value_name};
-use crate::storage;
+use crate::storage::{self, AccessStorage};
 use crate::table::read_table_def;
 
 /// One named macro, as listed under `MSysAccessStorage`'s `Scripts` folder.
@@ -225,8 +226,16 @@ impl MacroXmlElement {
 /// Access 97 databases have no `Scripts` folder; their macros are the
 /// macro rows of `MSysObjects`.
 pub fn list_macros(reader: &mut PageReader) -> Result<Vec<MacroEntry>, FileError> {
-    let entries = storage::read_storage_entries(reader)?;
-    if let Some(mapping) = scripts_dir_mapping(&entries) {
+    let storage = storage::read_access_storage(reader)?;
+    list_macros_in(reader, &storage)
+}
+
+/// [`list_macros`] in the storage already read.
+pub fn list_macros_in(
+    reader: &mut PageReader,
+    storage: &AccessStorage,
+) -> Result<Vec<MacroEntry>, FileError> {
+    if let Some(mapping) = scripts_dir_mapping(&storage.entries) {
         return Ok(mapping
             .into_iter()
             .map(|(name, _storage_num)| MacroEntry { name })
@@ -246,7 +255,17 @@ pub fn list_macros(reader: &mut PageReader) -> Result<Vec<MacroEntry>, FileError
 ///
 /// Returns [`FileError::MacroNotFound`] if there is no such macro.
 pub fn read_macro(reader: &mut PageReader, name: &str) -> Result<MacroDef, FileError> {
-    let entries = storage::read_storage_entries(reader)?;
+    let storage = storage::read_access_storage(reader)?;
+    read_macro_in(reader, &storage, name)
+}
+
+/// [`read_macro`] in the storage already read.
+pub fn read_macro_in(
+    reader: &mut PageReader,
+    storage: &AccessStorage,
+    name: &str,
+) -> Result<MacroDef, FileError> {
+    let entries = &storage.entries;
     let source = MacroSource::Named {
         name: name.to_string(),
     };
@@ -254,7 +273,7 @@ pub fn read_macro(reader: &mut PageReader, name: &str) -> Result<MacroDef, FileE
         name: name.to_string(),
     };
 
-    if scripts_dir_mapping(&entries).is_none() {
+    if scripts_dir_mapping(entries).is_none() {
         // Access 97: the grid is the LvExtra of the macro's MSysObjects row.
         let (_, extra) = msysobjects_rows(reader, MSYSOBJECTS_TYPE_MACRO)?
             .into_iter()
@@ -269,7 +288,7 @@ pub fn read_macro(reader: &mut PageReader, name: &str) -> Result<MacroDef, FileE
         });
     }
 
-    let blob = find_macro_blob(&entries, name)?.ok_or_else(not_found)?;
+    let blob = find_macro_blob(entries, name)?.ok_or_else(not_found)?;
     match extract_axl_xml(blob) {
         Some(xml) => {
             let root = parse_xml_tree(&xml)?;
@@ -327,15 +346,30 @@ fn embedded_macros(
     object_name: &str,
     object_type: Option<FormObjectType>,
 ) -> Result<Vec<MacroDef>, FileError> {
-    let stream = form::read_stream(reader, object_name, object_type, StreamKind::Blob)?;
+    read_embedded_macros_in(
+        &storage::read_access_storage(reader)?,
+        object_name,
+        object_type,
+    )
+}
+
+/// [`read_embedded_macros`] in the storage already read: of `object_type`
+/// when it is given, and otherwise the form when a form and a report share
+/// the name.
+pub fn read_embedded_macros_in(
+    storage: &AccessStorage,
+    object_name: &str,
+    object_type: Option<FormObjectType>,
+) -> Result<Vec<MacroDef>, FileError> {
+    let stream = form::stream_in(storage, object_name, object_type, StreamKind::Blob)?;
     let mut grids: Vec<Vec<u8>> = embedded_macro_grids(&stream.data)
         .into_iter()
         .map(<[u8]>::to_vec)
         .collect();
     // The BlobDelta of the object the Blob is of, even when a report shares
     // the name of a form.
-    if let Ok(delta) = form::read_stream(
-        reader,
+    if let Ok(delta) = form::stream_in(
+        storage,
         object_name,
         Some(stream.object_type),
         StreamKind::BlobDelta,
@@ -423,8 +457,6 @@ fn embedded_macro_grids(stream: &[u8]) -> Vec<&[u8]> {
     grids
 }
 
-/// `MSysObjects.Type` of a local table.
-const MSYSOBJECTS_TYPE_TABLE: i16 = 1;
 /// `MSysObjects.Type` of a macro.
 const MSYSOBJECTS_TYPE_MACRO: i16 = -32766;
 
@@ -434,18 +466,27 @@ const MSYSOBJECTS_TYPE_MACRO: i16 = -32766;
 /// [`FileError::TableNotFound`] if there is no such table. Each returned
 /// [`MacroDef::xml`] is the whole XML document stored for the table.
 pub fn read_data_macros(reader: &mut PageReader, table: &str) -> Result<Vec<MacroDef>, FileError> {
-    let (_, extra) = msysobjects_rows(reader, MSYSOBJECTS_TYPE_TABLE)?
-        .into_iter()
-        .find(|(name, _)| name == table)
+    read_data_macros_in(&read_catalog(reader)?, table)
+}
+
+/// [`read_data_macros`] with the catalog already read, whose entries keep
+/// the data macros of each table ([`CatalogEntry::lv_extra`]).
+pub fn read_data_macros_in(
+    catalog: &[CatalogEntry],
+    table: &str,
+) -> Result<Vec<MacroDef>, FileError> {
+    let entry = catalog
+        .iter()
+        .find(|e| e.object_type == ObjectType::Table && e.name == table)
         .ok_or_else(|| FileError::TableNotFound {
             name: table.to_string(),
         })?;
-    let Some(extra) = extra else {
+    let Some(extra) = &entry.lv_extra else {
         return Ok(Vec::new());
     };
 
     let mut macros = Vec::new();
-    for xml in extract_utf16_xml_documents(&extra) {
+    for xml in extract_utf16_xml_documents(extra) {
         macros.extend(data_macros_from_xml(table, xml)?);
     }
     Ok(macros)

@@ -21,6 +21,10 @@ pub struct CatalogEntry {
     /// MSysObjects.LvProp, the properties of the object, which
     /// [`crate::entry_properties`] reads; `None` when it has none.
     pub lv_prop: Option<Vec<u8>>,
+    /// MSysObjects.LvExtra, which holds the data macros of a table (read by
+    /// [`crate::read_data_macros_in`]) and the macro grid of an Access 97
+    /// macro; `None` when it is empty.
+    pub lv_extra: Option<Vec<u8>>,
 }
 
 impl CatalogEntry {
@@ -48,8 +52,8 @@ pub fn read_catalog(reader: &mut PageReader) -> Result<Vec<CatalogEntry>, FileEr
     result.warn_skipped("MSysObjects");
 
     // Locate required column indices in a single pass
-    let (mut id_idx, mut name_idx, mut type_idx, mut flags_idx, mut lvprop_idx) =
-        (None, None, None, None, None);
+    let (mut id_idx, mut name_idx, mut type_idx, mut flags_idx, mut lvprop_idx, mut lvextra_idx) =
+        (None, None, None, None, None, None);
     for (i, col) in tdef.columns.iter().enumerate() {
         match col.name.as_str() {
             "Id" => id_idx = Some(i),
@@ -57,6 +61,7 @@ pub fn read_catalog(reader: &mut PageReader) -> Result<Vec<CatalogEntry>, FileEr
             "Type" => type_idx = Some(i),
             "Flags" => flags_idx = Some(i),
             "LvProp" => lvprop_idx = Some(i),
+            "LvExtra" => lvextra_idx = Some(i),
             _ => {}
         }
     }
@@ -107,12 +112,18 @@ pub fn read_catalog(reader: &mut PageReader) -> Result<Vec<CatalogEntry>, FileEr
             _ => None,
         };
 
+        let lv_extra = match lvextra_idx.and_then(|i| row.get(i)) {
+            Some(Value::Binary(b)) => Some(b.clone()),
+            _ => None,
+        };
+
         entries.push(CatalogEntry {
             name,
             object_type,
             table_page,
             flags,
             lv_prop,
+            lv_extra,
         });
     }
 
@@ -348,6 +359,7 @@ mod tests {
             table_page: 100,
             flags,
             lv_prop: None,
+            lv_extra: None,
         }
     }
 

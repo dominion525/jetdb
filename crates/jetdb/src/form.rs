@@ -5,7 +5,7 @@
 
 use crate::encoding;
 use crate::file::{FileError, PageReader};
-use crate::storage;
+use crate::storage::{self, AccessStorage};
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -123,12 +123,17 @@ pub struct FormProperties {
 
 /// List all form and report names in the database.
 pub fn list_forms(reader: &mut PageReader) -> Result<Vec<FormEntry>, FileError> {
-    let entries = storage::read_storage_entries(reader)?;
+    list_forms_in(&storage::read_access_storage(reader)?)
+}
+
+/// [`list_forms`] in the storage already read.
+pub fn list_forms_in(storage: &AccessStorage) -> Result<Vec<FormEntry>, FileError> {
+    let entries = &storage.entries;
     if entries.is_empty() {
         return Ok(Vec::new());
     }
 
-    let root_id = storage::find_root_id(&entries);
+    let root_id = storage::find_root_id(entries);
 
     let mut result = Vec::new();
 
@@ -137,7 +142,7 @@ pub fn list_forms(reader: &mut PageReader) -> Result<Vec<FormEntry>, FileError> 
         .iter()
         .find(|e| e.parent_id == root_id && e.name == "Forms" && storage::is_storage(e))
     {
-        let dir = storage::find_dir_data(&entries, forms_folder.id);
+        let dir = storage::find_dir_data(entries, forms_folder.id);
         if let Some(dir_data) = dir {
             let mapping = storage::parse_dir_data(&dir_data.data)?;
             for (name, _storage_num) in mapping {
@@ -154,7 +159,7 @@ pub fn list_forms(reader: &mut PageReader) -> Result<Vec<FormEntry>, FileError> 
         .iter()
         .find(|e| e.parent_id == root_id && e.name == "Reports" && storage::is_storage(e))
     {
-        let dir = storage::find_dir_data(&entries, reports_folder.id);
+        let dir = storage::find_dir_data(entries, reports_folder.id);
         if let Some(dir_data) = dir {
             let mapping = storage::parse_dir_data(&dir_data.data)?;
             for (name, _storage_num) in mapping {
@@ -197,8 +202,22 @@ pub(crate) fn read_stream(
     object_type: Option<FormObjectType>,
     stream_kind: StreamKind,
 ) -> Result<FormStream, FileError> {
-    let entries = storage::read_storage_entries(reader)?;
-    let (object_type, stream_data) = find_stream(&entries, name, object_type, stream_kind)?;
+    stream_in(
+        &storage::read_access_storage(reader)?,
+        name,
+        object_type,
+        stream_kind,
+    )
+}
+
+/// [`read_stream`] in the storage already read.
+pub(crate) fn stream_in(
+    storage: &AccessStorage,
+    name: &str,
+    object_type: Option<FormObjectType>,
+    stream_kind: StreamKind,
+) -> Result<FormStream, FileError> {
+    let (object_type, stream_data) = find_stream(&storage.entries, name, object_type, stream_kind)?;
 
     Ok(FormStream {
         name: name.to_string(),
@@ -392,14 +411,25 @@ fn form_properties(
     name: &str,
     object_type: Option<FormObjectType>,
 ) -> Result<FormProperties, FileError> {
-    let entries = storage::read_storage_entries(reader)?;
-    let (object_type, blob_data) = find_stream(&entries, name, object_type, StreamKind::Blob)?;
+    read_form_properties_in(&storage::read_access_storage(reader)?, name, object_type)
+}
+
+/// [`read_form_properties`] in the storage already read: of `object_type`
+/// when it is given, and otherwise the form when a form and a report share
+/// the name.
+pub fn read_form_properties_in(
+    storage: &AccessStorage,
+    name: &str,
+    object_type: Option<FormObjectType>,
+) -> Result<FormProperties, FileError> {
+    let entries = &storage.entries;
+    let (object_type, blob_data) = find_stream(entries, name, object_type, StreamKind::Blob)?;
 
     // Try to get TypeInfo for control name/type mapping; not fatal if missing.
     // It is that of the object the Blob is of, even when a report shares the
     // name of a form.
     let type_info_controls =
-        match find_stream(&entries, name, Some(object_type), StreamKind::TypeInfo) {
+        match find_stream(entries, name, Some(object_type), StreamKind::TypeInfo) {
             Ok((_, ti_data)) => parse_type_info(&ti_data).unwrap_or_default(),
             Err(_) => Vec::new(),
         };
