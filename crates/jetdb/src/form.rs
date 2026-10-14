@@ -737,31 +737,29 @@ fn parse_blob(data: &[u8]) -> Result<(Vec<BlobProperty>, Vec<Vec<BlobProperty>>)
             }
             0x0A | 0x0C => {
                 // Variable-length text: C bytes data + 4 byte trailer.
-                let byte_len = c as usize;
-                if data_start + byte_len + 4 > data.len() {
+                let Some(data_end) = variable_data_end(data_start, c, data.len()) else {
                     break;
-                }
-                let text_bytes = &data[data_start..data_start + byte_len];
+                };
+                let text_bytes = &data[data_start..data_end];
                 let text = encoding::decode_utf16le(text_bytes)
                     .unwrap_or_else(|_| String::from_utf8_lossy(text_bytes).into_owned());
                 all_props.push(BlobProperty {
                     prop_id,
                     value: BlobValue::Text(text),
                 });
-                pos += 14 + byte_len + 4;
+                pos = data_end + 4;
             }
             0x0B => {
                 // Variable-length binary: C bytes data + 4 byte trailer.
-                let byte_len = c as usize;
-                if data_start + byte_len + 4 > data.len() {
+                let Some(data_end) = variable_data_end(data_start, c, data.len()) else {
                     break;
-                }
-                let bin_data = data[data_start..data_start + byte_len].to_vec();
+                };
+                let bin_data = data[data_start..data_end].to_vec();
                 all_props.push(BlobProperty {
                     prop_id,
                     value: BlobValue::Binary(bin_data),
                 });
-                pos += 14 + byte_len + 4;
+                pos = data_end + 4;
             }
             _ => {
                 // Unknown type — stop parsing gracefully.
@@ -809,6 +807,15 @@ fn scan_control_sections(data: &[u8], start: usize) -> Vec<Vec<BlobProperty>> {
     }
 
     control_groups
+}
+
+/// The end of `len` bytes of variable-length data from `start`, when they and
+/// the 4-byte trailer after them end by `limit`. The sums are checked: `len`
+/// comes from the file, and `usize` has 32 bits in Wasm, where an unchecked
+/// sum could wrap around and pass the check.
+fn variable_data_end(start: usize, len: u32, limit: usize) -> Option<usize> {
+    let end = start.checked_add(usize::try_from(len).ok()?)?;
+    (end.checked_add(4)? <= limit).then_some(end)
 }
 
 /// Parse property entries from a section of the blob.
@@ -940,30 +947,28 @@ fn parse_section_props(data: &[u8], start: usize, end: usize) -> Vec<BlobPropert
                 pos += 34;
             }
             0x0A | 0x0C => {
-                let byte_len = c as usize;
-                if data_start + byte_len + 4 > end {
+                let Some(data_end) = variable_data_end(data_start, c, end) else {
                     break;
-                }
-                let text_bytes = &data[data_start..data_start + byte_len];
+                };
+                let text_bytes = &data[data_start..data_end];
                 let text = encoding::decode_utf16le(text_bytes)
                     .unwrap_or_else(|_| String::from_utf8_lossy(text_bytes).into_owned());
                 props.push(BlobProperty {
                     prop_id,
                     value: BlobValue::Text(text),
                 });
-                pos += 14 + byte_len + 4;
+                pos = data_end + 4;
             }
             0x0B => {
-                let byte_len = c as usize;
-                if data_start + byte_len + 4 > end {
+                let Some(data_end) = variable_data_end(data_start, c, end) else {
                     break;
-                }
-                let bin_data = data[data_start..data_start + byte_len].to_vec();
+                };
+                let bin_data = data[data_start..data_end].to_vec();
                 props.push(BlobProperty {
                     prop_id,
                     value: BlobValue::Binary(bin_data),
                 });
-                pos += 14 + byte_len + 4;
+                pos = data_end + 4;
             }
             _ => {
                 break;
@@ -1273,6 +1278,29 @@ mod tests {
             BlobValue::Text(s) => assert_eq!(s, text),
             other => panic!("expected Text, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn variable_data_of_a_length_too_long_stops() {
+        // A length near u32::MAX, as a broken file may hold, ends the
+        // properties rather than wrapping around in 32-bit usize (Wasm) and
+        // slicing out of range.
+        for kind in [0x0A, 0x0B] {
+            let entry = make_entry(
+                0x009C,
+                kind,
+                0,
+                u32::MAX,
+                &[0x41, 0x00, 0x00, 0x00, 0x00, 0x00],
+            );
+            let (props, _) = parse_blob(&make_blob(&entry)).unwrap();
+            assert!(props.is_empty(), "{kind:#x}");
+            let section = parse_section_props(&entry, 0, entry.len());
+            assert!(section.is_empty(), "{kind:#x}");
+        }
+        assert_eq!(variable_data_end(10, 4, 18), Some(14));
+        assert_eq!(variable_data_end(10, 4, 17), None);
+        assert_eq!(variable_data_end(usize::MAX - 2, 1, usize::MAX), None);
     }
 
     #[test]
