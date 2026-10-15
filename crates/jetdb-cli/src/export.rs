@@ -6,8 +6,8 @@ use std::process::ExitCode;
 use clap::{Args, ValueEnum};
 use jetdb::timestamp;
 use jetdb::{
-    find_table, read_catalog, read_complex_values, read_table_def, read_table_rows, ComplexValues,
-    PageReader, Value,
+    find_table, read_catalog, read_complex_column, read_table_def, read_table_rows, ComplexColumn,
+    ComplexKind, ComplexValues, FileError, PageReader, Value,
 };
 
 // ---------------------------------------------------------------------------
@@ -199,30 +199,23 @@ fn safe_file_name(name: &str) -> String {
     }
 }
 
-/// The field of the complex column that holds `number` in a row, with the
-/// values of the column taken out of `values`: the values for multiple
-/// values, and the file names for attachments, written to `dir` and given
-/// as their paths under it when there is one. `None` for the version history
-/// and kinds jetdb does not know, which keep the number.
+/// The field of `values`, the values of the complex column that holds
+/// `number` in a row: the values for multiple values, and the file names for
+/// attachments, written to `dir` and given as their paths under it when
+/// there is one.
 fn complex_field(
-    values: &mut ComplexValues,
+    values: ComplexValues,
     number: i32,
     opts: &FormatOptions,
     dir: Option<&Path>,
-) -> io::Result<Option<String>> {
+) -> io::Result<String> {
+    let mut items = Vec::new();
     match values {
-        ComplexValues::MultiValue(m) => {
-            let items: Vec<String> = m
-                .remove(&number)
-                .unwrap_or_default()
-                .iter()
-                .map(|v| plain_value(v, opts))
-                .collect();
-            Ok(Some(joined_field(&items, opts)))
+        ComplexValues::MultiValue(values) => {
+            items.extend(values.iter().map(|v| plain_value(v, opts)));
         }
-        ComplexValues::Attachment(m) => {
-            let mut items = Vec::new();
-            for file in m.remove(&number).unwrap_or_default() {
+        ComplexValues::Attachment(files) => {
+            for file in files {
                 let name = safe_file_name(&plain_value(&file.name, opts));
                 match (dir, &file.data) {
                     (Some(dir), Value::Binary(data)) => {
@@ -238,25 +231,33 @@ fn complex_field(
                     (None, _) => items.push(name),
                 }
             }
-            Ok(Some(joined_field(&items, opts)))
         }
-        ComplexValues::VersionHistory(_) | ComplexValues::Unknown { .. } => Ok(None),
+        ComplexValues::VersionHistory(_) | ComplexValues::Unknown => {}
     }
+    Ok(joined_field(&items, opts))
 }
 
-/// The field of `value`, with `values` the values of its column if it is a
-/// complex column (see [`complex_field`]).
+/// The field of `value`, with `column` its column if it is a complex column.
+/// Multiple values and attachments give their values (see
+/// [`complex_field`]); the version history and kinds jetdb does not know
+/// keep the number.
 fn field(
+    reader: &mut PageReader,
     value: &Value,
-    values: Option<&mut ComplexValues>,
+    column: Option<&ComplexColumn>,
     opts: &FormatOptions,
     dir: Option<&Path>,
-) -> io::Result<String> {
-    let complex = match (values, value) {
-        (Some(values), Value::Long(n)) => complex_field(values, *n, opts, dir)?,
-        _ => None,
-    };
-    Ok(complex.unwrap_or_else(|| format_value(value, opts)))
+) -> Result<String, FileError> {
+    if let (Some(column), Value::Long(n)) = (column, value) {
+        if matches!(
+            column.kind(),
+            ComplexKind::MultiValue | ComplexKind::Attachment
+        ) {
+            let values = column.values(reader, *n)?;
+            return complex_field(values, *n, opts, dir).map_err(FileError::Io);
+        }
+    }
+    Ok(format_value(value, opts))
 }
 
 /// Format binary data according to the selected mode.
@@ -343,18 +344,20 @@ fn run_export(args: &ExportArgs, password: Option<&str>) -> Result<(), jetdb::Fi
     }
 
     // Data rows
-    let mut complex = col_indices
+    let complex = col_indices
         .iter()
-        .map(|&i| read_complex_values(&mut reader, &catalog, &tdef, &tdef.columns[i]))
+        .map(|&i| read_complex_column(&mut reader, &catalog, &tdef, &tdef.columns[i]))
         .collect::<Result<Vec<_>, _>>()?;
     let result = read_table_rows(&mut reader, &tdef)?;
     for row in &result.rows {
         let fields: Vec<String> = col_indices
             .iter()
-            .zip(&mut complex)
-            .map(|(&i, values)| field(&row[i], values.as_mut(), &opts, args.attachments.as_deref()))
-            .collect::<io::Result<_>>()
-            .map_err(jetdb::FileError::Io)?;
+            .zip(&complex)
+            .map(|(&i, column)| {
+                let dir = args.attachments.as_deref();
+                field(&mut reader, &row[i], column.as_ref(), &opts, dir)
+            })
+            .collect::<Result<_, _>>()?;
         writeln!(out, "{}", fields.join(&delim_str)).map_err(jetdb::FileError::Io)?;
     }
 

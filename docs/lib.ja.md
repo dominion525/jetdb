@@ -187,11 +187,11 @@ fn main() -> Result<(), jetdb::FileError> {
 
 ## コンプレックスカラム
 
-コンプレックスカラム（Access 2007 以降の複数値、添付ファイル、追加のみの長いテキストの版の履歴）は、各行に番号を持ちます。[`read_table_rows`] はこの番号を `Value::Long` として返します。[`read_complex_values`] は、そうした列 1 つの中身を、この番号ごとにまとめて読みます。中身が無い番号は、マップに入りません。添付ファイルは、各ファイルの中身を、圧縮を解いて返します。
+コンプレックスカラム（Access 2007 以降の複数値、添付ファイル、追加のみの長いテキストの版の履歴）は、各行に番号を持ちます。[`read_table_rows`] はこの番号を `Value::Long` として返します。[`read_complex_column`] は、そうした列について、番号ごとの中身の場所だけを読みます。[`ComplexColumn::values`] は、1 つの番号の中身を読みます。求めていない行の中身は読みません。添付ファイルは、各ファイルの中身を、圧縮を解いて返します。
 
 ```rust,no_run
 use jetdb::{
-    find_table, read_catalog, read_complex_values, read_table_def, read_table_rows,
+    find_table, read_catalog, read_complex_column, read_table_def, read_table_rows,
     ComplexValues, PageReader, Value,
 };
 
@@ -201,14 +201,14 @@ fn main() -> Result<(), jetdb::FileError> {
     let entry = find_table(&catalog, "Products")?;
     let table = read_table_def(&mut reader, &entry.name, entry.table_page)?;
     let i = table.columns.iter().position(|c| c.name == "Tags").expect("column not found");
-    let Some(ComplexValues::MultiValue(tags)) =
-        read_complex_values(&mut reader, &catalog, &table, &table.columns[i])?
-    else {
+    let Some(tags) = read_complex_column(&mut reader, &catalog, &table, &table.columns[i])? else {
         return Ok(());
     };
     for row in read_table_rows(&mut reader, &table)?.rows {
         if let Value::Long(n) = row[i] {
-            println!("{:?}", tags.get(&n).map(Vec::as_slice).unwrap_or_default());
+            if let ComplexValues::MultiValue(values) = tags.values(&mut reader, n)? {
+                println!("{values:?}");
+            }
         }
     }
     Ok(())

@@ -14,12 +14,12 @@ use jetdb::format::{index_flags, index_type, ColumnType, ObjectType};
 use jetdb::{
     calculated_column_types_in, control_type_name, data_macros_to_text, embedded_macro_to_text,
     entry_properties, find_table, list_forms_in, list_macros_in, query_to_sql, read_access_storage,
-    read_catalog, read_complex_values, read_data_macros_in, read_embedded_macros_in,
+    read_catalog, read_complex_column, read_data_macros_in, read_embedded_macros_in,
     read_form_properties_in, read_macro_in, read_object_properties, read_queries_in,
     read_relationships_in, read_table_def, read_table_rows_with, read_vba_project_in,
     relationship_flags, timestamp, AccessStorage, BlobProperty, BlobValue, CatalogEntry,
-    ComplexValues, FileError, FormObjectType, IndexColumnOrder, MacroDef, MacroGrid, PageReader,
-    PropMapType, QueryDef, QueryType, TableDef, Value, VbaModule, VbaModuleType,
+    ComplexColumn, ComplexValues, FileError, FormObjectType, IndexColumnOrder, MacroDef, MacroGrid,
+    PageReader, PropMapType, QueryDef, QueryType, TableDef, Value, VbaModule, VbaModuleType,
 };
 
 /// A database opened from bytes in memory.
@@ -284,58 +284,51 @@ impl From<Value> for Cell {
     }
 }
 
-/// The cell of `value`, with `values` the values of its column if it is a
-/// complex column.
-fn cell(value: Value, values: Option<&mut ComplexValues>) -> Cell {
-    match (values, value) {
-        (Some(values), Value::Long(n)) => complex_cell(values, n).unwrap_or(Cell::Number(n.into())),
-        (_, value) => value.into(),
+/// The cell of `value`, with `column` its column if it is a complex column:
+/// the values of the row for a kind jetdb knows, and the number otherwise.
+fn cell(
+    reader: &mut PageReader,
+    value: Value,
+    column: Option<&ComplexColumn>,
+) -> Result<Cell, FileError> {
+    match (column, value) {
+        (Some(column), Value::Long(n)) => {
+            Ok(complex_cell(column.values(reader, n)?).unwrap_or(Cell::Number(n.into())))
+        }
+        (_, value) => Ok(value.into()),
     }
 }
 
-/// The values of the row whose complex column holds `number`, taken out of
-/// `values`, as each number is in one row only; `None` for a kind jetdb
-/// does not know, whose number stays.
-fn complex_cell(values: &mut ComplexValues, number: i32) -> Option<Cell> {
-    let list = |cells: Vec<Cell>| Some(Cell::List(cells));
-    match values {
-        ComplexValues::MultiValue(m) => list(
-            m.remove(&number)
-                .unwrap_or_default()
-                .into_iter()
-                .map(Cell::from)
-                .collect(),
-        ),
-        ComplexValues::Attachment(m) => list(
-            m.remove(&number)
-                .unwrap_or_default()
-                .into_iter()
-                .map(|f| {
-                    Cell::Record(vec![
-                        ("name", f.name.into()),
-                        ("type", f.file_type.into()),
-                        ("data", f.data.into()),
-                        ("url", f.url.into()),
-                        ("timestamp", f.timestamp.into()),
-                        ("flags", f.flags.into()),
-                    ])
-                })
-                .collect(),
-        ),
-        ComplexValues::VersionHistory(m) => list(
-            m.remove(&number)
-                .unwrap_or_default()
-                .into_iter()
-                .map(|v| {
-                    Cell::Record(vec![
-                        ("value", v.value.into()),
-                        ("modified", v.modified.into()),
-                    ])
-                })
-                .collect(),
-        ),
-        ComplexValues::Unknown { .. } => None,
-    }
+/// The cell of the values of a complex column in a row; `None` for a kind
+/// jetdb does not know.
+fn complex_cell(values: ComplexValues) -> Option<Cell> {
+    let cells = match values {
+        ComplexValues::MultiValue(values) => values.into_iter().map(Cell::from).collect(),
+        ComplexValues::Attachment(files) => files
+            .into_iter()
+            .map(|f| {
+                Cell::Record(vec![
+                    ("name", f.name.into()),
+                    ("type", f.file_type.into()),
+                    ("data", f.data.into()),
+                    ("url", f.url.into()),
+                    ("timestamp", f.timestamp.into()),
+                    ("flags", f.flags.into()),
+                ])
+            })
+            .collect(),
+        ComplexValues::VersionHistory(versions) => versions
+            .into_iter()
+            .map(|v| {
+                Cell::Record(vec![
+                    ("value", v.value.into()),
+                    ("modified", v.modified.into()),
+                ])
+            })
+            .collect(),
+        ComplexValues::Unknown => return None,
+    };
+    Some(Cell::List(cells))
 }
 
 /// The number of a Byte, Int, Long, Float or Double value, which is all that
@@ -457,30 +450,30 @@ impl Database {
             .filter(|&i| tdef.columns[i].is_shown(system_table))
             .collect();
         let (reader, catalog) = self.reader_and_catalog()?;
-        let mut complex = shown
+        let complex = shown
             .iter()
-            .map(|&i| read_complex_values(reader, catalog, &tdef, &tdef.columns[i]))
+            .map(|&i| read_complex_column(reader, catalog, &tdef, &tdef.columns[i]))
             .collect::<Result<Vec<_>, _>>()?;
         let calculated = calculated_column_types_in(catalog, &tdef);
         let result = read_table_rows_with(reader, &tdef, &calculated)?;
+        let mut rows = Vec::with_capacity(result.rows.len());
+        for mut row in result.rows {
+            let cells = shown
+                .iter()
+                .zip(&complex)
+                .map(|(&i, column)| {
+                    let value = std::mem::replace(&mut row[i], Value::Null);
+                    cell(reader, value, column.as_ref())
+                })
+                .collect::<Result<_, _>>()?;
+            rows.push(cells);
+        }
         Ok(Rows {
             columns: shown
                 .iter()
                 .map(|&i| tdef.columns[i].name.clone())
                 .collect(),
-            rows: result
-                .rows
-                .into_iter()
-                .map(|mut row| {
-                    shown
-                        .iter()
-                        .zip(&mut complex)
-                        .map(|(&i, values)| {
-                            cell(std::mem::replace(&mut row[i], Value::Null), values.as_mut())
-                        })
-                        .collect()
-                })
-                .collect(),
+            rows,
             skipped: result.skipped_rows,
         })
     }

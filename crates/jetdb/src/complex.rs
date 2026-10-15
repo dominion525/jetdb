@@ -8,10 +8,10 @@
 //! follows from the types of those columns. The row of MSysComplexColumns
 //! whose `ComplexID` is in the column definition names both tables.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use crate::catalog::{find_table, CatalogEntry};
-use crate::data::{read_table_rows_with, Value};
+use crate::data::{read_row_at, read_table_rows_with, RowPosition, TableRows, Value};
 use crate::file::{FileError, PageReader};
 use crate::format::{ColumnType, ObjectType};
 use crate::table::{read_table_def, ColumnDef, TableDef};
@@ -43,33 +43,77 @@ pub struct Attachment {
     pub flags: Value,
 }
 
-/// The values of one complex column, by the number the column holds in each
-/// row. A number with no values is not in the map.
+/// The values of a complex column in one row.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ComplexValues {
     /// Multiple values of the column's value type, in the order Access
     /// stored them.
-    MultiValue(BTreeMap<i32, Vec<Value>>),
+    MultiValue(Vec<Value>),
     /// The files of an attachment column, in the order Access added them.
-    Attachment(BTreeMap<i32, Vec<Attachment>>),
+    Attachment(Vec<Attachment>),
     /// The versions of an append-only Long Text column, oldest first.
-    VersionHistory(BTreeMap<i32, Vec<Version>>),
-    /// A kind of complex column jetdb does not know, with the name of its
-    /// type table.
-    Unknown { type_table: String },
+    VersionHistory(Vec<Version>),
+    /// A kind of complex column jetdb does not know; see
+    /// [`ComplexColumn::type_table`].
+    Unknown,
 }
 
-/// Read the values of the complex column `column` of the table `table`,
-/// or return `None` if it is not a complex column.
+/// The kind of a complex column, as its type table shows it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ComplexKind {
+    MultiValue,
+    Attachment,
+    VersionHistory,
+    /// A kind jetdb does not know.
+    Unknown,
+}
+
+/// A complex column, with where the values of each row are, read by
+/// [`read_complex_column`]. [`ComplexColumn::values`] reads the values of one
+/// row, so the values of the rows not asked for are never read.
+#[derive(Debug, Clone)]
+pub struct ComplexColumn {
+    flat: FlatTable,
+    kind: Kind,
+    type_table: String,
+    /// The positions of the rows of the flat table, by the number of the row
+    /// of the main table, in the order Access added them.
+    positions: BTreeMap<i32, Vec<RowPosition>>,
+}
+
+/// The kind of a complex column, with the value columns of its flat table.
+#[derive(Debug, Clone, Copy)]
+enum Kind {
+    MultiValue {
+        value: usize,
+    },
+    Attachment {
+        name: Option<usize>,
+        file_type: Option<usize>,
+        data: Option<usize>,
+        url: Option<usize>,
+        timestamp: Option<usize>,
+        flags: Option<usize>,
+    },
+    VersionHistory {
+        value: usize,
+        modified: usize,
+    },
+    Unknown,
+}
+
+/// Read where the values of the complex column `column` of the table `table`
+/// are, or return `None` if it is not a complex column.
 ///
-/// The values are keyed by the number the column holds in each row, as
-/// [`read_table_rows`](crate::read_table_rows) returns it ([`Value::Long`]).
-pub fn read_complex_values(
+/// This reads, of the column's flat table, only the column holding the
+/// number of each row and the column of the order Access added the values
+/// in, so it keeps a few bytes for each value, not the values.
+pub fn read_complex_column(
     reader: &mut PageReader,
     catalog: &[CatalogEntry],
     table: &TableDef,
     column: &ColumnDef,
-) -> Result<Option<ComplexValues>, FileError> {
+) -> Result<Option<ComplexColumn>, FileError> {
     let Some(complex_id) = column.complex_id else {
         return Ok(None);
     };
@@ -84,11 +128,111 @@ pub fn read_complex_values(
         &type_def,
         read_table_by_id(reader, catalog, link.flat_table_id)?,
     )?;
-    let rows = flat.read_rows_by_number(reader)?;
-    Ok(Some(values_of_kind(type_def, &flat, rows)))
+    let positions = flat.read_positions(reader)?;
+    Ok(Some(ComplexColumn {
+        kind: kind_of(&type_def, &flat),
+        type_table: type_def.name,
+        flat,
+        positions,
+    }))
+}
+
+impl ComplexColumn {
+    /// The kind of the column.
+    pub fn kind(&self) -> ComplexKind {
+        match self.kind {
+            Kind::MultiValue { .. } => ComplexKind::MultiValue,
+            Kind::Attachment { .. } => ComplexKind::Attachment,
+            Kind::VersionHistory { .. } => ComplexKind::VersionHistory,
+            Kind::Unknown => ComplexKind::Unknown,
+        }
+    }
+
+    /// The name of the column's type table (`MSysComplexType_*`).
+    pub fn type_table(&self) -> &str {
+        &self.type_table
+    }
+
+    /// The values of the row whose complex column holds `number`, as
+    /// [`read_table_rows`](crate::read_table_rows) returns it
+    /// ([`Value::Long`]): empty for a number with no values.
+    pub fn values(&self, reader: &mut PageReader, number: i32) -> Result<ComplexValues, FileError> {
+        if let Kind::Unknown = self.kind {
+            return Ok(ComplexValues::Unknown);
+        }
+        let positions = self.positions.get(&number).map_or(&[][..], Vec::as_slice);
+        let mut rows = Vec::with_capacity(positions.len());
+        for &position in positions {
+            match read_row_at(
+                reader,
+                &self.flat.def,
+                &HashMap::new(),
+                position,
+                Some(&self.flat.value_columns),
+            )? {
+                Some(row) => rows.push(row),
+                None => log::warn!("{}: a value could not be read", self.flat.def.name),
+            }
+        }
+        Ok(self.values_of_rows(rows))
+    }
+
+    /// The rows of the flat table as the values of the column's kind.
+    fn values_of_rows(&self, rows: Vec<Vec<Value>>) -> ComplexValues {
+        match self.kind {
+            Kind::MultiValue { value } => ComplexValues::MultiValue(
+                rows.into_iter()
+                    .map(|mut row| take(&mut row, value))
+                    .collect(),
+            ),
+            Kind::Attachment { .. } => ComplexValues::Attachment(self.attachments(rows)),
+            Kind::VersionHistory { value, modified } => ComplexValues::VersionHistory(
+                rows.into_iter()
+                    .map(|mut row| Version {
+                        value: take(&mut row, value),
+                        modified: take(&mut row, modified),
+                    })
+                    .collect(),
+            ),
+            Kind::Unknown => ComplexValues::Unknown,
+        }
+    }
+
+    /// The rows of the flat table of an attachment column as files.
+    fn attachments(&self, rows: Vec<Vec<Value>>) -> Vec<Attachment> {
+        let Kind::Attachment {
+            name,
+            file_type,
+            data,
+            url,
+            timestamp,
+            flags,
+        } = self.kind
+        else {
+            return Vec::new();
+        };
+        let field =
+            |row: &mut Vec<Value>, i: Option<usize>| i.map_or(Value::Null, |i| take(row, i));
+        rows.into_iter()
+            .map(|mut row| Attachment {
+                name: field(&mut row, name),
+                file_type: field(&mut row, file_type),
+                data: match field(&mut row, data) {
+                    Value::Binary(stored) => {
+                        decode_attachment(&stored).map_or(Value::Null, Value::Binary)
+                    }
+                    _ => Value::Null,
+                },
+                url: field(&mut row, url),
+                timestamp: field(&mut row, timestamp),
+                flags: field(&mut row, flags),
+            })
+            .collect()
+    }
 }
 
 /// The flat table of a complex column, with the positions of its columns.
+#[derive(Debug, Clone)]
 struct FlatTable {
     def: TableDef,
     /// The columns named as in the type table, which hold the values.
@@ -142,83 +286,78 @@ impl FlatTable {
             .find(|&i| self.def.columns[i].col_type == t)
     }
 
-    /// The rows of the table in the order Access added them, grouped by the
-    /// number of the row of the main table.
-    fn read_rows_by_number(
+    /// The positions of the rows of the table, grouped by the number of the
+    /// row of the main table, in the order Access added them. Only the
+    /// number and the order of each row are read.
+    fn read_positions(
         &self,
         reader: &mut PageReader,
-    ) -> Result<BTreeMap<i32, Vec<Vec<Value>>>, FileError> {
-        let result = read_table_rows_with(reader, &self.def, &Default::default())?;
-        result.warn_skipped(&self.def.name);
-        let mut rows = result.rows;
-        if let Some(i) = self.order_column {
-            rows.sort_by_key(|row| long_at(row, i).unwrap_or(i32::MAX));
-        }
-        let mut grouped: BTreeMap<i32, Vec<Vec<Value>>> = BTreeMap::new();
-        for row in rows {
-            if let Some(number) = long_at(&row, self.key_column) {
-                grouped.entry(number).or_default().push(row);
+    ) -> Result<BTreeMap<i32, Vec<RowPosition>>, FileError> {
+        let columns: Vec<usize> = std::iter::once(self.key_column)
+            .chain(self.order_column)
+            .collect();
+        let calculated = HashMap::new();
+        let mut rows = TableRows::new(&self.def, &calculated).with_columns(&columns);
+        let mut found: Vec<(i32, i32, RowPosition)> = Vec::new();
+        while let Some(row) = rows.next_row(reader)? {
+            if let Some(number) = long_at(&row.values, self.key_column) {
+                let order = self
+                    .order_column
+                    .and_then(|i| long_at(&row.values, i))
+                    .unwrap_or(i32::MAX);
+                found.push((number, order, row.position));
             }
         }
-        Ok(grouped)
+        if rows.skipped_rows() > 0 {
+            log::warn!(
+                "{}: {} row(s) skipped due to parse errors",
+                self.def.name,
+                rows.skipped_rows()
+            );
+        }
+        found.sort();
+        let mut positions: BTreeMap<i32, Vec<RowPosition>> = BTreeMap::new();
+        for (number, _, position) in found {
+            positions.entry(number).or_default().push(position);
+        }
+        Ok(positions)
     }
 }
 
-/// The values of the rows of a flat table, as the kind the type table's
-/// columns show.
-fn values_of_kind(
-    type_def: TableDef,
-    flat: &FlatTable,
-    rows: BTreeMap<i32, Vec<Vec<Value>>>,
-) -> ComplexValues {
+/// The kind of a complex column, as the types of its type table's columns
+/// show it, with the value columns of its flat table.
+fn kind_of(type_def: &TableDef, flat: &FlatTable) -> Kind {
     let types: Vec<ColumnType> = type_def.columns.iter().map(|c| c.col_type).collect();
     if let ([value_type], [value]) = (types.as_slice(), flat.value_columns.as_slice()) {
         if is_multi_value_type(*value_type) {
-            return ComplexValues::MultiValue(map_rows(rows, |row| take(row, *value)));
+            return Kind::MultiValue { value: *value };
         }
     }
     if is_attachment_type(&types) {
-        return ComplexValues::Attachment(attachments(flat, rows));
+        let [name, file_type, data, url, timestamp, flags] = [
+            "FileName",
+            "FileType",
+            "FileData",
+            "FileURL",
+            "FileTimeStamp",
+            "FileFlags",
+        ]
+        .map(|name| flat.value_column_named(name));
+        return Kind::Attachment {
+            name,
+            file_type,
+            data,
+            url,
+            timestamp,
+            flags,
+        };
     }
     let memo = flat.value_column_of_type(ColumnType::Memo);
     let timestamp = flat.value_column_of_type(ColumnType::Timestamp);
     if let (Some(value), Some(modified)) = (memo, timestamp) {
-        return ComplexValues::VersionHistory(map_rows(rows, |row| Version {
-            value: take(row, value),
-            modified: take(row, modified),
-        }));
+        return Kind::VersionHistory { value, modified };
     }
-    ComplexValues::Unknown {
-        type_table: type_def.name,
-    }
-}
-
-/// The rows of the flat table of an attachment column as files.
-fn attachments(
-    flat: &FlatTable,
-    rows: BTreeMap<i32, Vec<Vec<Value>>>,
-) -> BTreeMap<i32, Vec<Attachment>> {
-    let [name, file_type, data, url, timestamp, flags] = [
-        "FileName",
-        "FileType",
-        "FileData",
-        "FileURL",
-        "FileTimeStamp",
-        "FileFlags",
-    ]
-    .map(|name| flat.value_column_named(name));
-    let field = |row: &mut Vec<Value>, i: Option<usize>| i.map_or(Value::Null, |i| take(row, i));
-    map_rows(rows, |row| Attachment {
-        name: field(row, name),
-        file_type: field(row, file_type),
-        data: match field(row, data) {
-            Value::Binary(stored) => decode_attachment(&stored).map_or(Value::Null, Value::Binary),
-            _ => Value::Null,
-        },
-        url: field(row, url),
-        timestamp: field(row, timestamp),
-        flags: field(row, flags),
-    })
+    Kind::Unknown
 }
 
 /// The content of a file as Access stores it in `FileData`: a 32-bit flag
@@ -241,21 +380,6 @@ fn decode_attachment(stored: &[u8]) -> Option<Vec<u8>> {
     body.get(header..length).map(<[u8]>::to_vec)
 }
 
-/// `rows` with each row made into a value by `f`.
-fn map_rows<T>(
-    rows: BTreeMap<i32, Vec<Vec<Value>>>,
-    f: impl Fn(&mut Vec<Value>) -> T,
-) -> BTreeMap<i32, Vec<T>> {
-    rows.into_iter()
-        .map(|(number, rows)| {
-            (
-                number,
-                rows.into_iter().map(|mut row| f(&mut row)).collect(),
-            )
-        })
-        .collect()
-}
-
 /// The value of column `i` of `row`, leaving `Null` in its place.
 fn take(row: &mut [Value], i: usize) -> Value {
     std::mem::replace(&mut row[i], Value::Null)
@@ -268,7 +392,6 @@ fn long_at(row: &[Value], i: usize) -> Option<i32> {
         _ => None,
     }
 }
-
 /// The value types a column of multiple values may have.
 fn is_multi_value_type(t: ColumnType) -> bool {
     matches!(
@@ -384,14 +507,32 @@ mod tests {
         };
     }
 
-    /// The values of the column `column` of the table `table` in `path`.
-    fn values(path: &std::path::Path, table: &str, column: &str) -> Option<ComplexValues> {
+    /// The complex column `column` of the table `table` in `path`, with a
+    /// reader of the file.
+    fn complex_column(
+        path: &std::path::Path,
+        table: &str,
+        column: &str,
+    ) -> (PageReader, Option<ComplexColumn>) {
         let mut reader = PageReader::open(path).unwrap();
         let catalog = read_catalog(&mut reader).unwrap();
         let entry = find_table(&catalog, table).unwrap();
         let tdef = read_table_def(&mut reader, &entry.name, entry.table_page).unwrap();
         let column = tdef.columns.iter().find(|c| c.name == column).unwrap();
-        read_complex_values(&mut reader, &catalog, &tdef, column).unwrap()
+        let complex = read_complex_column(&mut reader, &catalog, &tdef, column).unwrap();
+        (reader, complex)
+    }
+
+    /// The values of each number of the column `column` of the table `table`
+    /// in `path` that has values.
+    fn values(path: &std::path::Path, table: &str, column: &str) -> BTreeMap<i32, ComplexValues> {
+        let (mut reader, complex) = complex_column(path, table, column);
+        let complex = complex.unwrap();
+        let numbers: Vec<i32> = complex.positions.keys().copied().collect();
+        numbers
+            .into_iter()
+            .map(|n| (n, complex.values(&mut reader, n).unwrap()))
+            .collect()
     }
 
     fn text(s: &str) -> Value {
@@ -435,18 +576,21 @@ mod tests {
             let path = skip_if_missing!(path);
             assert_eq!(
                 values(&path, "Table1", "multi-value-data"),
-                Some(ComplexValues::MultiValue(BTreeMap::from([
-                    (2, vec![text("value1"), text("value4")]),
+                BTreeMap::from([
+                    (
+                        2,
+                        ComplexValues::MultiValue(vec![text("value1"), text("value4")])
+                    ),
                     (
                         3,
-                        vec![
+                        ComplexValues::MultiValue(vec![
                             text("value1"),
                             text("value2"),
                             text("value3"),
                             text("value4")
-                        ]
+                        ])
                     ),
-                ])))
+                ])
             );
         }
     }
@@ -458,13 +602,17 @@ mod tests {
             "V2010/complexDataTestV2010.accdb",
         ] {
             let path = skip_if_missing!(path);
-            let Some(ComplexValues::VersionHistory(versions)) = values(
+            let versions: BTreeMap<i32, Vec<Version>> = values(
                 &path,
                 "Table1",
                 "VersionHistory_F5F8918F-0A3F-4DA9-AE71-184EE5012880",
-            ) else {
-                panic!("not a version history");
-            };
+            )
+            .into_iter()
+            .map(|(n, v)| match v {
+                ComplexValues::VersionHistory(v) => (n, v),
+                other => panic!("not a version history: {other:?}"),
+            })
+            .collect();
             let texts: Vec<(i32, Vec<Value>)> = versions
                 .iter()
                 .map(|(n, v)| (*n, v.iter().map(|v| v.value.clone()).collect()))
@@ -495,13 +643,13 @@ mod tests {
     type File = (Value, Vec<u8>);
 
     /// The name and content of each attachment, by number.
-    fn files(values: Option<ComplexValues>) -> Vec<(i32, Vec<File>)> {
-        let Some(ComplexValues::Attachment(files)) = values else {
-            panic!("not attachments: {values:?}");
-        };
-        files
+    fn files(values: BTreeMap<i32, ComplexValues>) -> Vec<(i32, Vec<File>)> {
+        values
             .into_iter()
             .map(|(n, files)| {
+                let ComplexValues::Attachment(files) = files else {
+                    panic!("not attachments: {files:?}");
+                };
                 let files = files
                     .into_iter()
                     .map(|f| match f.data {
@@ -629,17 +777,106 @@ mod tests {
         // The type table of this column has a column of a type jetdb does
         // not know (0x48).
         let path = skip_if_missing!("V2007/unsupportedFieldsTestV2007.accdb");
-        assert_eq!(
-            values(&path, "Test", "UnknownComplex"),
-            Some(ComplexValues::Unknown {
-                type_table: "MSysComplexType_Text".to_string()
-            })
-        );
+        let (_, complex) = complex_column(&path, "Test", "UnknownComplex");
+        let complex = complex.unwrap();
+        assert_eq!(complex.kind(), ComplexKind::Unknown);
+        assert_eq!(complex.type_table(), "MSysComplexType_Text");
+        let values = values(&path, "Test", "UnknownComplex");
+        assert!(!values.is_empty());
+        assert!(values.values().all(|v| *v == ComplexValues::Unknown));
+    }
+
+    #[test]
+    fn kinds_and_type_tables() {
+        let path = skip_if_missing!("V2007/complexDataTestV2007.accdb");
+        for (column, kind, type_table) in [
+            (
+                "multi-value-data",
+                ComplexKind::MultiValue,
+                "MSysComplexType_Text",
+            ),
+            (
+                "attach-data",
+                ComplexKind::Attachment,
+                "MSysComplexType_Attachment",
+            ),
+            (
+                "VersionHistory_F5F8918F-0A3F-4DA9-AE71-184EE5012880",
+                ComplexKind::VersionHistory,
+                "MSysComplexTypeVH_7B4A12A4BE0B4564884754E9E31577B2",
+            ),
+        ] {
+            let complex = complex_column(&path, "Table1", column).1.unwrap();
+            assert_eq!(complex.kind(), kind, "{column}");
+            assert_eq!(complex.type_table(), type_table, "{column}");
+        }
+    }
+
+    #[test]
+    fn numbers_without_values_are_empty() {
+        // Rows 1 and 4 have no multiple values, row 1 and 3 no attachments,
+        // and no row has the number 999.
+        let path = skip_if_missing!("V2007/complexDataTestV2007.accdb");
+        let (mut reader, complex) = complex_column(&path, "Table1", "multi-value-data");
+        let complex = complex.unwrap();
+        for n in [1, 4, 999] {
+            assert_eq!(
+                complex.values(&mut reader, n).unwrap(),
+                ComplexValues::MultiValue(Vec::new())
+            );
+        }
+        let (mut reader, complex) = complex_column(&path, "Table1", "attach-data");
+        let complex = complex.unwrap();
+        for n in [1, 3, 999] {
+            assert_eq!(
+                complex.values(&mut reader, n).unwrap(),
+                ComplexValues::Attachment(Vec::new())
+            );
+        }
+    }
+
+    #[test]
+    fn positions_of_every_row_of_the_flat_table() {
+        // Each row of a flat table is in the positions once, under the
+        // number of the row of the main table it holds.
+        for (path, table, column) in [
+            (
+                "V2007/complexDataTestV2007.accdb",
+                "Table1",
+                "multi-value-data",
+            ),
+            ("V2007/complexDataTestV2007.accdb", "Table1", "attach-data"),
+            (
+                "V2007/complexDataTestV2007.accdb",
+                "Table1",
+                "VersionHistory_F5F8918F-0A3F-4DA9-AE71-184EE5012880",
+            ),
+            ("V2007/testOleV2007.accdb", "Table1", "attach_data"),
+        ] {
+            let path = skip_if_missing!(path);
+            let (mut reader, complex) = complex_column(&path, table, column);
+            let complex = complex.unwrap();
+            let rows = read_table_rows_with(&mut reader, &complex.flat.def, &HashMap::new())
+                .unwrap()
+                .rows;
+            let mut expected: Vec<i32> = rows
+                .iter()
+                .filter_map(|r| long_at(r, complex.flat.key_column))
+                .collect();
+            expected.sort();
+            let mut numbers: Vec<i32> = complex
+                .positions
+                .iter()
+                .flat_map(|(n, p)| std::iter::repeat_n(*n, p.len()))
+                .collect();
+            numbers.sort();
+            assert_eq!(numbers, expected, "{column}");
+        }
     }
 
     #[test]
     fn other_columns_are_not_complex() {
         let path = skip_if_missing!("V2007/complexDataTestV2007.accdb");
-        assert_eq!(values(&path, "Table1", "memo-data"), None);
+        assert!(complex_column(&path, "Table1", "memo-data").1.is_none());
     }
 }

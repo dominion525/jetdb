@@ -187,11 +187,11 @@ fn main() -> Result<(), jetdb::FileError> {
 
 ## Complex Columns
 
-A complex column (multiple values, attachments, or the version history of an append-only Long Text column, in Access 2007 and later) holds a number in each row, which [`read_table_rows`] returns as `Value::Long`. [`read_complex_values`] reads the values of one such column, keyed by that number; a number with no values is not in the map. Attachments come with the content of each file, decompressed.
+A complex column (multiple values, attachments, or the version history of an append-only Long Text column, in Access 2007 and later) holds a number in each row, which [`read_table_rows`] returns as `Value::Long`. [`read_complex_column`] reads, of such a column, only where the values of each number are, and [`ComplexColumn::values`] reads the values of one number, so the values of the rows not asked for are never read. Attachments come with the content of each file, decompressed.
 
 ```rust,no_run
 use jetdb::{
-    find_table, read_catalog, read_complex_values, read_table_def, read_table_rows,
+    find_table, read_catalog, read_complex_column, read_table_def, read_table_rows,
     ComplexValues, PageReader, Value,
 };
 
@@ -201,14 +201,14 @@ fn main() -> Result<(), jetdb::FileError> {
     let entry = find_table(&catalog, "Products")?;
     let table = read_table_def(&mut reader, &entry.name, entry.table_page)?;
     let i = table.columns.iter().position(|c| c.name == "Tags").expect("column not found");
-    let Some(ComplexValues::MultiValue(tags)) =
-        read_complex_values(&mut reader, &catalog, &table, &table.columns[i])?
-    else {
+    let Some(tags) = read_complex_column(&mut reader, &catalog, &table, &table.columns[i])? else {
         return Ok(());
     };
     for row in read_table_rows(&mut reader, &table)?.rows {
         if let Value::Long(n) = row[i] {
-            println!("{:?}", tags.get(&n).map(Vec::as_slice).unwrap_or_default());
+            if let ComplexValues::MultiValue(values) = tags.values(&mut reader, n)? {
+                println!("{values:?}");
+            }
         }
     }
     Ok(())
