@@ -6,8 +6,8 @@ use std::process::ExitCode;
 use clap::{Args, ValueEnum};
 use jetdb::timestamp;
 use jetdb::{
-    find_table, read_catalog, read_complex_column, read_table_def, read_table_rows, ComplexColumn,
-    ComplexKind, ComplexValues, FileError, PageReader, Value,
+    calculated_column_types_in, find_table, read_catalog, read_complex_column, read_table_def,
+    ComplexColumn, ComplexKind, ComplexValues, FileError, PageReader, TableRows, Value,
 };
 
 // ---------------------------------------------------------------------------
@@ -348,14 +348,16 @@ fn run_export(args: &ExportArgs, password: Option<&str>) -> Result<(), jetdb::Fi
         .iter()
         .map(|&i| read_complex_column(&mut reader, &catalog, &tdef, &tdef.columns[i]))
         .collect::<Result<Vec<_>, _>>()?;
-    let result = read_table_rows(&mut reader, &tdef)?;
-    for row in &result.rows {
+    // One row at a time, so that only the row being written is in memory.
+    let calculated = calculated_column_types_in(&catalog, &tdef);
+    let mut rows = TableRows::new(&tdef, &calculated).with_columns(&col_indices);
+    while let Some(row) = rows.next_row(&mut reader)? {
         let fields: Vec<String> = col_indices
             .iter()
             .zip(&complex)
             .map(|(&i, column)| {
                 let dir = args.attachments.as_deref();
-                field(&mut reader, &row[i], column.as_ref(), &opts, dir)
+                field(&mut reader, &row.values[i], column.as_ref(), &opts, dir)
             })
             .collect::<Result<_, _>>()?;
         writeln!(out, "{}", fields.join(&delim_str)).map_err(jetdb::FileError::Io)?;
@@ -363,7 +365,7 @@ fn run_export(args: &ExportArgs, password: Option<&str>) -> Result<(), jetdb::Fi
 
     out.flush().map_err(jetdb::FileError::Io)?;
 
-    result.warn_skipped(&args.table);
+    rows.warn_skipped(&args.table);
 
     Ok(())
 }

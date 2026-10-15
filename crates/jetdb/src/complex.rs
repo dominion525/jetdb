@@ -308,13 +308,7 @@ impl FlatTable {
                 found.push((number, order, row.position));
             }
         }
-        if rows.skipped_rows() > 0 {
-            log::warn!(
-                "{}: {} row(s) skipped due to parse errors",
-                self.def.name,
-                rows.skipped_rows()
-            );
-        }
+        rows.warn_skipped(&self.def.name);
         found.sort();
         let mut positions: BTreeMap<i32, Vec<RowPosition>> = BTreeMap::new();
         for (number, _, position) in found {

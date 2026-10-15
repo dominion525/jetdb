@@ -255,6 +255,17 @@ impl<'a> TableRows<'a> {
         self.skipped
     }
 
+    /// Log a warning if any rows were passed over because they could not be
+    /// read, as [`ReadResult::warn_skipped`] does.
+    pub fn warn_skipped(&self, table: &str) {
+        if self.skipped > 0 {
+            log::warn!(
+                "{table}: {n} row(s) skipped due to parse errors",
+                n = self.skipped
+            );
+        }
+    }
+
     /// The position of the next row, passing over the rows before it that
     /// are deleted or cannot be read, without reading its values; `None`
     /// when there are no more rows.
