@@ -7,6 +7,8 @@
 
 mod js;
 
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 use std::io::Cursor;
 
 use jetdb::ddl::{self, with_calculated_column_types, DdlDialect};
@@ -14,12 +16,12 @@ use jetdb::format::{index_flags, index_type, ColumnType, ObjectType};
 use jetdb::{
     calculated_column_types_in, control_type_name, data_macros_to_text, embedded_macro_to_text,
     entry_properties, find_table, list_forms_in, list_macros_in, query_to_sql, read_access_storage,
-    read_catalog, read_complex_values, read_data_macros_in, read_embedded_macros_in,
+    read_catalog, read_complex_column, read_data_macros_in, read_embedded_macros_in,
     read_form_properties_in, read_macro_in, read_object_properties, read_queries_in,
-    read_relationships_in, read_table_def, read_table_rows_with, read_vba_project_in,
-    relationship_flags, timestamp, AccessStorage, BlobProperty, BlobValue, CatalogEntry,
-    ComplexValues, FileError, FormObjectType, IndexColumnOrder, MacroDef, MacroGrid, PageReader,
-    PropMapType, QueryDef, QueryType, TableDef, Value, VbaModule, VbaModuleType,
+    read_relationships_in, read_table_def, read_vba_project_in, relationship_flags, timestamp,
+    AccessStorage, BlobProperty, BlobValue, CatalogEntry, ComplexColumn, ComplexValues, FileError,
+    FormObjectType, IndexColumnOrder, MacroDef, MacroGrid, PageReader, PropMapType, QueryDef,
+    QueryType, RowPosition, TableDef, TableRows, Value, VbaModule, VbaModuleType,
 };
 
 /// A database opened from bytes in memory.
@@ -36,6 +38,10 @@ pub struct Database {
     /// The storage of forms, reports, macros and VBA, read when it is first
     /// needed, as the catalog is.
     storage: Option<AccessStorage>,
+    /// Where the values of each complex column are, by the table name and
+    /// the index of the column, read when they are first needed, so that
+    /// reading the rows of a table a part at a time reads them once.
+    complex: HashMap<(String, usize), Option<ComplexColumn>>,
 }
 
 /// A column of a table, as `Database::columns` returns it.
@@ -223,6 +229,27 @@ pub struct Rows {
     pub rows: Vec<Vec<Cell>>,
     /// The number of rows that could not be read and were left out.
     pub skipped: usize,
+    /// The position of the row after these, to start the next part at; `None`
+    /// when there are no more rows.
+    pub next: Option<RowPosition>,
+}
+
+/// The number of `position` that JavaScript gets: `page * 65536 + row`.
+pub fn position_number(position: RowPosition) -> f64 {
+    f64::from(position.page) * 65536.0 + f64::from(position.row)
+}
+
+/// The position of a number [`position_number`] gives; `None` for a number
+/// it cannot give: negative, not an integer, or past 2^48.
+pub fn number_position(number: f64) -> Option<RowPosition> {
+    if !(number >= 0.0 && number.fract() == 0.0 && number < 281_474_976_710_656.0) {
+        return None;
+    }
+    let number = number as u64;
+    Some(RowPosition {
+        page: u32::try_from(number >> 16).ok()?,
+        row: (number & 0xFFFF) as u16,
+    })
 }
 
 /// A value of a row, in the JavaScript type it becomes.
@@ -284,58 +311,69 @@ impl From<Value> for Cell {
     }
 }
 
-/// The cell of `value`, with `values` the values of its column if it is a
-/// complex column.
-fn cell(value: Value, values: Option<&mut ComplexValues>) -> Cell {
-    match (values, value) {
-        (Some(values), Value::Long(n)) => complex_cell(values, n).unwrap_or(Cell::Number(n.into())),
-        (_, value) => value.into(),
+/// The cells of the columns at the indexes in `shown` of a row whose values
+/// are `values`, with `columns` their complex columns.
+fn row_cells(
+    reader: &mut PageReader,
+    mut values: Vec<Value>,
+    shown: &[usize],
+    columns: &[Option<&ComplexColumn>],
+) -> Result<Vec<Cell>, FileError> {
+    shown
+        .iter()
+        .zip(columns)
+        .map(|(&i, column)| {
+            let value = std::mem::replace(&mut values[i], Value::Null);
+            cell(reader, value, *column)
+        })
+        .collect()
+}
+
+/// The cell of `value`, with `column` its column if it is a complex column:
+/// the values of the row for a kind jetdb knows, and the number otherwise.
+fn cell(
+    reader: &mut PageReader,
+    value: Value,
+    column: Option<&ComplexColumn>,
+) -> Result<Cell, FileError> {
+    match (column, value) {
+        (Some(column), Value::Long(n)) => {
+            Ok(complex_cell(column.values(reader, n)?).unwrap_or(Cell::Number(n.into())))
+        }
+        (_, value) => Ok(value.into()),
     }
 }
 
-/// The values of the row whose complex column holds `number`, taken out of
-/// `values`, as each number is in one row only; `None` for a kind jetdb
-/// does not know, whose number stays.
-fn complex_cell(values: &mut ComplexValues, number: i32) -> Option<Cell> {
-    let list = |cells: Vec<Cell>| Some(Cell::List(cells));
-    match values {
-        ComplexValues::MultiValue(m) => list(
-            m.remove(&number)
-                .unwrap_or_default()
-                .into_iter()
-                .map(Cell::from)
-                .collect(),
-        ),
-        ComplexValues::Attachment(m) => list(
-            m.remove(&number)
-                .unwrap_or_default()
-                .into_iter()
-                .map(|f| {
-                    Cell::Record(vec![
-                        ("name", f.name.into()),
-                        ("type", f.file_type.into()),
-                        ("data", f.data.into()),
-                        ("url", f.url.into()),
-                        ("timestamp", f.timestamp.into()),
-                        ("flags", f.flags.into()),
-                    ])
-                })
-                .collect(),
-        ),
-        ComplexValues::VersionHistory(m) => list(
-            m.remove(&number)
-                .unwrap_or_default()
-                .into_iter()
-                .map(|v| {
-                    Cell::Record(vec![
-                        ("value", v.value.into()),
-                        ("modified", v.modified.into()),
-                    ])
-                })
-                .collect(),
-        ),
-        ComplexValues::Unknown { .. } => None,
-    }
+/// The cell of the values of a complex column in a row; `None` for a kind
+/// jetdb does not know.
+fn complex_cell(values: ComplexValues) -> Option<Cell> {
+    let cells = match values {
+        ComplexValues::MultiValue(values) => values.into_iter().map(Cell::from).collect(),
+        ComplexValues::Attachment(files) => files
+            .into_iter()
+            .map(|f| {
+                Cell::Record(vec![
+                    ("name", f.name.into()),
+                    ("type", f.file_type.into()),
+                    ("data", f.data.into()),
+                    ("url", f.url.into()),
+                    ("timestamp", f.timestamp.into()),
+                    ("flags", f.flags.into()),
+                ])
+            })
+            .collect(),
+        ComplexValues::VersionHistory(versions) => versions
+            .into_iter()
+            .map(|v| {
+                Cell::Record(vec![
+                    ("value", v.value.into()),
+                    ("modified", v.modified.into()),
+                ])
+            })
+            .collect(),
+        ComplexValues::Unknown => return None,
+    };
+    Some(Cell::List(cells))
 }
 
 /// The number of a Byte, Int, Long, Float or Double value, which is all that
@@ -364,6 +402,7 @@ impl Database {
             queries: None,
             modules: None,
             storage: None,
+            complex: HashMap::new(),
         })
     }
 
@@ -452,37 +491,83 @@ impl Database {
     /// The rows of `table`, with the columns that [`Database::columns`]
     /// returns, as `jetdb export` reads them.
     pub fn rows(&mut self, table: &str) -> Result<Rows, FileError> {
+        self.rows_from(table, RowPosition::default(), None)
+    }
+
+    /// The rows of `table` from `start`, at most `limit` of them, as
+    /// [`Database::rows`] reads them; [`Rows::next`] is where the next part
+    /// starts.
+    pub fn rows_from(
+        &mut self,
+        table: &str,
+        start: RowPosition,
+        limit: Option<usize>,
+    ) -> Result<Rows, FileError> {
         let (tdef, system_table) = self.table_def(table)?;
         let shown: Vec<usize> = (0..tdef.columns.len())
             .filter(|&i| tdef.columns[i].is_shown(system_table))
             .collect();
-        let (reader, catalog) = self.reader_and_catalog()?;
-        let mut complex = shown
+        self.read_complex_columns(&tdef, &shown)?;
+        let Self {
+            reader,
+            catalog,
+            complex,
+            ..
+        } = self;
+        let catalog = catalog.as_deref().expect("the catalog was read");
+        let columns: Vec<Option<&ComplexColumn>> = shown
             .iter()
-            .map(|&i| read_complex_values(reader, catalog, &tdef, &tdef.columns[i]))
-            .collect::<Result<Vec<_>, _>>()?;
+            .map(|&i| complex[&(tdef.name.clone(), i)].as_ref())
+            .collect();
         let calculated = calculated_column_types_in(catalog, &tdef);
-        let result = read_table_rows_with(reader, &tdef, &calculated)?;
+        let mut table_rows = TableRows::new(&tdef, &calculated)
+            .with_columns(&shown)
+            .starting_at(start);
+        let mut rows = Vec::new();
+        while limit.is_none_or(|limit| rows.len() < limit) {
+            let Some(row) = table_rows.next_row(reader)? else {
+                break;
+            };
+            rows.push(row_cells(reader, row.values, &shown, &columns)?);
+        }
+        let next = table_rows.peek(reader)?;
         Ok(Rows {
             columns: shown
                 .iter()
                 .map(|&i| tdef.columns[i].name.clone())
                 .collect(),
-            rows: result
-                .rows
-                .into_iter()
-                .map(|mut row| {
-                    shown
-                        .iter()
-                        .zip(&mut complex)
-                        .map(|(&i, values)| {
-                            cell(std::mem::replace(&mut row[i], Value::Null), values.as_mut())
-                        })
-                        .collect()
-                })
-                .collect(),
-            skipped: result.skipped_rows,
+            rows,
+            skipped: table_rows.skipped_rows(),
+            next,
         })
+    }
+
+    /// Read where the values of the complex columns among the columns of
+    /// `table` at the indexes in `columns` are, for those not read yet.
+    fn read_complex_columns(
+        &mut self,
+        table: &TableDef,
+        columns: &[usize],
+    ) -> Result<(), FileError> {
+        self.catalog()?;
+        let Self {
+            reader,
+            catalog,
+            complex,
+            ..
+        } = self;
+        let catalog = catalog.as_deref().expect("the catalog was just read");
+        for &i in columns {
+            if let Entry::Vacant(entry) = complex.entry((table.name.clone(), i)) {
+                entry.insert(read_complex_column(
+                    reader,
+                    catalog,
+                    table,
+                    &table.columns[i],
+                )?);
+            }
+        }
+        Ok(())
     }
 
     /// The relationships between tables, sorted by name: without those of
@@ -2339,6 +2424,124 @@ mod tests {
             .position(|c| c == "UnknownComplex")
             .unwrap();
         assert!(rows.rows.iter().all(|r| matches!(r[i], Cell::Number(_))));
+    }
+
+    /// The rows of `table` read `limit` at a time, joined, with the number
+    /// of parts.
+    fn rows_in_parts(db: &mut Database, table: &str, limit: usize) -> (Rows, usize) {
+        let mut all = db
+            .rows_from(table, RowPosition::default(), Some(limit))
+            .unwrap();
+        let mut parts = 1;
+        while let Some(start) = all.next {
+            assert_eq!(
+                all.rows.len() % limit,
+                0,
+                "{table}: a part short of {limit}"
+            );
+            let part = db.rows_from(table, start, Some(limit)).unwrap();
+            assert!(part.rows.len() <= limit);
+            assert_eq!(part.columns, all.columns);
+            all.rows.extend(part.rows);
+            all.skipped += part.skipped;
+            all.next = part.next;
+            parts += 1;
+        }
+        (all, parts)
+    }
+
+    #[test]
+    fn rows_read_a_part_at_a_time() {
+        // Joining the parts gives all the rows, complex columns included,
+        // whatever the limit.
+        for (file, table, limits) in [
+            ("V2003/testV2003.mdb", "Table1", &[1, 2, 3][..]),
+            (
+                "V2007/complexDataTestV2007.accdb",
+                "Table1",
+                &[1, 2, 3, 4, 5][..],
+            ),
+            ("V2007/testOleV2007.accdb", "Table1", &[1, 4, 100][..]),
+            (
+                "V2007/testIndexCodesV2007.accdb",
+                "Table14",
+                &[1000, 7777][..],
+            ),
+        ] {
+            let bytes = skip_if_missing!(file);
+            let mut db = Database::open(bytes, None).unwrap();
+            let whole = db.rows(table).unwrap();
+            assert_eq!(whole.next, None);
+            for &limit in limits {
+                let (parts, count) = rows_in_parts(&mut db, table, limit);
+                assert_eq!(parts, whole, "{file} {table} by {limit}");
+                assert_eq!(count, whole.rows.len().div_ceil(limit).max(1));
+            }
+        }
+    }
+
+    #[test]
+    fn rows_from_past_the_last_row() {
+        let bytes = skip_if_missing!("V2003/testV2003.mdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        let rows = db
+            .rows_from("Table1", RowPosition { page: 9, row: 0 }, Some(10))
+            .unwrap();
+        assert!(rows.rows.is_empty());
+        assert_eq!(rows.next, None);
+        assert_eq!(rows.skipped, 0);
+    }
+
+    #[test]
+    fn rows_from_counts_the_rows_it_passes_over() {
+        // Table1's second row cannot be read (see rows_left_out_when_unreadable);
+        // the part with the first row passes over it, so next is null.
+        let mut bytes = skip_if_missing!("V2003/testV2003.mdb");
+        let pos = 27 * 4096 + 16;
+        bytes[pos..pos + 2].copy_from_slice(&0x0FB8u16.to_le_bytes());
+        let mut db = Database::open(bytes, None).unwrap();
+        let rows = db
+            .rows_from("Table1", RowPosition::default(), Some(1))
+            .unwrap();
+        assert_eq!(rows.rows.len(), 1);
+        assert_eq!(rows.skipped, 1);
+        assert_eq!(rows.next, None);
+    }
+
+    #[test]
+    fn complex_columns_are_read_once() {
+        let bytes = skip_if_missing!("V2007/complexDataTestV2007.accdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        db.rows_from("Table1", RowPosition::default(), Some(1))
+            .unwrap();
+        let columns = db.complex.len();
+        assert_eq!(db.complex.values().filter(|c| c.is_some()).count(), 3);
+        db.rows_from("Table1", RowPosition { page: 0, row: 1 }, Some(1))
+            .unwrap();
+        db.rows("Table1").unwrap();
+        assert_eq!(db.complex.len(), columns);
+    }
+
+    #[test]
+    fn position_numbers() {
+        for position in [
+            RowPosition { page: 0, row: 0 },
+            RowPosition {
+                page: 0,
+                row: 65535,
+            },
+            RowPosition { page: 3, row: 7 },
+            RowPosition {
+                page: u32::MAX,
+                row: u16::MAX,
+            },
+        ] {
+            assert_eq!(number_position(position_number(position)), Some(position));
+        }
+        assert_eq!(position_number(RowPosition { page: 1, row: 2 }), 65538.0);
+        for number in [-1.0, 0.5, f64::NAN, f64::INFINITY, 281_474_976_710_656.0] {
+            assert_eq!(number_position(number), None, "{number}");
+        }
     }
 
     #[test]

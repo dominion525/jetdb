@@ -125,7 +125,6 @@ fn main() -> Result<(), jetdb::FileError> {
 
 - 読み取り専用（書き込みには対応していない）
 - インデックスを使った検索は非対応（順次スキャンのみ）
-- テーブルの全行をメモリに読み込むため、行数が非常に多いテーブルではメモリ使用量に注意
 - パスワード保護された .accdb ファイルは `PageReader::open_with_password` が必要 (Agile, RC4 CryptoAPI, Standard/NonStandard AES)
 - レプリケーションデータベース (.mda) は未テスト
 

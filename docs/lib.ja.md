@@ -185,14 +185,38 @@ fn main() -> Result<(), jetdb::FileError> {
 }
 ```
 
-## コンプレックスカラム
+## 行を 1 行ずつ読む
 
-コンプレックスカラム（Access 2007 以降の複数値、添付ファイル、追加のみの長いテキストの版の履歴）は、各行に番号を持ちます。[`read_table_rows`] はこの番号を `Value::Long` として返します。[`read_complex_values`] は、そうした列 1 つの中身を、この番号ごとにまとめて読みます。中身が無い番号は、マップに入りません。添付ファイルは、各ファイルの中身を、圧縮を解いて返します。
+[`TableRows`] は、テーブルの行を 1 行ずつ読みます。メモリに載るのは、使っている行だけです。[`read_table_rows`] は、これで全行を読みます。[`PageReader`] は呼ぶたびに渡すので、行の合間に同じ reader でコンプレックスカラムの中身などを読めます。[`TableRows::with_columns`] は、求めた列だけを読み、ほかの列の長い値を読みません。[`TableRows::position`] は続きの位置を返し、[`TableRows::starting_at`] はそこから読み直します。[`read_row_at`] は、1 つの位置の行を読みます。
 
 ```rust,no_run
 use jetdb::{
-    find_table, read_catalog, read_complex_values, read_table_def, read_table_rows,
-    ComplexValues, PageReader, Value,
+    calculated_column_types_in, find_table, read_catalog, read_table_def, PageReader, TableRows,
+};
+
+fn main() -> Result<(), jetdb::FileError> {
+    let mut reader = PageReader::open("database.mdb")?;
+    let catalog = read_catalog(&mut reader)?;
+    let entry = find_table(&catalog, "Orders")?;
+    let table = read_table_def(&mut reader, &entry.name, entry.table_page)?;
+    let calculated = calculated_column_types_in(&catalog, &table);
+    let mut rows = TableRows::new(&table, &calculated);
+    while let Some(row) = rows.next_row(&mut reader)? {
+        println!("{:?}", row.values);
+    }
+    rows.warn_skipped(&table.name);
+    Ok(())
+}
+```
+
+## コンプレックスカラム
+
+コンプレックスカラム（Access 2007 以降の複数値、添付ファイル、追加のみの長いテキストの版の履歴）は、各行に番号を持ちます。[`read_table_rows`] はこの番号を `Value::Long` として返します。[`read_complex_column`] は、そうした列について、番号ごとの中身の場所だけを読みます。[`ComplexColumn::values`] は、1 つの番号の中身を読みます。求めていない行の中身は読みません。添付ファイルは、各ファイルの中身を、圧縮を解いて返します。
+
+```rust,no_run
+use jetdb::{
+    calculated_column_types_in, find_table, read_catalog, read_complex_column, read_table_def,
+    ComplexValues, PageReader, TableRows, Value,
 };
 
 fn main() -> Result<(), jetdb::FileError> {
@@ -201,14 +225,16 @@ fn main() -> Result<(), jetdb::FileError> {
     let entry = find_table(&catalog, "Products")?;
     let table = read_table_def(&mut reader, &entry.name, entry.table_page)?;
     let i = table.columns.iter().position(|c| c.name == "Tags").expect("column not found");
-    let Some(ComplexValues::MultiValue(tags)) =
-        read_complex_values(&mut reader, &catalog, &table, &table.columns[i])?
-    else {
+    let Some(tags) = read_complex_column(&mut reader, &catalog, &table, &table.columns[i])? else {
         return Ok(());
     };
-    for row in read_table_rows(&mut reader, &table)?.rows {
-        if let Value::Long(n) = row[i] {
-            println!("{:?}", tags.get(&n).map(Vec::as_slice).unwrap_or_default());
+    let calculated = calculated_column_types_in(&catalog, &table);
+    let mut rows = TableRows::new(&table, &calculated);
+    while let Some(row) = rows.next_row(&mut reader)? {
+        if let Value::Long(n) = row.values[i] {
+            if let ComplexValues::MultiValue(values) = tags.values(&mut reader, n)? {
+                println!("{values:?}");
+            }
         }
     }
     Ok(())
@@ -300,5 +326,4 @@ fn list_tables(bytes: Vec<u8>) -> Result<Vec<String>, jetdb::FileError> {
 
 - 読み取り専用です（書き込みには対応していません）
 - インデックスを使った検索は非対応です（順次スキャンのみ）
-- [`read_table_rows`] はテーブルの全行をメモリに読み込みます。行数が非常に多いテーブルではメモリ使用量に注意してください
 - パスワード保護されたデータベースは非対応です

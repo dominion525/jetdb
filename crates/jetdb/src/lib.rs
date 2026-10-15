@@ -23,7 +23,9 @@ pub mod timestamp;
 pub mod vba;
 
 pub use catalog::{find_table, read_catalog, table_names, CatalogEntry};
-pub use complex::{read_complex_values, Attachment, ComplexValues, Version};
+pub use complex::{
+    read_complex_column, Attachment, ComplexColumn, ComplexKind, ComplexValues, Version,
+};
 pub use file::{find_row, DbHeader, FileError, PageReader};
 pub use format::{
     catalog_flags, column_flags, index_flags, index_type, ColumnType, FormatError, JetFormat,
@@ -41,8 +43,8 @@ pub use table::{
 pub use table::is_replication_column;
 
 pub use data::{
-    calculated_column_types, calculated_column_types_in, read_table_rows, read_table_rows_with,
-    ReadResult, Value,
+    calculated_column_types, calculated_column_types_in, read_row_at, read_table_rows,
+    read_table_rows_with, ReadResult, RowPosition, TableRow, TableRows, Value,
 };
 pub use form::{
     control_type_name, list_forms, list_forms_in, read_form_properties, read_form_properties_in,

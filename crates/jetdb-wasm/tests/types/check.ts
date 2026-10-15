@@ -28,6 +28,8 @@ import {
   type ObjectType,
   type Property,
   type Row,
+  type Rows,
+  type RowsOptions,
   type Value,
   type Scalar,
   type Attachment,
@@ -90,8 +92,15 @@ indexes[0].type;
 // @ts-expect-error: the table name is required.
 db.indexes();
 
-export const result: { columns: string[]; rows: Row[]; skipped: number } =
+export const result: { columns: string[]; rows: Row[]; skipped: number; next: number | null } =
   db.rows("Table1");
+export const part: Rows = db.rows("Table1", { limit: 100 });
+export const nextPart: Rows = db.rows("Table1", { start: part.next ?? 0, limit: 100 });
+export const rowsOptions: RowsOptions = { start: 0 };
+// @ts-expect-error: next is a number or null, not always a number.
+export const nextNumber: number = part.next;
+// @ts-expect-error: start is a number.
+db.rows("Table1", { start: "0" });
 export const rows: Row[] = result.rows;
 // @ts-expect-error: the rows are in the rows property.
 export const notRows: Row[] = db.rows("Table1");

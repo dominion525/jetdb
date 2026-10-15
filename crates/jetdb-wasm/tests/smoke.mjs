@@ -113,10 +113,28 @@ function checkRows(Database, build) {
         { A: "a", B: "b", C: 0, D: 0, E: 0, F: 0, G: "1981-12-12", H: "0.0000", I: false },
       ],
       skipped: 0,
+      next: null,
     },
     build,
   );
   assert.throws(() => db.rows("NoSuchTable"), { name: "JetdbError", code: "TABLE_NOT_FOUND" }, build);
+  // Read a part at a time, the parts join to all the rows, and next is null
+  // after the last part.
+  const whole = Database.open(read("V2007/complexDataTestV2007.accdb")).rows("Table1");
+  for (const limit of [1, 3]) {
+    const complexDb = Database.open(read("V2007/complexDataTestV2007.accdb"));
+    let part = complexDb.rows("Table1", { limit });
+    const joined = [...part.rows];
+    while (part.next !== null) {
+      assert.ok(part.rows.length === limit, build);
+      part = complexDb.rows("Table1", { start: part.next, limit });
+      joined.push(...part.rows);
+    }
+    assert.deepEqual(joined, whole.rows, build);
+  }
+  for (const options of [{ limit: 0 }, { limit: 1.5 }, { limit: "1" }, { start: -1 }, { start: 0.5 }, { start: "0" }]) {
+    assert.throws(() => db.rows("Table1", options), { name: "JetdbError", code: "INVALID_ARGUMENT" }, build);
+  }
   // A table without rows still gives the names of its columns.
   const empty = db.rows("Table2");
   assert.deepEqual(empty.rows, [], build);

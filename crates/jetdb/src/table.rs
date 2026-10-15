@@ -93,7 +93,7 @@ pub struct ColumnDef {
     /// For a complex column (attachments, multiple values, version history),
     /// the `ComplexID` of its row in MSysComplexColumns, which links it to
     /// the tables holding its values; read by
-    /// [`read_complex_values`](crate::read_complex_values). `None` for other
+    /// [`read_complex_column`](crate::read_complex_column). `None` for other
     /// columns.
     pub complex_id: Option<u32>,
 }

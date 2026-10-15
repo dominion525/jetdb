@@ -125,7 +125,6 @@ For detailed API documentation and more examples, run `cargo doc --open` or see 
 
 - Read-only (no write support)
 - No index-based lookups (full table scan only)
-- Loads all rows into memory; be mindful of memory usage with very large tables
 - Password-protected .accdb files require `PageReader::open_with_password` (Agile, RC4 CryptoAPI, Standard/NonStandard AES)
 - Replication databases (.mda) are untested
 
