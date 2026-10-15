@@ -1,0 +1,807 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>jetdb — Read .mdb / .accdb files without Microsoft Access</title>
+    <meta
+      name="description"
+      content="jetdb is a CLI tool that reads Microsoft Access databases (.mdb / .accdb). Beyond table data, it extracts queries, VBA, macros, and forms. Runs on macOS, Linux, and Windows."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@400;600&family=Noto+Sans+JP:wght@400;600;800&display=swap"
+    />
+    <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="jetdb" />
+    <meta property="og:locale" content="en_US" />
+    <meta
+      property="og:title"
+      content="jetdb — Read .mdb / .accdb files without Microsoft Access"
+    />
+    <meta
+      property="og:description"
+      content="jetdb is a CLI tool that reads Microsoft Access databases (.mdb / .accdb). Beyond table data, it extracts queries, VBA, macros, and forms. Runs on macOS, Linux, and Windows."
+    />
+    <meta property="og:url" content="https://jetdb.dominion525.com/" />
+    <meta
+      property="og:image"
+      content="https://jetdb.dominion525.com/assets/ogp.png"
+    />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="jetdb: Read .mdb / .accdb files without Microsoft Access"
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="stylesheet" href="/assets/style.css" />
+    <script src="/assets/main.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header">
+      <div class="container header-inner">
+        <a class="logo" href="/"
+          ><img src="/assets/logo.svg" alt="jetdb" width="67" height="24"
+        /></a>
+        <nav class="header-nav" aria-label="On this page">
+          <a class="nav-link" href="#features">Features</a>
+          <a class="nav-link" href="#compare">Compare</a>
+          <a class="nav-link" href="#install">Install</a>
+        </nav>
+        <div class="header-actions">
+          <a class="lang-switch" href="/ja/" hreflang="ja" lang="ja">日本語</a>
+          <a class="header-github" href="https://github.com/dominion525/jetdb"
+            >GitHub</a
+          >
+        </div>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="hero">
+        <div class="container">
+          <p class="eyebrow">Supports Access 97 to Microsoft 365</p>
+          <h1>Read .mdb / .accdb files<br />without Microsoft Access</h1>
+          <p class="lead">
+            jetdb is a CLI tool that reads Microsoft Access databases (.mdb /
+            .accdb). Beyond table data, it extracts queries, VBA, macros, and
+            forms. Runs on macOS, Linux, and Windows.
+          </p>
+          <div class="cta">
+            <a class="btn btn-primary" href="#install">Install</a>
+            <a class="btn btn-ghost" href="https://github.com/dominion525/jetdb"
+              >GitHub</a
+            >
+          </div>
+          <pre
+            class="terminal"
+            aria-label="Command examples"
+          ><code><span class="t-comment"># List the tables</span>
+<span class="t-prompt">$</span> jetdb tables jetdb-sample.accdb
+<span class="t-comment"># Extract VBA source code</span>
+<span class="t-prompt">$</span> jetdb vba show jetdb-sample.accdb modBilling
+<span class="t-comment"># Generate DDL for PostgreSQL</span>
+<span class="t-prompt">$</span> jetdb schema jetdb-sample.accdb --ddl postgres</code></pre>
+        </div>
+      </section>
+
+      <section class="section" id="features" aria-labelledby="no-access-title">
+        <div class="container">
+          <h2 id="no-access-title">No Access, no ODBC driver</h2>
+          <p class="section-lead">
+            Written entirely in Rust, with no dependency on C libraries. If all
+            you have is the .mdb / .accdb file, you can open it as it is. Use it
+            as a CLI or as a Rust library.
+          </p>
+          <div class="points">
+            <div class="point">
+              <h3>macOS, Linux, Windows</h3>
+              <p>Runs even where there is no Windows or Access license.</p>
+            </div>
+            <div class="point">
+              <h3>Access 97 to Microsoft 365</h3>
+              <p>
+                Reads both .mdb and .accdb files, from Jet3 (Access 97) to ACE17
+                (Access 2019). Files created with Access for Microsoft 365 work
+                too.
+              </p>
+            </div>
+            <div class="point">
+              <h3>Password-protected files</h3>
+              <p>
+                Opens password-protected .accdb files (Agile, RC4 CryptoAPI,
+                Standard AES) — just add <code>--password</code>.
+              </p>
+            </div>
+            <div class="point">
+              <h3>Never modifies the original file</h3>
+              <p>
+                Opens files read-only and creates no lock file (.laccdb). You
+                can inspect a file someone handed you without worrying about
+                breaking it.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section-alt" aria-labelledby="reads-title">
+        <div class="container">
+          <h2 id="reads-title">Not just the data, but the whole app</h2>
+          <p class="section-lead">
+            Beyond pulling out tables, it extracts what you need to rebuild an
+            Access application.
+          </p>
+          <p class="note reads-note">
+            Note: form layout (control positions), print settings, and Access 97
+            forms/reports are not available.
+          </p>
+          <ul class="reads">
+            <li class="read">
+              <h3><span class="num">01</span>Table data</h3>
+              <p>Exports as CSV.</p>
+              <code class="cmd">jetdb export jetdb-sample.accdb tblOrders</code>
+              <details class="output">
+                <summary>Show output</summary>
+                <pre><code>OrderID,CustomerID,ProductID,Quantity,OrderDate,Shipped
+1,1,1,3,2026-07-03,1
+2,2,2,10,2026-07-18,1
+3,1,3,1,2026-08-02,1
+4,3,1,2,2026-08-25,0
+5,2,1,5,2026-09-09,0</code></pre>
+              </details>
+            </li>
+            <li class="read">
+              <h3><span class="num">02</span>Schema</h3>
+              <p>Shows columns, indexes, and relationships.</p>
+              <code class="cmd"
+                >jetdb schema jetdb-sample.accdb -T tblOrders</code
+              >
+              <details class="output">
+                <summary>Show output</summary>
+                <pre><code>Table: tblOrders
+
+  Columns:
+    OrderID     Long       AUTO
+    CustomerID  Long
+    ProductID   Long
+    Quantity    Int
+    OrderDate   Timestamp
+    Shipped     Boolean
+
+  Indexes:
+    pkOrders  [OrderID ASC]  UNIQUE REQUIRED
+
+  Relationships:
+    fkOrdersCustomers  tblOrders.CustomerID -&gt; tblCustomers.CustomerID
+    fkOrdersProducts   tblOrders.ProductID -&gt; tblProducts.ProductID</code></pre>
+              </details>
+            </li>
+            <li class="read">
+              <h3><span class="num">03</span>DDL</h3>
+              <p>
+                Generates DDL for SQLite, PostgreSQL, MySQL, and Access SQL.
+              </p>
+              <code class="cmd"
+                >jetdb schema jetdb-sample.accdb -T tblOrders --ddl
+                postgres</code
+              >
+              <details class="output">
+                <summary>Show output</summary>
+                <pre><code>CREATE TABLE &quot;tblOrders&quot; (
+    &quot;OrderID&quot; INTEGER NOT NULL GENERATED ALWAYS AS IDENTITY,
+    &quot;CustomerID&quot; INTEGER,
+    &quot;ProductID&quot; INTEGER,
+    &quot;Quantity&quot; SMALLINT,
+    &quot;OrderDate&quot; TIMESTAMP WITHOUT TIME ZONE,
+    &quot;Shipped&quot; BOOLEAN,
+    PRIMARY KEY (&quot;OrderID&quot;)
+);
+
+ALTER TABLE &quot;tblOrders&quot; ADD CONSTRAINT &quot;fkOrdersCustomers&quot;
+    FOREIGN KEY (&quot;CustomerID&quot;) REFERENCES &quot;tblCustomers&quot; (&quot;CustomerID&quot;);
+ALTER TABLE &quot;tblOrders&quot; ADD CONSTRAINT &quot;fkOrdersProducts&quot;
+    FOREIGN KEY (&quot;ProductID&quot;) REFERENCES &quot;tblProducts&quot; (&quot;ProductID&quot;);</code></pre>
+              </details>
+            </li>
+            <li class="read">
+              <h3><span class="num">04</span>Query SQL</h3>
+              <p>Reconstructs the SQL of saved queries.</p>
+              <code class="cmd"
+                >jetdb queries show jetdb-sample.accdb qryMonthlySales</code
+              >
+              <details class="output">
+                <summary>Show output</summary>
+                <pre><code>SELECT Format(tblOrders.OrderDate, &#39;yyyy-mm&#39;) AS SalesMonth, tblCustomers.CustomerName, Sum(tblOrders.Quantity * tblProducts.UnitPrice) AS Total
+FROM (tblOrders INNER JOIN tblCustomers ON tblOrders.CustomerID = tblCustomers.CustomerID) INNER JOIN tblProducts ON tblOrders.ProductID = tblProducts.ProductID
+GROUP BY Format(tblOrders.OrderDate, &#39;yyyy-mm&#39;), tblCustomers.CustomerName
+ORDER BY Format(tblOrders.OrderDate, &#39;yyyy-mm&#39;), tblCustomers.CustomerName;</code></pre>
+              </details>
+            </li>
+            <li class="read">
+              <h3><span class="num">05</span>VBA</h3>
+              <p>
+                Extracts the source code of standard modules, class modules, and
+                form modules.
+              </p>
+              <code class="cmd"
+                >jetdb vba show jetdb-sample.accdb modBilling</code
+              >
+              <details class="output">
+                <summary>Show output</summary>
+                <pre><code>Attribute VB_Name = &quot;modBilling&quot;
+Option Compare Database
+Option Explicit
+
+Public Const TAX_RATE As Double = 0.1
+
+&#39; Returns the amount of one order line, tax included.
+Public Function LineTotal(ByVal Quantity As Long, ByVal unitPrice As Currency) As Currency
+    LineTotal = Quantity * unitPrice * (1 + TAX_RATE)
+End Function
+
+&#39; Returns the amount of an order, tax included, or 0 if there is no such order.
+Public Function OrderTotal(ByVal OrderID As Long) As Currency
+    Dim rs As DAO.Recordset
+    Set rs = CurrentDb.OpenRecordset( _
+        &quot;SELECT o.Quantity, p.UnitPrice FROM tblOrders AS o INNER JOIN tblProducts AS p &quot; &amp; _
+…</code></pre>
+              </details>
+            </li>
+            <li class="read">
+              <h3><span class="num">06</span>Macros</h3>
+              <p>
+                Shows named macros, embedded macros in forms and reports, and
+                data macros on tables, as SaveAsText text.
+              </p>
+              <code class="cmd"
+                >jetdb macro show jetdb-sample.accdb mcrOpenOrders</code
+              >
+              <details class="output">
+                <summary>Show output</summary>
+                <pre><code>Version =196611
+PublishOption =1
+ColumnsShown =0
+Begin
+    Comment =&quot;_AXL:&lt;?xml version=&#39;1.0&#39; encoding=&#39;UTF-16&#39; standalone=&#39;no&#39;?&gt;&lt;UserInterfaceMacro &quot;
+        &quot;xmlns=&#39;http://schemas.microsoft.com/office/accessservices/2009/11/application&#39;&gt;&lt;&quot;
+        &quot;Statements&gt;&lt;Action Name=&#39;OpenForm&#39;&gt;&lt;Argument &quot;
+End
+Begin
+    Comment =&quot;_AXL:Name=&#39;FormName&#39;&gt;frmOrders&lt;/Argument&gt;&lt;/Action&gt;&lt;Action Name=&#39;MessageBox&#39;&gt;&lt;Arg&quot;
+        &quot;ument Name=&#39;Message&#39;&gt;Showing the orders.&lt;/Argument&gt;&lt;Argument Name=&#39;Type&#39;&gt;Informa&quot;
+        &quot;tion&lt;/Argument&gt;&lt;Argument Name=&#39;Title&#39;&gt;Sales&lt;/&quot;
+End
+Begin
+    Comment =&quot;_AXL:Argument&gt;&lt;/Action&gt;&lt;/Statements&gt;&lt;/UserInterfaceMacro&gt;&quot;
+End</code></pre>
+              </details>
+            </li>
+            <li class="read">
+              <h3><span class="num">07</span>Forms and reports</h3>
+              <p>
+                Shows the properties of forms and reports, and of their
+                controls.
+              </p>
+              <code class="cmd"
+                >jetdb form props jetdb-sample.accdb frmOrders</code
+              >
+              <details class="output">
+                <summary>Show output</summary>
+                <pre><code>Form: frmOrders
+
+  Form Properties:
+    …
+    RecordSource  tblOrders
+    Caption       Orders
+    …
+
+  …
+
+  Control: txtQuantity (TextBox)
+    Name           txtQuantity
+    ControlSource  Quantity
+    StatusBarText  Number of units
+    0x0178         {dcda3ded-1a23-4514-a941-330580135978}
+    0x0000         -1
+
+  …
+
+  Control: btnShowTotal (CommandButton)
+    Name     btnShowTotal
+    Caption  Show total
+    OnClick  [Event Procedure]
+    0x0178   {7b9ce7cf-e676-4e99-9adb-0fbee36e25b7}
+    0x0000   -1</code></pre>
+              </details>
+            </li>
+            <li class="read">
+              <h3><span class="num">08</span>Properties</h3>
+              <p>Shows the properties of objects such as tables and queries.</p>
+              <code class="cmd">jetdb prop jetdb-sample.accdb tblProducts</code>
+              <details class="output">
+                <summary>Show output</summary>
+                <pre><code>Object: tblProducts
+
+  Column: ProductName
+    Required  yes
+
+  Table Properties:
+    Description  &quot;Products for sale&quot;
+
+  Column: UnitPrice
+    Description  &quot;Price per unit, tax excluded&quot;
+
+  Column: Discontinued
+    Description  &quot;No longer sold&quot;</code></pre>
+              </details>
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="section" id="compare" aria-labelledby="compare-title">
+        <div class="container">
+          <h2 id="compare-title">Compared with other tools</h2>
+          <div
+            class="table-wrap"
+            tabindex="0"
+            role="region"
+            aria-labelledby="compare-title"
+          >
+            <table class="compare">
+              <thead>
+                <tr>
+                  <th scope="col">
+                    <span class="visually-hidden">Feature</span>
+                  </th>
+                  <th scope="col" class="me">
+                    jetdb<span class="ver">0.4.0</span>
+                  </th>
+                  <th scope="col">
+                    MDB Tools<span class="ver"
+                      ><a
+                        href="https://github.com/mdbtools/mdbtools/releases/tag/v1.0.1"
+                        >1.0.1</a
+                      ></span
+                    >
+                  </th>
+                  <th scope="col">
+                    Jackcess<span class="ver"
+                      ><a
+                        href="https://central.sonatype.com/artifact/com.healthmarketscience.jackcess/jackcess/5.0.3"
+                        >5.0.3</a
+                      >
+                      /
+                      <a
+                        href="https://github.com/spannm/jackcess/releases/tag/jackcess-5.1.7"
+                        >fork 5.1.7</a
+                      ></span
+                    >
+                  </th>
+                  <th scope="col">
+                    mdb-reader<span class="ver"
+                      ><a
+                        href="https://www.npmjs.com/package/mdb-reader/v/3.2.0"
+                        >3.2.0</a
+                      ></span
+                    >
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row">Language</th>
+                  <td class="me">Rust</td>
+                  <td>C</td>
+                  <td>Java</td>
+                  <td>TypeScript</td>
+                </tr>
+                <tr>
+                  <th scope="row">License</th>
+                  <td class="me">MIT OR Apache-2.0</td>
+                  <td>LGPL / GPL</td>
+                  <td>Apache-2.0</td>
+                  <td>MIT</td>
+                </tr>
+                <tr>
+                  <th scope="row">Both .mdb and .accdb</th>
+                  <td class="me">○</td>
+                  <td>○</td>
+                  <td>○</td>
+                  <td>○</td>
+                </tr>
+                <tr>
+                  <th scope="row">VBA extraction</th>
+                  <td class="me">○</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                </tr>
+                <tr>
+                  <th scope="row">Named macros</th>
+                  <td class="me">○</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                </tr>
+                <tr>
+                  <th scope="row">Embedded macros (forms/reports)</th>
+                  <td class="me">○</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                </tr>
+                <tr>
+                  <th scope="row">Data macros (tables)</th>
+                  <td class="me">○</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                </tr>
+                <tr>
+                  <th scope="row">Form/report definitions</th>
+                  <td class="me">○</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                </tr>
+                <tr>
+                  <th scope="row">Query SQL</th>
+                  <td class="me">○</td>
+                  <td>△</td>
+                  <td>○</td>
+                  <td>×</td>
+                </tr>
+                <tr>
+                  <th scope="row">DDL generation</th>
+                  <td class="me">○</td>
+                  <td>○</td>
+                  <td>×</td>
+                  <td>×</td>
+                </tr>
+                <tr>
+                  <th scope="row">Attachment contents</th>
+                  <td class="me">○</td>
+                  <td>×</td>
+                  <td>○</td>
+                  <td>○</td>
+                </tr>
+                <tr>
+                  <th scope="row">Password-protected .accdb</th>
+                  <td class="me">○</td>
+                  <td>×</td>
+                  <td>△</td>
+                  <td>△</td>
+                </tr>
+                <tr>
+                  <th scope="row">CLI</th>
+                  <td class="me">○</td>
+                  <td>○</td>
+                  <td>×</td>
+                  <td>×</td>
+                </tr>
+                <tr>
+                  <th scope="row">Runs in the browser</th>
+                  <td class="me">○</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>○</td>
+                </tr>
+                <tr>
+                  <th scope="row">Writing</th>
+                  <td class="me">×</td>
+                  <td>△</td>
+                  <td>○</td>
+                  <td>×</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="note">
+            ○ Supported　△ Partial or conditional　× Not supported
+          </p>
+          <p class="note">
+            ○ means usable with Access 2000 and later. Exceptions that apply
+            only to Access 97 are in the notes.
+          </p>
+          <ul class="note notes">
+            <li>
+              MDB Tools reconstructs only SELECT queries (no JOIN or GROUP BY).
+            </li>
+            <li>
+              Jackcess opens password-protected .accdb files with the separate
+              Jackcess Encrypt library. For the items in this table, the
+              original Jackcess and the fork give the same results.
+            </li>
+            <li>
+              The MDB Tools library is LGPL-2.0 or later, and its CLI is GPL-2.0
+              or later.
+            </li>
+            <li>
+              mdb-reader does not support Standard AES encryption for
+              password-protected .accdb files.
+            </li>
+            <li>jetdb cannot read Access 97 form/report definitions.</li>
+            <li>
+              MDB Tools can only add and update rows, through its library API.
+            </li>
+            <li>
+              Jackcess writes to Access 2000 and later; Access 97 files are
+              read-only.
+            </li>
+          </ul>
+          <p class="full-compare-link">
+            <a href="/compare/">See the full comparison</a>
+          </p>
+          <p class="note survey-date">
+            Surveyed on 2026-10-11 (the latest release of each tool)
+          </p>
+        </div>
+      </section>
+
+      <section class="section section-alt" aria-labelledby="ai-title">
+        <div class="container">
+          <h2 id="ai-title">Ready to hand to AI agents</h2>
+          <p class="section-lead">
+            Install the jetdb Skill, and AI agents can read Access files with
+            jetdb. Ask “I want to move this .accdb to PostgreSQL”, and the agent
+            reads everything from the table definitions to the queries, VBA, and
+            forms, and works through the migration.
+          </p>
+          <div class="skill-install">
+            <div class="skill-way">
+              <h3>Claude Code</h3>
+              <p>Install it from the Plugin Marketplace.</p>
+              <div class="cmd-block">
+                <pre><code>/plugin marketplace add dominion525/agent-skills
+/plugin install jetdb-cli@dominion525-skills</code></pre>
+                <button class="copy-btn" type="button" hidden>Copy</button>
+              </div>
+            </div>
+            <div class="skill-way">
+              <h3>Other agents</h3>
+              <p>
+                Install it with the skills CLI. It supports Codex, Cursor,
+                OpenCode, and more, and you choose where to install it when you
+                run it.
+              </p>
+              <div class="cmd-block">
+                <pre><code>npx skills add dominion525/agent-skills --skill jetdb-cli</code></pre>
+                <button class="copy-btn" type="button" hidden>Copy</button>
+              </div>
+            </div>
+          </div>
+          <h3 class="sub-title">Even without the Skill, the CLI suits AI</h3>
+          <ul class="ai-facts">
+            <li>
+              <strong>Plain text output</strong>: CSV, SQL, VBA source, and so
+              on, in forms that are easy to read and process.
+            </li>
+            <li>
+              <strong>Stable ordering</strong>: Lists are sorted by name. The
+              same file always gives the same result.
+            </li>
+            <li>
+              <strong>Empty is not an error</strong>: When there are no tables
+              or queries, it exits successfully with empty output. Errors go to
+              standard error as a single line starting with <code>jetdb:</code>.
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="browser-title">
+        <div class="container split">
+          <div>
+            <h2 id="browser-title">Runs in the browser, too</h2>
+            <p class="section-lead">
+              With the WebAssembly build (the npm package
+              <code>jetdb-wasm</code>), browsers and Node.js can read the same
+              things as the CLI: tables, queries, VBA, macros, forms,
+              properties, and DDL, including password-protected files. Files
+              never leave the browser.
+            </p>
+          </div>
+          <div class="split-action">
+            <a class="btn btn-outline" href="/demo/">Open the demo</a>
+          </div>
+        </div>
+      </section>
+
+      <section
+        class="section section-alt install"
+        id="install"
+        aria-labelledby="install-title"
+      >
+        <div class="container">
+          <h2 id="install-title">Install</h2>
+          <h3 class="install-sub" id="install-cli-title">Install the CLI</h3>
+          <div class="tabs" role="tablist" aria-labelledby="install-cli-title">
+            <button
+              class="tab"
+              type="button"
+              role="tab"
+              id="tab-binary"
+              aria-controls="panel-binary"
+              aria-selected="true"
+            >
+              Prebuilt binaries
+            </button>
+            <button
+              class="tab"
+              type="button"
+              role="tab"
+              id="tab-brew"
+              aria-controls="panel-brew"
+              aria-selected="false"
+            >
+              Homebrew
+            </button>
+            <button
+              class="tab"
+              type="button"
+              role="tab"
+              id="tab-cargo"
+              aria-controls="panel-cargo"
+              aria-selected="false"
+            >
+              cargo
+            </button>
+          </div>
+
+          <div
+            class="panel"
+            role="tabpanel"
+            id="panel-binary"
+            aria-labelledby="tab-binary"
+            tabindex="0"
+          >
+            <h3 class="panel-title">Prebuilt binaries</h3>
+            <p>
+              Download the file for your platform from GitHub Releases and
+              extract it.
+            </p>
+            <ul class="downloads">
+              <li>
+                <a
+                  href="https://github.com/dominion525/jetdb/releases/latest/download/jetdb-aarch64-apple-darwin.tar.gz"
+                  >macOS (Apple Silicon)</a
+                >
+              </li>
+              <li>
+                <a
+                  href="https://github.com/dominion525/jetdb/releases/latest/download/jetdb-x86_64-apple-darwin.tar.gz"
+                  >macOS (Intel)</a
+                >
+              </li>
+              <li>
+                <a
+                  href="https://github.com/dominion525/jetdb/releases/latest/download/jetdb-x86_64-unknown-linux-gnu.tar.gz"
+                  >Linux (x86_64)</a
+                >
+              </li>
+              <li>
+                <a
+                  href="https://github.com/dominion525/jetdb/releases/latest/download/jetdb-x86_64-pc-windows-msvc.zip"
+                  >Windows (x86_64)</a
+                >
+              </li>
+            </ul>
+            <p class="note">
+              <a href="https://github.com/dominion525/jetdb/releases/latest"
+                >All releases</a
+              >
+            </p>
+          </div>
+
+          <div
+            class="panel"
+            role="tabpanel"
+            id="panel-brew"
+            aria-labelledby="tab-brew"
+            tabindex="0"
+          >
+            <h3 class="panel-title">
+              Homebrew <span class="dummy-badge">Placeholder</span>
+            </h3>
+            <div class="cmd-block dummy">
+              <pre><code>brew install dominion525/tap/jetdb</code></pre>
+              <button class="copy-btn" type="button" hidden>Copy</button>
+            </div>
+          </div>
+
+          <div
+            class="panel"
+            role="tabpanel"
+            id="panel-cargo"
+            aria-labelledby="tab-cargo"
+            tabindex="0"
+          >
+            <h3 class="panel-title">cargo</h3>
+            <p>If you have Rust installed, install it from crates.io.</p>
+            <div class="cmd-block">
+              <pre><code>cargo install jetdb-cli</code></pre>
+              <button class="copy-btn" type="button" hidden>Copy</button>
+            </div>
+          </div>
+
+          <h3 class="install-sub" id="install-lib-title">
+            Use it as a library
+          </h3>
+          <div class="lib-ways">
+            <div class="lib-way">
+              <h4>Rust</h4>
+              <p>
+                Add it from crates.io. See the
+                <a
+                  href="https://github.com/dominion525/jetdb/blob/main/docs/lib.md"
+                  >library documentation</a
+                >
+                and <a href="https://docs.rs/jetdb">docs.rs</a> for how to use
+                it.
+              </p>
+              <div class="cmd-block">
+                <pre><code>cargo add jetdb</code></pre>
+                <button class="copy-btn" type="button" hidden>Copy</button>
+              </div>
+            </div>
+            <div class="lib-way">
+              <h4>
+                JavaScript (browser / Node.js)<span class="dummy-badge"
+                  >Placeholder</span
+                >
+              </h4>
+              <p>Install the WebAssembly build from npm.</p>
+              <div class="cmd-block dummy">
+                <pre><code>npm install jetdb-wasm</code></pre>
+                <button class="copy-btn" type="button" hidden>Copy</button>
+              </div>
+            </div>
+          </div>
+
+          <p class="copy-status visually-hidden" role="status"></p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container footer-inner">
+        <div>
+          <a class="logo" href="/"
+            ><img src="/assets/logo.svg" alt="jetdb" width="67" height="24"
+          /></a>
+          <p class="footer-license">MIT OR Apache-2.0</p>
+        </div>
+        <ul class="footer-links">
+          <li><a href="https://github.com/dominion525/jetdb">GitHub</a></li>
+          <li>
+            <a href="https://github.com/dominion525/jetdb/blob/main/docs/cli.md"
+              >CLI documentation</a
+            >
+          </li>
+          <li><a href="https://crates.io/crates/jetdb-cli">crates.io</a></li>
+          <li>
+            <a href="https://docs.rs/jetdb">Rust library (docs.rs)</a>
+          </li>
+          <li>
+            <a
+              href="https://github.com/dominion525/jetdb/blob/main/README.md#acknowledgments"
+              >Acknowledgments</a
+            >
+          </li>
+        </ul>
+        <p class="footer-tm">
+          Microsoft Access is a trademark of Microsoft Corporation. jetdb is a
+          personal project not affiliated with Microsoft.
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>
