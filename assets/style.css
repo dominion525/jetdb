@@ -872,9 +872,11 @@ pre {
   font-size: 0.9375rem;
 }
 
+/* jetdb | リンク | 作者 の 3 列。狭い幅では 1 列に積み重ねる（下の @media） */
 .footer-inner {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: auto 1fr auto;
+  align-items: start;
   gap: 24px 48px;
 }
 
@@ -902,6 +904,73 @@ pre {
   grid-column: 1 / -1;
   margin: 0;
   font-size: 0.8125rem;
+}
+
+/* 作者（familiar と blip のフッターと同じ中身）。左にアバター、右に名前とその下のアイコン */
+.footer-author {
+  display: grid;
+  grid-template-columns: auto auto;
+  justify-content: start;
+  align-items: center;
+  column-gap: 12px;
+  row-gap: 2px;
+}
+
+.footer-author-avatar {
+  grid-row: 1 / 3;
+}
+
+.footer-author-avatar img {
+  display: block;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+}
+
+.footer-author-name {
+  color: var(--hero-text);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+/* アイコンは押せる範囲（34px）の真ん中にあるので、左端を名前の左端に揃えるために左へずらす */
+.footer-social {
+  display: flex;
+  gap: 2px;
+  margin-left: -7px;
+}
+
+.footer-social a {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+}
+
+.footer-social a:hover {
+  background: var(--hero-border);
+}
+
+.footer-social img {
+  display: block;
+  width: 20px;
+  height: 20px;
+}
+
+/* 一番下の 1 行: 左に商標の一文、右に © */
+.footer-bottom {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 24px;
+  margin: 0;
+  font-size: 0.8125rem;
+}
+
+.footer-copyright {
+  margin-left: auto;
 }
 
 /* レイアウトが切り替わる幅 */
