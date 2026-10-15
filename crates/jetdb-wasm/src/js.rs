@@ -1,21 +1,21 @@
 //! The JavaScript interface: thin `wasm-bindgen` wrappers over [`crate::Database`].
 
 use jetdb::format::ObjectType;
-use jetdb::{FormObjectType, MacroSource, MacroStatement, MacroXmlElement};
+use jetdb::{FormObjectType, MacroSource, MacroStatement, MacroXmlElement, RowPosition};
 use js_sys::{Array, ArrayBuffer, BigInt, Object, Reflect, Symbol, Uint8Array};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 
 use crate::{
-    error_code, form_type_name, Cell, Column, Database, FormProperty, Index, Macro,
-    PropertiesError, Property, PropertyGroup, Relationship,
+    error_code, form_type_name, number_position, position_number, Cell, Column, Database,
+    FormProperty, Index, Macro, PropertiesError, Property, PropertyGroup, Relationship,
 };
 
 // Types for the TypeScript declarations. Version, Column, Index, Relationship,
 // Query, Module, Form, FormProperties, Macro, ObjectProperties and Rows are used
 // through unchecked_return_type, and DdlDialect through unchecked_param_type.
 // TablesOptions, RelationshipsOptions, QueriesOptions, MacrosOptions,
-// FormOptions, PropertiesOptions and DdlOptions are extern types rather than
+// FormOptions, PropertiesOptions, DdlOptions and RowsOptions are extern types rather than
 // unchecked_param_type, which would make the parameter required.
 #[wasm_bindgen(typescript_custom_section)]
 const TYPES: &str = r#"
@@ -389,6 +389,14 @@ export interface ColumnVersion {
 /** A row, keyed by the column names. */
 export type Row = Record<string, Value>;
 
+/** The options of `Database.rows`, to read the rows a part at a time. */
+export interface RowsOptions {
+    /** Where to start: the `next` of the call before; the first row when absent. */
+    start?: number;
+    /** The most rows to give, a positive integer; all the rows when absent. */
+    limit?: number;
+}
+
 /** The rows of a table, as `Database.rows` returns them. */
 export interface Rows {
     /**
@@ -401,6 +409,12 @@ export interface Rows {
     rows: Row[];
     /** The number of rows that could not be read and were left out. */
     skipped: number;
+    /**
+     * Where the rows after these start, to give as the `start` option of the
+     * next call, or null when there are no more rows. It is a position in the
+     * file, not a count of rows.
+     */
+    next: number | null;
 }
 
 /**
@@ -460,6 +474,9 @@ extern "C" {
 
     #[wasm_bindgen(typescript_type = "DdlOptions")]
     pub type DdlOptions;
+
+    #[wasm_bindgen(typescript_type = "RowsOptions")]
+    pub type RowsOptions;
 
     #[wasm_bindgen(js_namespace = console, js_name = error)]
     fn console_error(message: &str);
@@ -807,15 +824,43 @@ impl JsDatabase {
     /// The names of the columns, in the order of the table, and the rows of
     /// a table, each an object keyed by the column names, with the columns
     /// that `columns` returns, and the number of rows that could not be read
-    /// and were left out.
+    /// and were left out. With the limit option, at most that many rows, and
+    /// next, where the start option of the next call reads on from.
     #[wasm_bindgen(unchecked_return_type = "Rows")]
     pub fn rows(
         &mut self,
         #[wasm_bindgen(unchecked_param_type = "string")] table: JsValue,
+        options: Option<RowsOptions>,
     ) -> Result<Object, JsValue> {
+        let table = string_arg(&table, "table")?;
+        let options = options.as_deref();
+        let start = match option_value(options, "start")? {
+            None => RowPosition::default(),
+            Some(value) => value.as_f64().and_then(number_position).ok_or_else(|| {
+                jetdb_error(
+                    "INVALID_ARGUMENT",
+                    "option start must be the next of an earlier call",
+                )
+            })?,
+        };
+        let limit = match option_value(options, "limit")? {
+            None => None,
+            Some(value) => Some(
+                value
+                    .as_f64()
+                    .filter(|n| *n >= 1.0 && n.fract() == 0.0)
+                    .map(|n| n as usize)
+                    .ok_or_else(|| {
+                        jetdb_error(
+                            "INVALID_ARGUMENT",
+                            "option limit must be a positive integer",
+                        )
+                    })?,
+            ),
+        };
         let rows = self
             .inner
-            .rows(&string_arg(&table, "table")?)
+            .rows_from(&table, start, limit)
             .map_err(to_js_error)?;
         let names: Vec<JsValue> = rows.columns.iter().map(|c| JsValue::from_str(c)).collect();
         let objects: Array = rows
@@ -836,6 +881,12 @@ impl JsDatabase {
         set(&object, "columns", names.iter().collect::<Array>().into());
         set(&object, "rows", objects.into());
         set(&object, "skipped", (rows.skipped as f64).into());
+        set(
+            &object,
+            "next",
+            rows.next
+                .map_or(JsValue::NULL, |p| position_number(p).into()),
+        );
         Ok(object)
     }
 }
