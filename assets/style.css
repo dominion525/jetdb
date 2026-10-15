@@ -809,7 +809,6 @@ pre {
 /* デモのページ */
 
 .demo {
-  max-width: 680px;
   margin-top: 32px;
   padding: 24px;
   background: var(--surface);
@@ -927,6 +926,99 @@ pre {
 
 .demo-counts strong {
   color: var(--text);
+}
+
+/* ビューア: 左にオブジェクトの一覧、右に選んだものの中身 */
+.viewer {
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) minmax(0, 1fr);
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.viewer-nav,
+.viewer-detail {
+  min-width: 0;
+  padding: 16px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.viewer-system {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.viewer-group {
+  margin-top: 8px;
+}
+
+.viewer-group summary {
+  padding: 4px 0;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.viewer-group ul {
+  margin: 0;
+  padding: 0 0 0 12px;
+  list-style: none;
+}
+
+.viewer-item {
+  display: block;
+  width: 100%;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.9375rem;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.viewer-item:hover {
+  background: var(--surface);
+}
+
+.viewer-item[aria-current="true"] {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+
+.viewer-error {
+  margin: 4px 0 0 12px;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+/* ページの .section h2 より強くする */
+.section .viewer-title {
+  margin: 0;
+  font-size: 1.375rem;
+  line-height: 1.4;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.viewer-type {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+
+@media (max-width: 720px) {
+  .viewer {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* フッター */

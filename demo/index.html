@@ -79,7 +79,7 @@
           </ul>
           <p class="note dummy-note">
             <span class="dummy-badge">Preview</span>This page is being built.
-            For now it shows a summary of the file.
+            For now it lists the objects; their contents come next.
           </p>
 
           <div class="demo">
@@ -119,6 +119,20 @@
                 <dd id="demo-version"></dd>
               </dl>
               <ul class="demo-counts" id="demo-counts"></ul>
+              <div class="viewer">
+                <nav class="viewer-nav" aria-label="Objects in the database">
+                  <label class="viewer-system">
+                    <input type="checkbox" id="demo-system" />
+                    Show system objects
+                  </label>
+                  <div id="demo-nav"></div>
+                </nav>
+                <section
+                  class="viewer-detail"
+                  id="demo-detail"
+                  aria-live="polite"
+                ></section>
+              </div>
             </div>
           </div>
           <noscript><p class="note">This demo needs JavaScript.</p></noscript>
