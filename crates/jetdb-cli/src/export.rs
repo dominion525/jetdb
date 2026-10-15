@@ -1,10 +1,14 @@
+use std::fs;
 use std::io::{self, BufWriter, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Args, ValueEnum};
 use jetdb::timestamp;
-use jetdb::{find_table, read_catalog, read_table_def, read_table_rows, PageReader, Value};
+use jetdb::{
+    find_table, read_catalog, read_complex_values, read_table_def, read_table_rows, ComplexValues,
+    PageReader, Value,
+};
 
 // ---------------------------------------------------------------------------
 // CLI definition
@@ -53,6 +57,11 @@ pub struct ExportArgs {
     /// Include the columns Access maintains and hides
     #[arg(short = 's', long = "system-columns")]
     pub system_columns: bool,
+
+    /// Write the files of attachment columns to DIR/<number>/<file name>,
+    /// giving their paths under DIR in the fields
+    #[arg(long = "attachments", value_name = "DIR")]
+    pub attachments: Option<PathBuf>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
@@ -150,6 +159,91 @@ pub fn format_value(value: &Value, opts: &FormatOptions) -> String {
     }
 }
 
+/// A value as text, without the quotes of a CSV field: one of the values
+/// [`complex_field`] joins.
+fn plain_value(value: &Value, opts: &FormatOptions) -> String {
+    match value {
+        Value::Null => String::new(),
+        Value::Text(s) | Value::Guid(s) | Value::DateTimeExtended(s) => s.clone(),
+        Value::Binary(data) => format_binary(data, opts.bin_mode),
+        other => format_value(other, opts),
+    }
+}
+
+/// `items` joined by `;` as one quoted field, as Access exports the values
+/// of a multivalued field, or an empty field for no items.
+fn joined_field(items: &[String], opts: &FormatOptions) -> String {
+    if items.is_empty() {
+        String::new()
+    } else {
+        csv_escape(&items.join(";"), opts.delimiter, true)
+    }
+}
+
+/// `name` made safe to use as a file name in a directory: `/`, `\` and NUL
+/// become `_`, and an empty name, `.` or `..` becomes `_`.
+fn safe_file_name(name: &str) -> String {
+    let name: String = name
+        .chars()
+        .map(|c| {
+            if matches!(c, '/' | '\\' | '\0') {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    match name.as_str() {
+        "" | "." | ".." => "_".to_string(),
+        _ => name,
+    }
+}
+
+/// The field of the complex column that holds `number` in a row, with the
+/// values of the column taken out of `values`: the values for multiple
+/// values, and the file names for attachments, written to `dir` and given
+/// as their paths under it when there is one. `None` for the version history
+/// and kinds jetdb does not know, which keep the number.
+fn complex_field(
+    values: &mut ComplexValues,
+    number: i32,
+    opts: &FormatOptions,
+    dir: Option<&Path>,
+) -> io::Result<Option<String>> {
+    match values {
+        ComplexValues::MultiValue(m) => {
+            let items: Vec<String> = m
+                .remove(&number)
+                .unwrap_or_default()
+                .iter()
+                .map(|v| plain_value(v, opts))
+                .collect();
+            Ok(Some(joined_field(&items, opts)))
+        }
+        ComplexValues::Attachment(m) => {
+            let mut items = Vec::new();
+            for file in m.remove(&number).unwrap_or_default() {
+                let name = safe_file_name(&plain_value(&file.name, opts));
+                match (dir, &file.data) {
+                    (Some(dir), Value::Binary(data)) => {
+                        let folder = dir.join(number.to_string());
+                        fs::create_dir_all(&folder)?;
+                        fs::write(folder.join(&name), data)?;
+                        items.push(format!("{number}/{name}"));
+                    }
+                    (Some(_), _) => {
+                        log::warn!("the content of attachment {name} could not be read");
+                        items.push(name);
+                    }
+                    (None, _) => items.push(name),
+                }
+            }
+            Ok(Some(joined_field(&items, opts)))
+        }
+        ComplexValues::VersionHistory(_) | ComplexValues::Unknown { .. } => Ok(None),
+    }
+}
+
 /// Format binary data according to the selected mode.
 pub fn format_binary(data: &[u8], mode: BinMode) -> String {
     match mode {
@@ -234,12 +328,23 @@ fn run_export(args: &ExportArgs, password: Option<&str>) -> Result<(), jetdb::Fi
     }
 
     // Data rows
+    let mut complex = col_indices
+        .iter()
+        .map(|&i| read_complex_values(&mut reader, &catalog, &tdef, &tdef.columns[i]))
+        .collect::<Result<Vec<_>, _>>()?;
     let result = read_table_rows(&mut reader, &tdef)?;
     for row in &result.rows {
-        let fields: Vec<String> = col_indices
-            .iter()
-            .map(|&i| format_value(&row[i], &opts))
-            .collect();
+        let mut fields = Vec::with_capacity(col_indices.len());
+        for (&i, values) in col_indices.iter().zip(&mut complex) {
+            let field = match (values, &row[i]) {
+                (Some(values), Value::Long(n)) => {
+                    complex_field(values, *n, &opts, args.attachments.as_deref())
+                        .map_err(jetdb::FileError::Io)?
+                }
+                _ => None,
+            };
+            fields.push(field.unwrap_or_else(|| format_value(&row[i], &opts)));
+        }
         writeln!(out, "{}", fields.join(&delim_str)).map_err(jetdb::FileError::Io)?;
     }
 
@@ -512,6 +617,31 @@ mod tests {
         let mut opts = default_opts();
         opts.bin_mode = BinMode::Raw;
         assert_eq!(format_value(&Value::Binary(vec![]), &opts), "");
+    }
+
+    #[test]
+    fn joined_field_quotes_the_values() {
+        let opts = default_opts();
+        let items = ["a".to_string(), "b, c".to_string()];
+        assert_eq!(joined_field(&items, &opts), "\"a;b, c\"");
+        assert_eq!(joined_field(&[], &opts), "");
+    }
+
+    #[test]
+    fn plain_value_has_no_quotes() {
+        let opts = default_opts();
+        assert_eq!(plain_value(&Value::Text("a\"b".into()), &opts), "a\"b");
+        assert_eq!(plain_value(&Value::Long(3), &opts), "3");
+        assert_eq!(plain_value(&Value::Null, &opts), "");
+    }
+
+    #[test]
+    fn safe_file_name_stays_in_its_directory() {
+        assert_eq!(safe_file_name("a.txt"), "a.txt");
+        assert_eq!(safe_file_name("../a/b\\c.txt"), ".._a_b_c.txt");
+        assert_eq!(safe_file_name(".."), "_");
+        assert_eq!(safe_file_name("."), "_");
+        assert_eq!(safe_file_name(""), "_");
     }
 
     #[test]
