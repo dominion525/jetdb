@@ -284,6 +284,15 @@ impl From<Value> for Cell {
     }
 }
 
+/// The cell of `value`, with `values` the values of its column if it is a
+/// complex column.
+fn cell(value: Value, values: Option<&mut ComplexValues>) -> Cell {
+    match (values, value) {
+        (Some(values), Value::Long(n)) => complex_cell(values, n).unwrap_or(Cell::Number(n.into())),
+        (_, value) => value.into(),
+    }
+}
+
 /// The values of the row whose complex column holds `number`, taken out of
 /// `values`, as each number is in one row only; `None` for a kind jetdb
 /// does not know, whose number stays.
@@ -467,13 +476,7 @@ impl Database {
                         .iter()
                         .zip(&mut complex)
                         .map(|(&i, values)| {
-                            let value = std::mem::replace(&mut row[i], Value::Null);
-                            match (values, value) {
-                                (Some(values), Value::Long(n)) => {
-                                    complex_cell(values, n).unwrap_or_else(|| Value::Long(n).into())
-                                }
-                                (_, value) => value.into(),
-                            }
+                            cell(std::mem::replace(&mut row[i], Value::Null), values.as_mut())
                         })
                         .collect()
                 })

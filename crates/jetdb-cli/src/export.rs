@@ -244,6 +244,21 @@ fn complex_field(
     }
 }
 
+/// The field of `value`, with `values` the values of its column if it is a
+/// complex column (see [`complex_field`]).
+fn field(
+    value: &Value,
+    values: Option<&mut ComplexValues>,
+    opts: &FormatOptions,
+    dir: Option<&Path>,
+) -> io::Result<String> {
+    let complex = match (values, value) {
+        (Some(values), Value::Long(n)) => complex_field(values, *n, opts, dir)?,
+        _ => None,
+    };
+    Ok(complex.unwrap_or_else(|| format_value(value, opts)))
+}
+
 /// Format binary data according to the selected mode.
 pub fn format_binary(data: &[u8], mode: BinMode) -> String {
     match mode {
@@ -334,17 +349,12 @@ fn run_export(args: &ExportArgs, password: Option<&str>) -> Result<(), jetdb::Fi
         .collect::<Result<Vec<_>, _>>()?;
     let result = read_table_rows(&mut reader, &tdef)?;
     for row in &result.rows {
-        let mut fields = Vec::with_capacity(col_indices.len());
-        for (&i, values) in col_indices.iter().zip(&mut complex) {
-            let field = match (values, &row[i]) {
-                (Some(values), Value::Long(n)) => {
-                    complex_field(values, *n, &opts, args.attachments.as_deref())
-                        .map_err(jetdb::FileError::Io)?
-                }
-                _ => None,
-            };
-            fields.push(field.unwrap_or_else(|| format_value(&row[i], &opts)));
-        }
+        let fields: Vec<String> = col_indices
+            .iter()
+            .zip(&mut complex)
+            .map(|(&i, values)| field(&row[i], values.as_mut(), &opts, args.attachments.as_deref()))
+            .collect::<io::Result<_>>()
+            .map_err(jetdb::FileError::Io)?;
         writeln!(out, "{}", fields.join(&delim_str)).map_err(jetdb::FileError::Io)?;
     }
 

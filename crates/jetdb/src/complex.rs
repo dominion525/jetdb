@@ -178,31 +178,7 @@ fn values_of_kind(
         }
     }
     if is_attachment_type(&types) {
-        let column = |name| flat.value_column_named(name);
-        let [name, file_type, data, url, timestamp, flags] = [
-            "FileName",
-            "FileType",
-            "FileData",
-            "FileURL",
-            "FileTimeStamp",
-            "FileFlags",
-        ]
-        .map(column);
-        let field =
-            |row: &mut Vec<Value>, i: Option<usize>| i.map_or(Value::Null, |i| take(row, i));
-        return ComplexValues::Attachment(map_rows(rows, |row| Attachment {
-            name: field(row, name),
-            file_type: field(row, file_type),
-            data: match field(row, data) {
-                Value::Binary(stored) => {
-                    decode_attachment(&stored).map_or(Value::Null, Value::Binary)
-                }
-                _ => Value::Null,
-            },
-            url: field(row, url),
-            timestamp: field(row, timestamp),
-            flags: field(row, flags),
-        }));
+        return ComplexValues::Attachment(attachments(flat, rows));
     }
     let memo = flat.value_column_of_type(ColumnType::Memo);
     let timestamp = flat.value_column_of_type(ColumnType::Timestamp);
@@ -215,6 +191,34 @@ fn values_of_kind(
     ComplexValues::Unknown {
         type_table: type_def.name,
     }
+}
+
+/// The rows of the flat table of an attachment column as files.
+fn attachments(
+    flat: &FlatTable,
+    rows: BTreeMap<i32, Vec<Vec<Value>>>,
+) -> BTreeMap<i32, Vec<Attachment>> {
+    let [name, file_type, data, url, timestamp, flags] = [
+        "FileName",
+        "FileType",
+        "FileData",
+        "FileURL",
+        "FileTimeStamp",
+        "FileFlags",
+    ]
+    .map(|name| flat.value_column_named(name));
+    let field = |row: &mut Vec<Value>, i: Option<usize>| i.map_or(Value::Null, |i| take(row, i));
+    map_rows(rows, |row| Attachment {
+        name: field(row, name),
+        file_type: field(row, file_type),
+        data: match field(row, data) {
+            Value::Binary(stored) => decode_attachment(&stored).map_or(Value::Null, Value::Binary),
+            _ => Value::Null,
+        },
+        url: field(row, url),
+        timestamp: field(row, timestamp),
+        flags: field(row, flags),
+    })
 }
 
 /// The content of a file as Access stores it in `FileData`: a 32-bit flag
