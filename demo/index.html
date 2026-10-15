@@ -66,21 +66,48 @@
           <p class="back-link"><a href="/">Back to the main page</a></p>
           <h1 class="page-title">Demo in the browser</h1>
           <p class="section-lead">
-            Choose an Access file (.mdb / .accdb), and jetdb (the WebAssembly
-            build) opens it inside your browser and lists its tables. Files are
-            never sent outside the browser.
+            jetdb (the WebAssembly build) opens an Access database (.mdb /
+            .accdb) inside your browser and shows what is in it. A sample
+            database is open to start with; you can open your own file too.
           </p>
+          <ul class="note demo-privacy">
+            <li>The sample is loaded from this site.</li>
+            <li>
+              A file you open yourself stays in your browser. It is never
+              uploaded.
+            </li>
+          </ul>
           <p class="note dummy-note">
-            <span class="dummy-badge">Preview</span>For now, this page only
-            lists the tables, to check that it works. It cannot open
-            password-protected files.
+            <span class="dummy-badge">Preview</span>This page is being built.
+            For now it shows a summary of the file.
           </p>
 
           <div class="demo">
-            <label class="demo-file">
-              <span>Choose a file</span>
-              <input type="file" id="demo-file" accept=".mdb,.accdb" disabled />
-            </label>
+            <div class="demo-source">
+              <p class="demo-current">
+                Viewing <strong id="demo-current">—</strong>
+              </p>
+              <label class="demo-file">
+                <span>Open your own file</span>
+                <input
+                  type="file"
+                  id="demo-file"
+                  accept=".mdb,.accdb"
+                  disabled
+                />
+              </label>
+            </div>
+            <form class="demo-password" id="demo-password" hidden>
+              <label>
+                <span>Password</span>
+                <input
+                  type="password"
+                  id="demo-password-input"
+                  autocomplete="off"
+                />
+              </label>
+              <button class="btn btn-outline" type="submit">Open</button>
+            </form>
             <p class="demo-status" id="demo-status" role="status">
               Loading jetdb…
             </p>
@@ -90,10 +117,8 @@
                 <dd id="demo-name"></dd>
                 <dt>Engine version</dt>
                 <dd id="demo-version"></dd>
-                <dt>Tables</dt>
-                <dd id="demo-count"></dd>
               </dl>
-              <ul class="demo-tables" id="demo-tables"></ul>
+              <ul class="demo-counts" id="demo-counts"></ul>
             </div>
           </div>
           <noscript><p class="note">This demo needs JavaScript.</p></noscript>

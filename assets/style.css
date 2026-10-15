@@ -853,14 +853,80 @@ pre {
   font-weight: 600;
 }
 
-.demo-tables {
+/* サンプルはサイトから、利用者のファイルはブラウザの中だけ、の 2 行 */
+.demo-privacy {
+  margin: 12px 0 0;
+  padding-left: 1.25em;
+}
+
+/* 今見ているファイルと、別のファイルを開く欄 */
+.demo-source {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.demo-current {
   margin: 0;
-  padding: 12px 16px 12px 2em;
+  color: var(--muted);
+}
+
+.demo-current strong {
+  color: var(--text);
+}
+
+/* パスワードが要るファイルを開いたときだけ出す */
+.demo-password {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px 12px;
+  margin-top: 16px;
+}
+
+.demo-password[hidden] {
+  display: none;
+}
+
+.demo-password label {
+  display: grid;
+  gap: 4px;
+  font-weight: 600;
+}
+
+.demo-password input {
+  min-height: 44px;
+  padding: 0 12px;
+  font: inherit;
+  font-weight: 400;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+
+/* 種類ごとの数 */
+.demo-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.demo-counts li {
+  padding: 6px 12px;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  font-family: var(--font-mono);
-  font-size: 0.875rem;
+  color: var(--muted);
+}
+
+.demo-counts strong {
+  color: var(--text);
 }
 
 /* フッター */

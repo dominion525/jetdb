@@ -1,75 +1,110 @@
-// デモのページ: 選んだファイルをブラウザの中の jetdb（WebAssembly 版）で開き、
-// エンジンの版とテーブルの一覧を出す。ファイルはブラウザの外に送らない。
+// デモのページ: jetdb（WebAssembly 版）でデータベースを開き、中身を見せる。
+// 最初はサイトに置いたサンプルを開く。利用者が選んだファイルはブラウザの外に送らない。
 import init, { Database } from "/assets/wasm/jetdb_wasm.js";
 
-const MESSAGES = {
-  ja: {
-    loading: "jetdb を読み込んでいます…",
-    ready: "ファイルを選んでください。",
-    initFailed: "jetdb を読み込めませんでした: ",
-    opening: "開いています…",
-    opened: "開きました。",
-    openFailed: "開けませんでした: ",
-    noTables: "テーブルはありません。",
-  },
-  en: {
-    loading: "Loading jetdb…",
-    ready: "Choose a file.",
-    initFailed: "Could not load jetdb: ",
-    opening: "Opening…",
-    opened: "Opened.",
-    openFailed: "Could not open the file: ",
-    noTables: "There are no tables.",
-  },
-};
+const SAMPLE_URL = "/assets/jetdb-sample.accdb";
+const SAMPLE_NAME = "jetdb-sample.accdb";
 
-const lang = document.documentElement.lang.startsWith("ja") ? "ja" : "en";
-const t = MESSAGES[lang];
 const $ = (id) => document.getElementById(id);
-
 const input = $("demo-file");
 const status = $("demo-status");
 const result = $("demo-result");
+const passwordForm = $("demo-password");
+const passwordInput = $("demo-password-input");
+
+// 今開いているデータベースと、パスワードを待っているファイル
+let db = null;
+let pending = null;
+
+// 開けたら、前のデータベースを解放して差し替える。パスワードが要るときは欄を出す
+function open(bytes, label, name, password) {
+  let next;
+  try {
+    next = Database.open(bytes, password);
+  } catch (e) {
+    if (e.code === "PASSWORD_REQUIRED" || e.code === "INVALID_PASSWORD") {
+      pending = { bytes, label, name };
+      passwordForm.hidden = false;
+      passwordInput.value = "";
+      passwordInput.focus();
+      status.textContent =
+        e.code === "PASSWORD_REQUIRED"
+          ? `${name} is password-protected. Enter its password.`
+          : "The password is wrong. Try again.";
+      return;
+    }
+    status.textContent = `Could not open ${name}: ${e.message}`;
+    return;
+  }
+  pending = null;
+  passwordForm.hidden = true;
+  db?.free();
+  db = next;
+  $("demo-current").textContent = label;
+  showSummary(name);
+  status.textContent = "";
+}
+
+// 種類ごとの数。読めなかった種類は — にする
+function count(read) {
+  try {
+    return read();
+  } catch {
+    return null;
+  }
+}
+
+function showSummary(name) {
+  $("demo-name").textContent = name;
+  $("demo-version").textContent = db.version();
+  const counts = [
+    ["table", "tables", () => db.tables().length],
+    ["query", "queries", () => db.queries().length],
+    ["form", "forms", () => db.forms().filter((f) => f.type === "Form").length],
+    [
+      "report",
+      "reports",
+      () => db.forms().filter((f) => f.type === "Report").length,
+    ],
+    ["macro", "macros", () => db.macros().length],
+    ["module", "modules", () => db.modules().length],
+    ["relationship", "relationships", () => db.relationships().length],
+  ];
+  $("demo-counts").replaceChildren(
+    ...counts.map(([one, many, read]) => {
+      const n = count(read);
+      const li = document.createElement("li");
+      const value = document.createElement("strong");
+      value.textContent = n === null ? "—" : String(n);
+      li.append(value, ` ${n === 1 ? one : many}`);
+      return li;
+    }),
+  );
+  result.hidden = false;
+}
 
 try {
   await init();
   input.disabled = false;
-  status.textContent = t.ready;
+  status.textContent = "Opening the sample…";
+  const response = await fetch(SAMPLE_URL);
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  open(bytes, `Sample: ${SAMPLE_NAME}`, SAMPLE_NAME, null);
 } catch (e) {
-  status.textContent = t.initFailed + e.message;
+  status.textContent = `Could not load the demo: ${e.message}`;
 }
 
 input.addEventListener("change", async () => {
   const file = input.files[0];
   if (!file) return;
-  result.hidden = true;
-  status.textContent = t.opening;
-  try {
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    const db = Database.open(bytes);
-    // 読み取りに失敗しても、Wasm のメモリにあるファイルの写しを解放する
-    try {
-      const tables = db.tables();
-      $("demo-name").textContent = file.name;
-      $("demo-version").textContent = db.version();
-      $("demo-count").textContent = String(tables.length);
-      const items = tables.map((name) => {
-        const li = document.createElement("li");
-        li.textContent = name;
-        return li;
-      });
-      if (items.length === 0) {
-        const li = document.createElement("li");
-        li.textContent = t.noTables;
-        items.push(li);
-      }
-      $("demo-tables").replaceChildren(...items);
-    } finally {
-      db.free();
-    }
-    result.hidden = false;
-    status.textContent = t.opened;
-  } catch (e) {
-    status.textContent = t.openFailed + e.message;
-  }
+  status.textContent = `Opening ${file.name}…`;
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  open(bytes, file.name, file.name, null);
+});
+
+passwordForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (!pending) return;
+  open(pending.bytes, pending.label, pending.name, passwordInput.value);
 });
