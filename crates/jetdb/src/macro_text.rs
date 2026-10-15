@@ -45,16 +45,32 @@ pub fn data_macros_to_text(macros: &[MacroDef]) -> String {
             .unwrap_or(DATA_MACRO_EVENTS.len()),
         _ => DATA_MACRO_EVENTS.len() + 1,
     };
-    let mut ordered: Vec<&MacroDef> = macros.iter().collect();
-    ordered.sort_by_key(|def| rank(def));
+    // A document may hold several data macros, each read as a MacroDef whose
+    // xml is the whole document: the n-th of the macros sharing a document is
+    // its n-th DataMacro element.
+    let mut seen: Vec<(&str, usize)> = Vec::new();
+    let mut ordered: Vec<(&MacroDef, usize)> = Vec::new();
+    for def in macros {
+        let index = match seen.iter_mut().find(|(xml, _)| *xml == def.xml) {
+            Some((_, count)) => {
+                *count += 1;
+                *count - 1
+            }
+            None => {
+                seen.push((&def.xml, 1));
+                0
+            }
+        };
+        ordered.push((def, index));
+    }
+    ordered.sort_by_key(|(def, _)| rank(def));
 
     let mut namespace = None;
     let mut body = String::new();
-    for def in ordered {
-        let Some(start) = def.xml.find("<DataMacro") else {
+    for (def, index) in ordered {
+        let Some(element) = data_macro_elements(&def.xml).into_iter().nth(index) else {
             continue;
         };
-        let element = &def.xml[start..];
         let tag_end = element.find('>').unwrap_or(element.len());
         match find_attribute(&element[..tag_end], " xmlns=\"") {
             Some((from, to)) => {
@@ -62,7 +78,17 @@ pub fn data_macros_to_text(macros: &[MacroDef]) -> String {
                 body.push_str(&element[..from]);
                 body.push_str(&element[to..]);
             }
-            None => body.push_str(element),
+            None => {
+                // In a DataMacros document, the namespace is on DataMacros.
+                if let Some(root) = def.xml.find("<DataMacros") {
+                    let root_tag = &def.xml[root..];
+                    let root_end = root_tag.find('>').unwrap_or(root_tag.len());
+                    if let Some((from, to)) = find_attribute(&root_tag[..root_end], " xmlns=\"") {
+                        namespace.get_or_insert_with(|| root_tag[from..to].to_string());
+                    }
+                }
+                body.push_str(element);
+            }
         }
     }
     match namespace {
@@ -72,6 +98,35 @@ pub fn data_macros_to_text(macros: &[MacroDef]) -> String {
             namespace.unwrap_or_default()
         ),
     }
+}
+
+/// The `DataMacro` elements of a data macro document, in document order:
+/// the root element, or the children of a `DataMacros` root. A `DataMacro`
+/// element does not hold another, so each runs to the first `</DataMacro>`
+/// after it, or ends its own tag with `/>`.
+fn data_macro_elements(xml: &str) -> Vec<&str> {
+    let mut elements = Vec::new();
+    let mut from = 0;
+    while let Some(found) = xml[from..].find("<DataMacro") {
+        let start = from + found;
+        let after = start + "<DataMacro".len();
+        // Not DataMacros.
+        if !matches!(xml.as_bytes().get(after), Some(b' ' | b'>' | b'/')) {
+            from = after;
+            continue;
+        }
+        let tag_end = xml[start..].find('>').map_or(xml.len(), |i| start + i + 1);
+        let end = if xml[start..tag_end].ends_with("/>") {
+            tag_end
+        } else {
+            xml[tag_end..]
+                .find("</DataMacro>")
+                .map_or(xml.len(), |i| tag_end + i + "</DataMacro>".len())
+        };
+        elements.push(&xml[start..end]);
+        from = end;
+    }
+    elements
 }
 
 /// The byte range of the attribute starting with `prefix` (such as
@@ -463,6 +518,35 @@ mod tests {
     #[test]
     fn data_macros_to_text_without_macros_is_empty() {
         assert_eq!(data_macros_to_text(&[]), "");
+    }
+
+    #[test]
+    fn data_macros_of_one_data_macros_document_are_written_once() {
+        // A table may keep its data macros in one DataMacros document, which
+        // read_data_macros returns as one MacroDef for each, all with the whole
+        // document as their xml. Each is written once, the named one after the
+        // table event, under the namespace of DataMacros.
+        let xml = r#"<?xml version="1.0"?><DataMacros xmlns="ns"><DataMacro Name="dmNamed"><Statements><Action Name="B"/></Statements></DataMacro><DataMacro Event="AfterInsert"><Statements><Action Name="A"/></Statements></DataMacro></DataMacros>"#;
+        let data = |event: Option<&str>, name: Option<&str>| MacroDef {
+            source: MacroSource::Data {
+                table: "t".to_string(),
+                event: event.map(str::to_string),
+                name: name.map(str::to_string),
+                parameters: Vec::new(),
+            },
+            statements: Vec::new(),
+            xml: xml.to_string(),
+            grid: None,
+        };
+        let macros = [data(None, Some("dmNamed")), data(Some("AfterInsert"), None)];
+        assert_eq!(
+            data_macros_to_text(&macros),
+            "<?xml version=\"1.0\" encoding=\"UTF-16\" standalone=\"no\"?>\r\n\
+             <DataMacros xmlns=\"ns\">\
+             <DataMacro Event=\"AfterInsert\"><Statements><Action Name=\"A\"/></Statements></DataMacro>\
+             <DataMacro Name=\"dmNamed\"><Statements><Action Name=\"B\"/></Statements></DataMacro>\
+             </DataMacros>"
+        );
     }
 
     #[test]
