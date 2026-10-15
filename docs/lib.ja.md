@@ -185,6 +185,36 @@ fn main() -> Result<(), jetdb::FileError> {
 }
 ```
 
+## コンプレックスカラム
+
+コンプレックスカラム（Access 2007 以降の複数値、添付ファイル、追加のみの長いテキストの版の履歴）は、各行に番号を持ちます。[`read_table_rows`] はこの番号を `Value::Long` として返します。[`read_complex_values`] は、そうした列 1 つの中身を、この番号ごとにまとめて読みます。中身が無い番号は、マップに入りません。jetdb は添付ファイルを読まず、その列は `ComplexValues::Unknown` になります。
+
+```rust,no_run
+use jetdb::{
+    find_table, read_catalog, read_complex_values, read_table_def, read_table_rows,
+    ComplexValues, PageReader, Value,
+};
+
+fn main() -> Result<(), jetdb::FileError> {
+    let mut reader = PageReader::open("database.accdb")?;
+    let catalog = read_catalog(&mut reader)?;
+    let entry = find_table(&catalog, "Products")?;
+    let table = read_table_def(&mut reader, &entry.name, entry.table_page)?;
+    let i = table.columns.iter().position(|c| c.name == "Tags").expect("column not found");
+    let Some(ComplexValues::MultiValue(tags)) =
+        read_complex_values(&mut reader, &catalog, &table, &table.columns[i])?
+    else {
+        return Ok(());
+    };
+    for row in read_table_rows(&mut reader, &table)?.rows {
+        if let Value::Long(n) = row[i] {
+            println!("{:?}", tags.get(&n).map(Vec::as_slice).unwrap_or_default());
+        }
+    }
+    Ok(())
+}
+```
+
 ## VBA ソースコード
 
 [`read_vba_project`] で VBA モジュールのソースコードを抽出できます。

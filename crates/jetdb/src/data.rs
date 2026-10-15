@@ -1579,6 +1579,7 @@ mod tests {
             precision: 0,
             is_calculated: false,
             display_index: 0,
+            complex_id: None,
         };
         assert_eq!(read_fixed_value(&cracked, &col, false), Value::Int(-42));
     }
@@ -1605,6 +1606,7 @@ mod tests {
             precision: 0,
             is_calculated: false,
             display_index: 0,
+            complex_id: None,
         };
         assert_eq!(read_fixed_value(&cracked, &col, false), Value::Long(123456));
     }
@@ -1636,6 +1638,7 @@ mod tests {
             precision: 0,
             is_calculated: false,
             display_index: 0,
+            complex_id: None,
         };
         assert_eq!(
             read_fixed_value(&cracked, &col, false),
@@ -2111,6 +2114,7 @@ mod tests {
             precision: 0,
             is_calculated: false,
             display_index: 0,
+            complex_id: None,
         };
         assert_eq!(
             read_column_value(&cracked, &bool_col, false, &mut reader, &HashMap::new()),
@@ -2159,6 +2163,7 @@ mod tests {
             precision: 0,
             is_calculated: false,
             display_index: 0,
+            complex_id: None,
         };
         assert_eq!(
             read_column_value(&cracked, &col, false, &mut reader, &HashMap::new()),
@@ -2191,6 +2196,7 @@ mod tests {
             precision: 0,
             is_calculated: false,
             display_index: 0,
+            complex_id: None,
         };
         assert_eq!(
             read_column_value(&cracked, &col, false, &mut reader, &HashMap::new()),
@@ -2489,6 +2495,7 @@ mod tests {
             precision: 0,
             is_calculated: false,
             display_index: 0,
+            complex_id: None,
         }
     }
 

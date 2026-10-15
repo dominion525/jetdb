@@ -526,6 +526,7 @@ mod tests {
             scale,
             is_calculated: false,
             display_index: 0,
+            complex_id: None,
         }
     }
 
@@ -551,6 +552,7 @@ mod tests {
             scale,
             is_calculated: false,
             display_index: col_num,
+            complex_id: None,
         }
     }
 
