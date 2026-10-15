@@ -930,6 +930,13 @@ fn parse_xml_tree(xml: &str) -> Result<MacroXmlElement, FileError> {
                     top.text.push_str(&text);
                 }
             }
+            // A CDATA section is text as it is, without references to resolve.
+            Ok(Event::CData(t)) => {
+                let text = t.xml_content(quick_xml::XmlVersion::Explicit1_0);
+                if let Some(top) = stack.last_mut() {
+                    top.text.push_str(&text);
+                }
+            }
             // Entity and character references (`&lt;`, `&#60;`) arrive as
             // separate events rather than inside the surrounding text.
             Ok(Event::GeneralRef(r)) => {
@@ -1283,6 +1290,20 @@ mod tests {
         assert_eq!(
             statements(xml),
             [action("X", &[("Description", " negative qty")])]
+        );
+    }
+
+    #[test]
+    fn cdata_is_text() {
+        // A CDATA section, alone or next to text and references, is part of
+        // the text of its element, with < and & as they are.
+        let xml = r#"<UserInterfaceMacro xmlns="ns"><Statements><Action Name="X"><Argument Name="Description"><![CDATA[negative qty]]></Argument><Argument Name="Where">[a] <![CDATA[< 1 & ]]>&lt; 2</Argument></Action></Statements></UserInterfaceMacro>"#;
+        assert_eq!(
+            statements(xml),
+            [action(
+                "X",
+                &[("Description", "negative qty"), ("Where", "[a] < 1 & < 2")]
+            )]
         );
     }
 
