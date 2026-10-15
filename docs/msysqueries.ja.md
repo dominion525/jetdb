@@ -73,7 +73,7 @@ Access データベース (.mdb/.accdb) における保存済みクエリの格�
 
 埋め込みクエリは ATTR_TYPE（Attribute=1）行を持たないことが多い。典型的な構成は Attribute=0（ヘッダー）、3（FLAG）、5（TABLE）、255（終端）のみ。
 
-IKP データベースでの実測値:
+実際に使われているデータベースでの実測値:
 
   全クエリ数（MSysObjects の Query エントリ）: 227
   ATTR_TYPE を持つクエリ: 43（全てユーザー定義クエリ）

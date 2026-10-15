@@ -101,7 +101,7 @@ Example controls included:
 
 ### Type Code (TypeInfo type_code) Mapping
 
-Based on a comprehensive survey of all controls across 81 forms/reports in the IKP database.
+Based on a comprehensive survey of all controls across 81 forms/reports in a database in real use.
 
 Form controls:
 
@@ -147,7 +147,7 @@ Report controls:
 
 Note: Form and report controls have a paired structure (e.g., 0x0C64 Label <-> 0x1B64 Label).
 Note: 0x1EFF is not a real control but internal metadata. No corresponding entry exists in the SaveAsText (COM-based) control listing. These entries store Caption or ControlSource values, or control names from related objects (e.g., reports).
-Note: Counts are aggregated from all controls across 81 forms/reports in the IKP database.
+Note: Counts are aggregated from all controls across 81 forms/reports in a database in real use.
 
 ## Blob (Design Body)
 
