@@ -333,7 +333,6 @@ pre {
 .reads {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  align-items: start;
   gap: 16px;
   margin: 0;
   padding: 0;
