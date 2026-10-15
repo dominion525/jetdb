@@ -311,6 +311,24 @@ impl From<Value> for Cell {
     }
 }
 
+/// The cells of the columns at the indexes in `shown` of a row whose values
+/// are `values`, with `columns` their complex columns.
+fn row_cells(
+    reader: &mut PageReader,
+    mut values: Vec<Value>,
+    shown: &[usize],
+    columns: &[Option<&ComplexColumn>],
+) -> Result<Vec<Cell>, FileError> {
+    shown
+        .iter()
+        .zip(columns)
+        .map(|(&i, column)| {
+            let value = std::mem::replace(&mut values[i], Value::Null);
+            cell(reader, value, *column)
+        })
+        .collect()
+}
+
 /// The cell of `value`, with `column` its column if it is a complex column:
 /// the values of the row for a kind jetdb knows, and the number otherwise.
 fn cell(
@@ -489,24 +507,14 @@ impl Database {
         let shown: Vec<usize> = (0..tdef.columns.len())
             .filter(|&i| tdef.columns[i].is_shown(system_table))
             .collect();
-        self.catalog()?;
+        self.read_complex_columns(&tdef, &shown)?;
         let Self {
             reader,
             catalog,
             complex,
             ..
         } = self;
-        let catalog = catalog.as_deref().expect("the catalog was just read");
-        for &i in &shown {
-            if let Entry::Vacant(entry) = complex.entry((tdef.name.clone(), i)) {
-                entry.insert(read_complex_column(
-                    reader,
-                    catalog,
-                    &tdef,
-                    &tdef.columns[i],
-                )?);
-            }
-        }
+        let catalog = catalog.as_deref().expect("the catalog was read");
         let columns: Vec<Option<&ComplexColumn>> = shown
             .iter()
             .map(|&i| complex[&(tdef.name.clone(), i)].as_ref())
@@ -517,18 +525,10 @@ impl Database {
             .starting_at(start);
         let mut rows = Vec::new();
         while limit.is_none_or(|limit| rows.len() < limit) {
-            let Some(mut row) = table_rows.next_row(reader)? else {
+            let Some(row) = table_rows.next_row(reader)? else {
                 break;
             };
-            let cells = shown
-                .iter()
-                .zip(&columns)
-                .map(|(&i, column)| {
-                    let value = std::mem::replace(&mut row.values[i], Value::Null);
-                    cell(reader, value, *column)
-                })
-                .collect::<Result<_, _>>()?;
-            rows.push(cells);
+            rows.push(row_cells(reader, row.values, &shown, &columns)?);
         }
         let next = table_rows.peek(reader)?;
         Ok(Rows {
@@ -540,6 +540,34 @@ impl Database {
             skipped: table_rows.skipped_rows(),
             next,
         })
+    }
+
+    /// Read where the values of the complex columns among the columns of
+    /// `table` at the indexes in `columns` are, for those not read yet.
+    fn read_complex_columns(
+        &mut self,
+        table: &TableDef,
+        columns: &[usize],
+    ) -> Result<(), FileError> {
+        self.catalog()?;
+        let Self {
+            reader,
+            catalog,
+            complex,
+            ..
+        } = self;
+        let catalog = catalog.as_deref().expect("the catalog was just read");
+        for &i in columns {
+            if let Entry::Vacant(entry) = complex.entry((table.name.clone(), i)) {
+                entry.insert(read_complex_column(
+                    reader,
+                    catalog,
+                    table,
+                    &table.columns[i],
+                )?);
+            }
+        }
+        Ok(())
     }
 
     /// The relationships between tables, sorted by name: without those of

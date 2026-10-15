@@ -373,21 +373,9 @@ fn row_at(
     is_jet3: bool,
     has_var_cols: bool,
 ) -> RowAt {
-    // Validate page type (Data = 1)
-    if data.is_empty() || data[0] != 0x01 {
+    let Some(row_ptr) = row_pointer(format, data, row) else {
         return RowAt::EndOfPage;
-    }
-    let row_count_pos = format.data_row_count_pos;
-    if data.len() < row_count_pos + 2 {
-        return RowAt::EndOfPage;
-    }
-    let num_rows = u16::from_le_bytes([data[row_count_pos], data[row_count_pos + 1]]);
-    // Read the raw row pointer to check flags before find_row
-    let entry_pos = row_count_pos + 2 + (row as usize) * 2;
-    if row >= num_rows || entry_pos + 2 > data.len() {
-        return RowAt::EndOfPage;
-    }
-    let row_ptr = u16::from_le_bytes([data[entry_pos], data[entry_pos + 1]]);
+    };
     // Skip deleted rows
     if row_ptr & row::DELETE_FLAG != 0 {
         return RowAt::Gone;
@@ -414,6 +402,23 @@ fn row_at(
         return RowAt::Unreadable;
     }
     RowAt::Row { start, size }
+}
+
+/// The raw pointer of row `row` of the data page whose bytes are `data`,
+/// with its flags; `None` if it is not a data page or has no such row.
+fn row_pointer(format: &crate::format::JetFormat, data: &[u8], row: u16) -> Option<u16> {
+    // Validate page type (Data = 1)
+    if data.first() != Some(&0x01) {
+        return None;
+    }
+    let row_count_pos = format.data_row_count_pos;
+    let count = data.get(row_count_pos..row_count_pos + 2)?;
+    if row >= u16::from_le_bytes([count[0], count[1]]) {
+        return None;
+    }
+    let entry_pos = row_count_pos + 2 + (row as usize) * 2;
+    let entry = data.get(entry_pos..entry_pos + 2)?;
+    Some(u16::from_le_bytes([entry[0], entry[1]]))
 }
 
 /// The values of row `row` of the data page `page_num`, whose bytes are
@@ -1917,6 +1922,72 @@ mod tests {
         files
     }
 
+    /// The rows of `table` read one at a time, each with the position after
+    /// it, and the number of rows passed over.
+    fn rows_one_at_a_time(
+        reader: &mut PageReader,
+        table: &TableDef,
+        calculated: &HashMap<String, ColumnType>,
+    ) -> (Vec<(TableRow, RowPosition)>, usize) {
+        let mut rows = TableRows::new(table, calculated);
+        let mut read = Vec::new();
+        while let Some(row) = rows.next_row(reader).unwrap() {
+            read.push((row, rows.position()));
+        }
+        assert_eq!(rows.peek(reader).unwrap(), None);
+        (read, rows.skipped_rows())
+    }
+
+    /// Starting again after the first, middle and next to last rows gives
+    /// the rows after them.
+    fn assert_continues(
+        reader: &mut PageReader,
+        table: &TableDef,
+        calculated: &HashMap<String, ColumnType>,
+        read: &[(TableRow, RowPosition)],
+        context: &str,
+    ) {
+        for k in [0, read.len() / 2, read.len().saturating_sub(2)] {
+            let Some((_, after)) = read.get(k) else {
+                continue;
+            };
+            let mut rest = TableRows::new(table, calculated).starting_at(*after);
+            let mut got = Vec::new();
+            while let Some(row) = rest.next_row(reader).unwrap() {
+                got.push(row);
+            }
+            let expected: Vec<TableRow> = read[k + 1..].iter().map(|(r, _)| r.clone()).collect();
+            assert_eq!(got, expected, "{context} after row {k}");
+        }
+    }
+
+    /// Reading every other column gives their values and Null for the others.
+    fn assert_chosen_columns(
+        reader: &mut PageReader,
+        table: &TableDef,
+        calculated: &HashMap<String, ColumnType>,
+        read: &[(TableRow, RowPosition)],
+        context: &str,
+    ) {
+        let columns: Vec<usize> = (0..table.columns.len()).step_by(2).collect();
+        let mut some = TableRows::new(table, calculated).with_columns(&columns);
+        for (row, _) in read {
+            let got = some.next_row(reader).unwrap().unwrap();
+            assert_eq!(got.position, row.position, "{context}");
+            let expected: Vec<Value> = (0..row.values.len())
+                .map(|i| {
+                    if columns.contains(&i) {
+                        row.values[i].clone()
+                    } else {
+                        Value::Null
+                    }
+                })
+                .collect();
+            assert_eq!(got.values, expected, "{context} {:?}", row.position);
+        }
+        assert!(some.next_row(reader).unwrap().is_none(), "{context}");
+    }
+
     #[test]
     fn table_rows_in_every_table_of_the_test_data() {
         // For each table: reading the rows one at a time gives what
@@ -1945,32 +2016,11 @@ mod tests {
                         .unwrap();
                 let calculated = calculated_column_types_in(&catalog, &table);
                 let all = read_table_rows_with(&mut reader, &table, &calculated).unwrap();
-
-                let mut rows = TableRows::new(&table, &calculated);
-                let mut read: Vec<(TableRow, RowPosition)> = Vec::new();
-                while let Some(row) = rows.next_row(&mut reader).unwrap() {
-                    read.push((row, rows.position()));
-                }
+                let (read, skipped) = rows_one_at_a_time(&mut reader, &table, &calculated);
                 let values: Vec<&Vec<Value>> = read.iter().map(|(r, _)| &r.values).collect();
-                let expected: Vec<&Vec<Value>> = all.rows.iter().collect();
-                assert_eq!(values, expected, "{context}");
-                assert_eq!(rows.skipped_rows(), all.skipped_rows, "{context}");
-                assert_eq!(rows.peek(&mut reader).unwrap(), None, "{context}");
-
-                for k in [0, read.len() / 2, read.len().saturating_sub(2)] {
-                    let Some((_, after)) = read.get(k) else {
-                        continue;
-                    };
-                    let mut rest = TableRows::new(&table, &calculated).starting_at(*after);
-                    let mut got = Vec::new();
-                    while let Some(row) = rest.next_row(&mut reader).unwrap() {
-                        got.push(row);
-                    }
-                    let expected: Vec<TableRow> =
-                        read[k + 1..].iter().map(|(r, _)| r.clone()).collect();
-                    assert_eq!(got, expected, "{context} after row {k}");
-                }
-
+                assert_eq!(values, all.rows.iter().collect::<Vec<_>>(), "{context}");
+                assert_eq!(skipped, all.skipped_rows, "{context}");
+                assert_continues(&mut reader, &table, &calculated, &read, &context);
                 for (row, _) in &read {
                     let at =
                         read_row_at(&mut reader, &table, &calculated, row.position, None).unwrap();
@@ -1981,22 +2031,7 @@ mod tests {
                         row.position
                     );
                 }
-
-                let columns: Vec<usize> = (0..table.columns.len()).step_by(2).collect();
-                let mut some = TableRows::new(&table, &calculated).with_columns(&columns);
-                for (row, _) in &read {
-                    let got = some.next_row(&mut reader).unwrap().unwrap();
-                    assert_eq!(got.position, row.position, "{context}");
-                    for (i, value) in got.values.iter().enumerate() {
-                        let expected = if columns.contains(&i) {
-                            &row.values[i]
-                        } else {
-                            &Value::Null
-                        };
-                        assert_eq!(value, expected, "{context} {:?} column {i}", row.position);
-                    }
-                }
-                assert!(some.next_row(&mut reader).unwrap().is_none(), "{context}");
+                assert_chosen_columns(&mut reader, &table, &calculated, &read, &context);
                 tables += 1;
             }
         }

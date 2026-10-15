@@ -834,30 +834,8 @@ impl JsDatabase {
     ) -> Result<Object, JsValue> {
         let table = string_arg(&table, "table")?;
         let options = options.as_deref();
-        let start = match option_value(options, "start")? {
-            None => RowPosition::default(),
-            Some(value) => value.as_f64().and_then(number_position).ok_or_else(|| {
-                jetdb_error(
-                    "INVALID_ARGUMENT",
-                    "option start must be the next of an earlier call",
-                )
-            })?,
-        };
-        let limit = match option_value(options, "limit")? {
-            None => None,
-            Some(value) => Some(
-                value
-                    .as_f64()
-                    .filter(|n| *n >= 1.0 && n.fract() == 0.0)
-                    .map(|n| n as usize)
-                    .ok_or_else(|| {
-                        jetdb_error(
-                            "INVALID_ARGUMENT",
-                            "option limit must be a positive integer",
-                        )
-                    })?,
-            ),
-        };
+        let start = option_start(options)?;
+        let limit = option_limit(options)?;
         let rows = self
             .inner
             .rows_from(&table, start, limit)
@@ -1261,6 +1239,37 @@ fn option_value(options: Option<&JsValue>, name: &str) -> Result<Option<JsValue>
     let value = Reflect::get(options, &JsValue::from_str(name))
         .map_err(|_| jetdb_error("INVALID_ARGUMENT", &format!("cannot read option {name}")))?;
     Ok((!value.is_undefined() && !value.is_null()).then_some(value))
+}
+
+/// Reads the option start of `rows`, a number that `rows` gave as next; the
+/// first row when absent.
+fn option_start(options: Option<&JsValue>) -> Result<RowPosition, JsValue> {
+    let Some(value) = option_value(options, "start")? else {
+        return Ok(RowPosition::default());
+    };
+    value.as_f64().and_then(number_position).ok_or_else(|| {
+        jetdb_error(
+            "INVALID_ARGUMENT",
+            "option start must be the next of an earlier call",
+        )
+    })
+}
+
+/// Reads the option limit of `rows`, a positive integer; no limit when absent.
+fn option_limit(options: Option<&JsValue>) -> Result<Option<usize>, JsValue> {
+    let Some(value) = option_value(options, "limit")? else {
+        return Ok(None);
+    };
+    value
+        .as_f64()
+        .filter(|n| *n >= 1.0 && n.fract() == 0.0)
+        .map(|n| Some(n as usize))
+        .ok_or_else(|| {
+            jetdb_error(
+                "INVALID_ARGUMENT",
+                "option limit must be a positive integer",
+            )
+        })
 }
 
 /// Reads the boolean option `name`, which is `default` when absent.
