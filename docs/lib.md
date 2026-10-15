@@ -188,7 +188,7 @@ fn main() -> Result<(), jetdb::FileError> {
 
 ## Complex Columns
 
-A complex column (multiple values, attachments, or the version history of an append-only Long Text column, in Access 2007 and later) holds a number in each row, which [`read_table_rows`] returns as `Value::Long`. [`read_complex_values`] reads the values of one such column, keyed by that number; a number with no values is not in the map. jetdb does not read attachments, whose columns give `ComplexValues::Unknown`.
+A complex column (multiple values, attachments, or the version history of an append-only Long Text column, in Access 2007 and later) holds a number in each row, which [`read_table_rows`] returns as `Value::Long`. [`read_complex_values`] reads the values of one such column, keyed by that number; a number with no values is not in the map. Attachments come with the content of each file, decompressed.
 
 ```rust,no_run
 use jetdb::{
