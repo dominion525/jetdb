@@ -33,6 +33,98 @@ fn export_basic() {
 }
 
 // ---------------------------------------------------------------------------
+// Complex columns
+// ---------------------------------------------------------------------------
+
+/// The fields of `column` in the export of complexDataTestV2007's Table1,
+/// by the id of each row, with `extra` arguments.
+fn complex_fields(path: &std::path::Path, column: &str, extra: &[&str]) -> Vec<(String, String)> {
+    let output = jetdb_bin()
+        .args(["export", path.to_str().unwrap(), "Table1"])
+        .args(extra)
+        .output()
+        .expect("failed to run jetdb");
+    assert!(
+        output.status.success(),
+        "should succeed, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let mut lines = stdout.lines();
+    let header: Vec<&str> = lines.next().unwrap().split(',').collect();
+    let i = header.iter().position(|c| *c == column).unwrap();
+    // No field of these columns has a comma, so splitting at commas is
+    // enough here.
+    lines
+        .map(|line| {
+            let fields: Vec<&str> = line.split(',').collect();
+            (fields[0].to_string(), fields[i].to_string())
+        })
+        .collect()
+}
+
+#[test]
+fn export_complex_columns() {
+    let path = skip_if_missing!("V2007/complexDataTestV2007.accdb");
+    let fields = |column| complex_fields(&path, column, &[]);
+    let expected = |values: [&str; 4]| -> Vec<(String, String)> {
+        ["row1", "row2", "row3", "row4"]
+            .iter()
+            .zip(values)
+            .map(|(id, v)| (format!("\"{id}\""), v.to_string()))
+            .collect()
+    };
+    // Multiple values joined by ; as Access exports them.
+    assert_eq!(
+        fields("multi-value-data"),
+        expected([
+            "",
+            "\"value1;value4\"",
+            "\"value1;value2;value3;value4\"",
+            ""
+        ])
+    );
+    // The file names of attachments.
+    assert_eq!(
+        fields("attach-data"),
+        expected([
+            "",
+            "\"test_data.txt;test_data2.txt\"",
+            "",
+            "\"test_data2.txt\""
+        ])
+    );
+    // The version history keeps its numbers.
+    assert_eq!(
+        fields("VersionHistory_F5F8918F-0A3F-4DA9-AE71-184EE5012880"),
+        expected(["1", "2", "3", "4"])
+    );
+}
+
+#[test]
+fn export_attachments_to_a_directory() {
+    let path = skip_if_missing!("V2007/complexDataTestV2007.accdb");
+    let dir = std::env::temp_dir().join(format!("jetdb-export-attachments-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let fields = complex_fields(
+        &path,
+        "attach-data",
+        &["--attachments", dir.to_str().unwrap()],
+    );
+    assert_eq!(fields[1].1, "\"2/test_data.txt;2/test_data2.txt\"");
+    assert_eq!(fields[3].1, "\"4/test_data2.txt\"");
+    assert_eq!(
+        std::fs::read_to_string(dir.join("2/test_data.txt")).unwrap(),
+        "this is some test data for attachment."
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.join("4/test_data2.txt")).unwrap(),
+        "this is some more test data for attachment."
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+// ---------------------------------------------------------------------------
 // System tables keep all columns
 // ---------------------------------------------------------------------------
 

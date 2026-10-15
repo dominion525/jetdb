@@ -1,6 +1,7 @@
 #![doc = include_str!("lib_doc.md")]
 
 pub mod catalog;
+pub mod complex;
 pub(crate) mod crypto;
 pub mod data;
 pub mod ddl;
@@ -22,6 +23,7 @@ pub mod timestamp;
 pub mod vba;
 
 pub use catalog::{find_table, read_catalog, table_names, CatalogEntry};
+pub use complex::{read_complex_values, Attachment, ComplexValues, Version};
 pub use file::{find_row, DbHeader, FileError, PageReader};
 pub use format::{
     catalog_flags, column_flags, index_flags, index_type, ColumnType, FormatError, JetFormat,

@@ -90,6 +90,12 @@ pub struct ColumnDef {
     /// [`crate::format::JetFormat::coldef_display_index_pos`]'s doc
     /// comment for how each format's offset was confirmed.
     pub display_index: u16,
+    /// For a complex column (attachments, multiple values, version history),
+    /// the `ComplexID` of its row in MSysComplexColumns, which links it to
+    /// the tables holding its values; read by
+    /// [`read_complex_values`](crate::read_complex_values). `None` for other
+    /// columns.
+    pub complex_id: Option<u32>,
 }
 
 /// A parsed table definition.
@@ -498,6 +504,14 @@ fn parse_column_entries(
         let precision = cursor.u8_at(entry_start + format.coldef_precision_pos)?;
         let is_calculated = !is_jet3
             && (cursor.u8_at(entry_start + COLDEF_EXT_FLAGS_POS)? & CALCULATED_EXT_FLAG_MASK) != 0;
+        // A complex column keeps the ComplexID of its row in
+        // MSysComplexColumns where a numeric column keeps its precision,
+        // scale and sort order.
+        let complex_id = if !is_jet3 && col_type == ColumnType::ComplexType {
+            Some(cursor.u32_le_at(entry_start + COLDEF_COMPLEX_ID_POS)?)
+        } else {
+            None
+        };
         let display_index = cursor
             .u16_le_at(entry_start + format.coldef_display_index_pos)
             .unwrap_or(col_num);
@@ -515,6 +529,7 @@ fn parse_column_entries(
             precision,
             is_calculated,
             display_index,
+            complex_id,
         });
 
         cursor.set_position(entry_start + span);
@@ -522,6 +537,8 @@ fn parse_column_entries(
     Ok(columns)
 }
 
+/// Position of the ComplexID of a complex column within an ACE column entry.
+const COLDEF_COMPLEX_ID_POS: usize = 11;
 /// Position of the extended flags byte within a Jet4/ACE column entry.
 /// Jet3 column entries have no such byte.
 const COLDEF_EXT_FLAGS_POS: usize = 16;
@@ -1009,6 +1026,7 @@ mod tests {
             scale: 0,
             is_calculated: false,
             display_index: 0,
+            complex_id: None,
         };
         let mut tdef = TableDef {
             name: "T".to_string(),
@@ -1045,6 +1063,7 @@ mod tests {
             scale: 0,
             is_calculated: false,
             display_index: 0,
+            complex_id: None,
         };
         assert!(column(ColumnType::Long, column_flags::AUTO_LONG).is_auto_number());
         assert!(column(ColumnType::Guid, column_flags::AUTO_UUID).is_auto_number());
@@ -1114,6 +1133,7 @@ mod tests {
             scale: 0,
             is_calculated: false,
             display_index: 1,
+            complex_id: None,
         };
         assert!(col.is_hidden());
         // The former name gives the same answer.
@@ -1137,6 +1157,7 @@ mod tests {
             scale: 0,
             is_calculated: false,
             display_index: 1,
+            complex_id: None,
         };
         assert!(!col.is_hidden());
     }
@@ -1156,6 +1177,7 @@ mod tests {
             scale: 0,
             is_calculated: false,
             display_index: 0,
+            complex_id: None,
         };
         let hidden = column(column_flags::HIDDEN);
         assert!(!hidden.is_shown(false));

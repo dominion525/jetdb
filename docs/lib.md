@@ -186,6 +186,36 @@ fn main() -> Result<(), jetdb::FileError> {
 }
 ```
 
+## Complex Columns
+
+A complex column (multiple values, attachments, or the version history of an append-only Long Text column, in Access 2007 and later) holds a number in each row, which [`read_table_rows`] returns as `Value::Long`. [`read_complex_values`] reads the values of one such column, keyed by that number; a number with no values is not in the map. Attachments come with the content of each file, decompressed.
+
+```rust,no_run
+use jetdb::{
+    find_table, read_catalog, read_complex_values, read_table_def, read_table_rows,
+    ComplexValues, PageReader, Value,
+};
+
+fn main() -> Result<(), jetdb::FileError> {
+    let mut reader = PageReader::open("database.accdb")?;
+    let catalog = read_catalog(&mut reader)?;
+    let entry = find_table(&catalog, "Products")?;
+    let table = read_table_def(&mut reader, &entry.name, entry.table_page)?;
+    let i = table.columns.iter().position(|c| c.name == "Tags").expect("column not found");
+    let Some(ComplexValues::MultiValue(tags)) =
+        read_complex_values(&mut reader, &catalog, &table, &table.columns[i])?
+    else {
+        return Ok(());
+    };
+    for row in read_table_rows(&mut reader, &table)?.rows {
+        if let Value::Long(n) = row[i] {
+            println!("{:?}", tags.get(&n).map(Vec::as_slice).unwrap_or_default());
+        }
+    }
+    Ok(())
+}
+```
+
 ## VBA Source Code
 
 [`read_vba_project`] extracts VBA module source code.

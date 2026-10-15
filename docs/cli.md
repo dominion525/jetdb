@@ -654,6 +654,17 @@ By default, the columns Access maintains and hides are excluded. System tables, 
 - `-0`, `--null <STRING>` — String to represent NULL values (default: empty string)
 - `-B`, `--boolean-words` — Output booleans as TRUE/FALSE instead of 1/0
 - `-s`, `--system-columns` — Include the columns Access maintains and hides
+- `--attachments <DIR>` — Write the files of attachment columns to `<DIR>/<number>/<file name>`, giving their paths under `<DIR>` in the fields
+
+#### Complex columns
+
+A complex column of Access 2007 and later gives a field by its kind:
+
+- Multiple values: the values joined by `;` in double quotes, as Access exports them (`"value1;value4"`).
+- Attachments: the file names joined by `;` in double quotes. With `--attachments`, the files are written under the directory, and the field gives their paths under it (`"2/test_data.txt;2/test_data2.txt"`). The number is the one the column holds in the row. In a file name, `/` and `\` become `_`.
+- Version history of an append-only Long Text column: the number of its values in a hidden table; the Long Text column itself holds the latest text.
+
+A row with no values gives an empty field.
 
 #### Output examples
 

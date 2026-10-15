@@ -1525,6 +1525,7 @@ mod tests {
             scale: 0,
             is_calculated: false,
             display_index: 0,
+            complex_id: None,
         }
     }
 

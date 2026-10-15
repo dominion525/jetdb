@@ -127,6 +127,35 @@ function checkRows(Database, build) {
   assert.deepEqual(binary.find((row) => row.ID === 1).BinAsc, new Uint8Array([0x61, 0x62]), build);
   assert.equal(binary.find((row) => row.ID === 200).BinAsc, null, build);
 
+  // A complex column gives an array of its values in the row.
+  const complex = Database.open(read("V2007/complexDataTestV2007.accdb")).rows("Table1").rows;
+  const complexRow = (id) => complex.find((row) => row.id === id);
+  assert.deepEqual(complexRow("row1")["multi-value-data"], [], build);
+  assert.deepEqual(complexRow("row2")["multi-value-data"], ["value1", "value4"], build);
+  assert.deepEqual(
+    complexRow("row4")["attach-data"],
+    [
+      {
+        name: "test_data2.txt",
+        type: "txt",
+        data: new TextEncoder().encode("this is some more test data for attachment."),
+        url: null,
+        timestamp: null,
+        flags: null,
+      },
+    ],
+    build,
+  );
+  assert.deepEqual(
+    complexRow("row3")["VersionHistory_F5F8918F-0A3F-4DA9-AE71-184EE5012880"],
+    [
+      { value: "row3-memo", modified: "2011-09-12 21:21:19" },
+      { value: "row3-memo-revised", modified: "2011-09-12 21:22:33" },
+      { value: "row3-memo-again", modified: "2011-09-12 21:22:45" },
+    ],
+    build,
+  );
+
   // 9007199254740993 is 2^53 + 1, which a number cannot hold exactly.
   assert.deepEqual(
     Database.open(read("V2016/bigIntTestV2016.accdb")).rows("BigIntTable").rows,
