@@ -151,83 +151,294 @@ fn read_table_rows_impl(
     table: &TableDef,
     calculated: &HashMap<String, ColumnType>,
 ) -> Result<ReadResult, FileError> {
-    let format = reader.format();
-    let is_jet3 = reader.header().version.is_jet3();
-    // A per-table property, so compute it once rather than per row. See
-    // `crack_row`.
-    let has_var_cols = table.columns.iter().any(|c| !c.is_fixed);
+    let mut table_rows = TableRows::new(table, calculated);
     let mut rows = Vec::new();
-    let mut skipped_rows = 0usize;
+    while let Some(row) = table_rows.next_row(reader)? {
+        rows.push(row.values);
+    }
+    Ok(ReadResult {
+        rows,
+        skipped_rows: table_rows.skipped_rows(),
+    })
+}
 
-    for &page_num in &table.data_pages {
-        let page_data = reader.read_page_copy(page_num)?;
+// ---------------------------------------------------------------------------
+// TableRows — the rows of a table, one at a time
+// ---------------------------------------------------------------------------
 
-        // Validate page type (Data = 1)
-        if page_data.is_empty() || page_data[0] != 0x01 {
-            continue;
-        }
+/// The position of a row of a table: the index of its data page in
+/// [`TableDef::data_pages`] and the index of the row on that page.
+///
+/// The bytes of a file do not change while jetdb reads them, so a position
+/// stays the position of the same row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct RowPosition {
+    /// The index of the page in [`TableDef::data_pages`].
+    pub page: u32,
+    /// The index of the row on the page.
+    pub row: u16,
+}
 
-        let row_count_pos = format.data_row_count_pos;
-        if page_data.len() < row_count_pos + 2 {
-            continue;
-        }
-        let num_rows = u16::from_le_bytes([page_data[row_count_pos], page_data[row_count_pos + 1]]);
+/// A row read by [`TableRows`], with its position.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TableRow {
+    pub position: RowPosition,
+    /// The values in the order of [`TableDef::columns`]; `Null` for the
+    /// columns not read (see [`TableRows::with_columns`]).
+    pub values: Vec<Value>,
+}
 
-        for row_idx in 0..num_rows {
-            // Read the raw row pointer to check flags before find_row
-            let table_start = row_count_pos + 2;
-            let entry_pos = table_start + (row_idx as usize) * 2;
-            if entry_pos + 2 > page_data.len() {
-                break;
-            }
-            let row_ptr = u16::from_le_bytes([page_data[entry_pos], page_data[entry_pos + 1]]);
+/// The rows of a table, read one at a time, as [`read_table_rows`] reads
+/// them all.
+///
+/// The [`PageReader`] is passed to each call rather than kept, so between
+/// rows the same reader can read other things, such as the values of a
+/// complex column ([`crate::read_complex_column`]).
+///
+/// A deleted row, and a stale pointer to a row that was moved to another
+/// page, is passed over. A row that cannot be read is passed over and
+/// counted in [`TableRows::skipped_rows`]. A data page that cannot be read
+/// is an error.
+pub struct TableRows<'a> {
+    table: &'a TableDef,
+    calculated: &'a HashMap<String, ColumnType>,
+    /// For each column, whether its values are read.
+    read: Vec<bool>,
+    /// The position to look at next.
+    next: RowPosition,
+    /// The index and the bytes of the page `next` is on, once read.
+    page: Option<(u32, Vec<u8>)>,
+    skipped: usize,
+}
 
-            // Skip deleted rows
-            if row_ptr & row::DELETE_FLAG != 0 {
-                continue;
-            }
-            // Lookup/overflow rows: the row was relocated to this page from
-            // another page, or this is a stale pointer to a row that was
-            // moved away. If find_row succeeds, the data at the offset is
-            // valid row data to be read normally. Stale entries where
-            // find_row fails are skipped (not counted as errors).
-            let is_lookup = row_ptr & row::LOOKUP_FLAG != 0;
-
-            let (start, size) = match find_row(format, &page_data, page_num, row_idx) {
-                Ok(v) => v,
-                Err(e) => {
-                    if is_lookup {
-                        log::debug!(
-                            "skipping stale lookup row on page {page_num} row {row_idx}: {e}"
-                        );
-                    } else {
-                        log::debug!("skipping row on page {page_num} row {row_idx}: {e}");
-                        skipped_rows += 1;
-                    }
-                    continue;
-                }
-            };
-
-            let row_data = &page_data[start..start + size];
-            let cracked = match crack_row(row_data, is_jet3, has_var_cols) {
-                Ok(c) => c,
-                Err(e) => {
-                    log::debug!("skipping row on page {page_num} row {row_idx}: {e}");
-                    skipped_rows += 1;
-                    continue;
-                }
-            };
-
-            let mut values = Vec::with_capacity(table.columns.len());
-            for col in &table.columns {
-                let val = read_column_value(&cracked, col, is_jet3, reader, calculated);
-                values.push(val);
-            }
-            rows.push(values);
+impl<'a> TableRows<'a> {
+    /// The rows of `table` from its first row, with `calculated` the result
+    /// types of its calculated columns, as [`read_table_rows_with`] takes
+    /// them.
+    pub fn new(table: &'a TableDef, calculated: &'a HashMap<String, ColumnType>) -> Self {
+        Self {
+            table,
+            calculated,
+            read: vec![true; table.columns.len()],
+            next: RowPosition::default(),
+            page: None,
+            skipped: 0,
         }
     }
 
-    Ok(ReadResult { rows, skipped_rows })
+    /// Read only the columns at the indexes in `columns` of
+    /// [`TableDef::columns`]; the others are `Null` and are not read, so
+    /// the long values of Long Text and OLE Object columns not asked for are
+    /// not read from their pages.
+    pub fn with_columns(mut self, columns: &[usize]) -> Self {
+        self.read = (0..self.table.columns.len())
+            .map(|i| columns.contains(&i))
+            .collect();
+        self
+    }
+
+    /// Start at `position`, as [`TableRows::position`] gave it.
+    pub fn starting_at(mut self, position: RowPosition) -> Self {
+        self.next = position;
+        self.page = None;
+        self
+    }
+
+    /// Where the next call continues: the position of the next row, or of
+    /// the rows before it that are passed over.
+    pub fn position(&self) -> RowPosition {
+        self.next
+    }
+
+    /// The number of rows passed over because they could not be read.
+    pub fn skipped_rows(&self) -> usize {
+        self.skipped
+    }
+
+    /// The position of the next row, passing over the rows before it that
+    /// are deleted or cannot be read, without reading its values; `None`
+    /// when there are no more rows.
+    pub fn peek(&mut self, reader: &mut PageReader) -> Result<Option<RowPosition>, FileError> {
+        let is_jet3 = reader.header().version.is_jet3();
+        let has_var_cols = has_var_cols(self.table);
+        loop {
+            let Some(&page_num) = self.table.data_pages.get(self.next.page as usize) else {
+                return Ok(None);
+            };
+            if self.page.as_ref().map(|(i, _)| *i) != Some(self.next.page) {
+                self.page = Some((self.next.page, reader.read_page_copy(page_num)?));
+            }
+            let data = self.page.as_ref().map_or(&[][..], |(_, d)| d.as_slice());
+            let row = self.next.row;
+            match row_at(reader.format(), data, page_num, row, is_jet3, has_var_cols) {
+                RowAt::EndOfPage => {
+                    self.next = RowPosition {
+                        page: self.next.page + 1,
+                        row: 0,
+                    };
+                }
+                RowAt::Gone => self.next.row += 1,
+                RowAt::Unreadable => {
+                    self.skipped += 1;
+                    self.next.row += 1;
+                }
+                RowAt::Row { .. } => return Ok(Some(self.next)),
+            }
+        }
+    }
+
+    /// The next row, or `None` when there are no more rows.
+    pub fn next_row(&mut self, reader: &mut PageReader) -> Result<Option<TableRow>, FileError> {
+        let Some(position) = self.peek(reader)? else {
+            return Ok(None);
+        };
+        let page_num = self.table.data_pages[position.page as usize];
+        let data = self.page.as_ref().map_or(&[][..], |(_, d)| d.as_slice());
+        let values = row_values(
+            reader,
+            data,
+            page_num,
+            position.row,
+            self.table,
+            self.calculated,
+            &self.read,
+        );
+        self.next.row += 1;
+        Ok(values.map(|values| TableRow { position, values }))
+    }
+}
+
+/// The values of the row of `table` at `position`, reading only the columns
+/// at the indexes in `columns` if given, as [`TableRows`] reads them; `None`
+/// if there is no row there or it cannot be read.
+pub fn read_row_at(
+    reader: &mut PageReader,
+    table: &TableDef,
+    calculated: &HashMap<String, ColumnType>,
+    position: RowPosition,
+    columns: Option<&[usize]>,
+) -> Result<Option<Vec<Value>>, FileError> {
+    let Some(&page_num) = table.data_pages.get(position.page as usize) else {
+        return Ok(None);
+    };
+    let data = reader.read_page_copy(page_num)?;
+    let read: Vec<bool> = (0..table.columns.len())
+        .map(|i| columns.is_none_or(|c| c.contains(&i)))
+        .collect();
+    Ok(row_values(
+        reader,
+        &data,
+        page_num,
+        position.row,
+        table,
+        calculated,
+        &read,
+    ))
+}
+
+/// Whether the table declares a variable-length column. See `crack_row`.
+fn has_var_cols(table: &TableDef) -> bool {
+    table.columns.iter().any(|c| !c.is_fixed)
+}
+
+/// What is at a row index of a data page.
+enum RowAt {
+    /// No more rows on the page, or it is not a data page.
+    EndOfPage,
+    /// A deleted row, or a stale pointer to a row moved to another page.
+    Gone,
+    /// A row that cannot be read.
+    Unreadable,
+    /// A row, at `data[start..start + size]`.
+    Row { start: usize, size: usize },
+}
+
+/// What is at row `row` of the data page `page_num`, whose bytes are `data`.
+fn row_at(
+    format: &crate::format::JetFormat,
+    data: &[u8],
+    page_num: u32,
+    row: u16,
+    is_jet3: bool,
+    has_var_cols: bool,
+) -> RowAt {
+    // Validate page type (Data = 1)
+    if data.is_empty() || data[0] != 0x01 {
+        return RowAt::EndOfPage;
+    }
+    let row_count_pos = format.data_row_count_pos;
+    if data.len() < row_count_pos + 2 {
+        return RowAt::EndOfPage;
+    }
+    let num_rows = u16::from_le_bytes([data[row_count_pos], data[row_count_pos + 1]]);
+    // Read the raw row pointer to check flags before find_row
+    let entry_pos = row_count_pos + 2 + (row as usize) * 2;
+    if row >= num_rows || entry_pos + 2 > data.len() {
+        return RowAt::EndOfPage;
+    }
+    let row_ptr = u16::from_le_bytes([data[entry_pos], data[entry_pos + 1]]);
+    // Skip deleted rows
+    if row_ptr & row::DELETE_FLAG != 0 {
+        return RowAt::Gone;
+    }
+    // Lookup/overflow rows: the row was relocated to this page from
+    // another page, or this is a stale pointer to a row that was
+    // moved away. If find_row succeeds, the data at the offset is
+    // valid row data to be read normally. Stale entries where
+    // find_row fails are skipped (not counted as errors).
+    let is_lookup = row_ptr & row::LOOKUP_FLAG != 0;
+    let (start, size) = match find_row(format, data, page_num, row) {
+        Ok(v) => v,
+        Err(e) if is_lookup => {
+            log::debug!("skipping stale lookup row on page {page_num} row {row}: {e}");
+            return RowAt::Gone;
+        }
+        Err(e) => {
+            log::debug!("skipping row on page {page_num} row {row}: {e}");
+            return RowAt::Unreadable;
+        }
+    };
+    if let Err(e) = crack_row(&data[start..start + size], is_jet3, has_var_cols) {
+        log::debug!("skipping row on page {page_num} row {row}: {e}");
+        return RowAt::Unreadable;
+    }
+    RowAt::Row { start, size }
+}
+
+/// The values of row `row` of the data page `page_num`, whose bytes are
+/// `data`, reading the columns marked in `read` and leaving the others
+/// `Null`; `None` if there is no row there or it cannot be read.
+fn row_values(
+    reader: &mut PageReader,
+    data: &[u8],
+    page_num: u32,
+    row: u16,
+    table: &TableDef,
+    calculated: &HashMap<String, ColumnType>,
+    read: &[bool],
+) -> Option<Vec<Value>> {
+    let is_jet3 = reader.header().version.is_jet3();
+    let has_var_cols = has_var_cols(table);
+    let RowAt::Row { start, size } =
+        row_at(reader.format(), data, page_num, row, is_jet3, has_var_cols)
+    else {
+        return None;
+    };
+    let cracked = crack_row(&data[start..start + size], is_jet3, has_var_cols).ok()?;
+    Some(
+        table
+            .columns
+            .iter()
+            .zip(read)
+            .map(|(col, &read)| {
+                if read {
+                    read_column_value(&cracked, col, is_jet3, reader, calculated)
+                } else {
+                    Value::Null
+                }
+            })
+            .collect(),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -1670,6 +1881,198 @@ mod tests {
                 }
             }
         };
+    }
+
+    // -- TableRows -------------------------------------------------------------
+
+    /// The database files under `dir` and its subdirectories.
+    fn database_files(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+        let mut files = Vec::new();
+        let mut entries: Vec<_> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .collect();
+        entries.sort();
+        for path in entries {
+            if path.is_dir() {
+                files.extend(database_files(&path));
+            } else if matches!(
+                path.extension().and_then(|e| e.to_str()),
+                Some("mdb" | "accdb")
+            ) {
+                files.push(path);
+            }
+        }
+        files
+    }
+
+    #[test]
+    fn table_rows_in_every_table_of_the_test_data() {
+        // For each table: reading the rows one at a time gives what
+        // read_table_rows gives; starting again at the position after a row
+        // gives the rows after it; read_row_at gives each row at its
+        // position; and reading every other column gives those values and
+        // Null for the others.
+        let Some(root) = test_data_path("") else {
+            eprintln!("SKIP: test data not found");
+            return;
+        };
+        let mut tables = 0;
+        for path in database_files(&root) {
+            // The files that need a password are left out.
+            let Ok(mut reader) = PageReader::open(&path) else {
+                continue;
+            };
+            let catalog = crate::catalog::read_catalog(&mut reader).unwrap();
+            for entry in catalog
+                .iter()
+                .filter(|e| e.object_type == ObjectType::Table)
+            {
+                let context = format!("{} {}", path.display(), entry.name);
+                let table =
+                    crate::table::read_table_def(&mut reader, &entry.name, entry.table_page)
+                        .unwrap();
+                let calculated = calculated_column_types_in(&catalog, &table);
+                let all = read_table_rows_with(&mut reader, &table, &calculated).unwrap();
+
+                let mut rows = TableRows::new(&table, &calculated);
+                let mut read: Vec<(TableRow, RowPosition)> = Vec::new();
+                while let Some(row) = rows.next_row(&mut reader).unwrap() {
+                    read.push((row, rows.position()));
+                }
+                let values: Vec<&Vec<Value>> = read.iter().map(|(r, _)| &r.values).collect();
+                let expected: Vec<&Vec<Value>> = all.rows.iter().collect();
+                assert_eq!(values, expected, "{context}");
+                assert_eq!(rows.skipped_rows(), all.skipped_rows, "{context}");
+                assert_eq!(rows.peek(&mut reader).unwrap(), None, "{context}");
+
+                for k in [0, read.len() / 2, read.len().saturating_sub(2)] {
+                    let Some((_, after)) = read.get(k) else {
+                        continue;
+                    };
+                    let mut rest = TableRows::new(&table, &calculated).starting_at(*after);
+                    let mut got = Vec::new();
+                    while let Some(row) = rest.next_row(&mut reader).unwrap() {
+                        got.push(row);
+                    }
+                    let expected: Vec<TableRow> =
+                        read[k + 1..].iter().map(|(r, _)| r.clone()).collect();
+                    assert_eq!(got, expected, "{context} after row {k}");
+                }
+
+                for (row, _) in &read {
+                    let at =
+                        read_row_at(&mut reader, &table, &calculated, row.position, None).unwrap();
+                    assert_eq!(
+                        at.as_ref(),
+                        Some(&row.values),
+                        "{context} {:?}",
+                        row.position
+                    );
+                }
+
+                let columns: Vec<usize> = (0..table.columns.len()).step_by(2).collect();
+                let mut some = TableRows::new(&table, &calculated).with_columns(&columns);
+                for (row, _) in &read {
+                    let got = some.next_row(&mut reader).unwrap().unwrap();
+                    assert_eq!(got.position, row.position, "{context}");
+                    for (i, value) in got.values.iter().enumerate() {
+                        let expected = if columns.contains(&i) {
+                            &row.values[i]
+                        } else {
+                            &Value::Null
+                        };
+                        assert_eq!(value, expected, "{context} {:?} column {i}", row.position);
+                    }
+                }
+                assert!(some.next_row(&mut reader).unwrap().is_none(), "{context}");
+                tables += 1;
+            }
+        }
+        // Every table of the test data, as fetched by scripts/fetch-testdata.sh.
+        assert!(tables >= 2000, "only {tables} tables read");
+    }
+
+    /// Table1 of V2003/testV2003.mdb, from `bytes`.
+    fn test_v2003_table1(bytes: Vec<u8>) -> (PageReader, TableDef) {
+        let mut reader = PageReader::open_reader(std::io::Cursor::new(bytes)).unwrap();
+        let catalog = crate::catalog::read_catalog(&mut reader).unwrap();
+        let entry = crate::catalog::find_table(&catalog, "Table1").unwrap();
+        let table =
+            crate::table::read_table_def(&mut reader, &entry.name, entry.table_page).unwrap();
+        (reader, table)
+    }
+
+    #[test]
+    fn table_rows_pass_over_deleted_and_unreadable_rows() {
+        // Table1's two rows are on page 27 of the 4096-byte pages; the
+        // pointer of the second row is at byte 16 of the page.
+        let path = skip_if_missing!("V2003/testV2003.mdb");
+        let bytes = std::fs::read(path).unwrap();
+        let pos = 27 * 4096 + 16;
+        assert_eq!(u16::from_le_bytes([bytes[pos], bytes[pos + 1]]), 0x0F89);
+        let calculated = HashMap::new();
+        let second = RowPosition { page: 0, row: 1 };
+
+        let (mut reader, table) = test_v2003_table1(bytes.clone());
+        assert_eq!(table.data_pages, [27]);
+        let mut rows = TableRows::new(&table, &calculated);
+        assert!(rows.next_row(&mut reader).unwrap().is_some());
+        assert_eq!(rows.peek(&mut reader).unwrap(), Some(second));
+        assert!(read_row_at(&mut reader, &table, &calculated, second, None)
+            .unwrap()
+            .is_some());
+
+        // A deleted row is passed over and not counted.
+        let mut deleted = bytes.clone();
+        deleted[pos + 1] |= (row::DELETE_FLAG >> 8) as u8;
+        let (mut reader, table) = test_v2003_table1(deleted);
+        let mut rows = TableRows::new(&table, &calculated);
+        assert_eq!(
+            rows.next_row(&mut reader).unwrap().unwrap().position,
+            RowPosition { page: 0, row: 0 }
+        );
+        assert!(rows.next_row(&mut reader).unwrap().is_none());
+        assert_eq!(rows.skipped_rows(), 0);
+        assert_eq!(
+            read_row_at(&mut reader, &table, &calculated, second, None).unwrap(),
+            None
+        );
+
+        // A row given the offset of the first has no bytes, so it cannot be
+        // read; it is passed over and counted once, however often peek looks.
+        let mut broken = bytes;
+        broken[pos..pos + 2].copy_from_slice(&0x0FB8u16.to_le_bytes());
+        let (mut reader, table) = test_v2003_table1(broken);
+        let mut rows = TableRows::new(&table, &calculated);
+        assert!(rows.next_row(&mut reader).unwrap().is_some());
+        assert_eq!(rows.peek(&mut reader).unwrap(), None);
+        assert_eq!(rows.peek(&mut reader).unwrap(), None);
+        assert!(rows.next_row(&mut reader).unwrap().is_none());
+        assert_eq!(rows.skipped_rows(), 1);
+        assert_eq!(
+            read_row_at(&mut reader, &table, &calculated, second, None).unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn table_rows_past_the_last_row() {
+        let path = skip_if_missing!("V2003/testV2003.mdb");
+        let (mut reader, table) = test_v2003_table1(std::fs::read(path).unwrap());
+        let calculated = HashMap::new();
+        for position in [
+            RowPosition { page: 0, row: 2 },
+            RowPosition { page: 1, row: 0 },
+        ] {
+            let mut rows = TableRows::new(&table, &calculated).starting_at(position);
+            assert!(rows.next_row(&mut reader).unwrap().is_none());
+            assert_eq!(rows.skipped_rows(), 0);
+            assert_eq!(
+                read_row_at(&mut reader, &table, &calculated, position, None).unwrap(),
+                None
+            );
+        }
     }
 
     fn assert_msysobjects_rows(rows: &[Vec<Value>], table: &TableDef) {

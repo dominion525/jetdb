@@ -41,8 +41,8 @@ pub use table::{
 pub use table::is_replication_column;
 
 pub use data::{
-    calculated_column_types, calculated_column_types_in, read_table_rows, read_table_rows_with,
-    ReadResult, Value,
+    calculated_column_types, calculated_column_types_in, read_row_at, read_table_rows,
+    read_table_rows_with, ReadResult, RowPosition, TableRow, TableRows, Value,
 };
 pub use form::{
     control_type_name, list_forms, list_forms_in, read_form_properties, read_form_properties_in,
