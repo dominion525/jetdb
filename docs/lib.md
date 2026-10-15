@@ -186,14 +186,38 @@ fn main() -> Result<(), jetdb::FileError> {
 }
 ```
 
+## Rows One at a Time
+
+[`TableRows`] reads the rows of a table one at a time, so only the row being used is in memory; [`read_table_rows`] reads them all with it. The [`PageReader`] is passed to each call, so between rows the same reader can read other things, such as the values of a complex column. [`TableRows::with_columns`] reads only the columns asked for, without reading the long values of the others. [`TableRows::position`] gives where to continue, [`TableRows::starting_at`] starts again there, and [`read_row_at`] reads the row at one position.
+
+```rust,no_run
+use jetdb::{
+    calculated_column_types_in, find_table, read_catalog, read_table_def, PageReader, TableRows,
+};
+
+fn main() -> Result<(), jetdb::FileError> {
+    let mut reader = PageReader::open("database.mdb")?;
+    let catalog = read_catalog(&mut reader)?;
+    let entry = find_table(&catalog, "Orders")?;
+    let table = read_table_def(&mut reader, &entry.name, entry.table_page)?;
+    let calculated = calculated_column_types_in(&catalog, &table);
+    let mut rows = TableRows::new(&table, &calculated);
+    while let Some(row) = rows.next_row(&mut reader)? {
+        println!("{:?}", row.values);
+    }
+    rows.warn_skipped(&table.name);
+    Ok(())
+}
+```
+
 ## Complex Columns
 
 A complex column (multiple values, attachments, or the version history of an append-only Long Text column, in Access 2007 and later) holds a number in each row, which [`read_table_rows`] returns as `Value::Long`. [`read_complex_column`] reads, of such a column, only where the values of each number are, and [`ComplexColumn::values`] reads the values of one number, so the values of the rows not asked for are never read. Attachments come with the content of each file, decompressed.
 
 ```rust,no_run
 use jetdb::{
-    find_table, read_catalog, read_complex_column, read_table_def, read_table_rows,
-    ComplexValues, PageReader, Value,
+    calculated_column_types_in, find_table, read_catalog, read_complex_column, read_table_def,
+    ComplexValues, PageReader, TableRows, Value,
 };
 
 fn main() -> Result<(), jetdb::FileError> {
@@ -205,8 +229,10 @@ fn main() -> Result<(), jetdb::FileError> {
     let Some(tags) = read_complex_column(&mut reader, &catalog, &table, &table.columns[i])? else {
         return Ok(());
     };
-    for row in read_table_rows(&mut reader, &table)?.rows {
-        if let Value::Long(n) = row[i] {
+    let calculated = calculated_column_types_in(&catalog, &table);
+    let mut rows = TableRows::new(&table, &calculated);
+    while let Some(row) = rows.next_row(&mut reader)? {
+        if let Value::Long(n) = row.values[i] {
             if let ComplexValues::MultiValue(values) = tags.values(&mut reader, n)? {
                 println!("{values:?}");
             }
@@ -301,5 +327,4 @@ All public functions return `Result<T,` [`FileError`]`>`.
 
 - Read-only (writing is not supported)
 - Index-based lookups are not supported (sequential scan only)
-- [`read_table_rows`] loads all rows of a table into memory. Be mindful of memory usage for tables with a very large number of rows
 - Password-protected databases are not supported
