@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>jetdb — Demo in the browser</title>
+    <meta
+      name="description"
+      content="A demo that opens an Access database (.mdb / .accdb) entirely in the browser and lists its tables. Files are never sent outside the browser."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@400;600&family=Noto+Sans+JP:wght@400;600;800&display=swap"
+    />
+    <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="jetdb" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:title" content="jetdb — Demo in the browser" />
+    <meta
+      property="og:description"
+      content="A demo that opens an Access database (.mdb / .accdb) entirely in the browser and lists its tables. Files are never sent outside the browser."
+    />
+    <meta property="og:url" content="https://jetdb.dominion525.com/demo/" />
+    <meta
+      property="og:image"
+      content="https://jetdb.dominion525.com/assets/ogp.png"
+    />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="jetdb: Read .mdb / .accdb files without Microsoft Access"
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="stylesheet" href="/assets/style.css" />
+    <script src="/assets/main.js" defer></script>
+    <script src="/assets/demo.js" type="module"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header">
+      <div class="container header-inner">
+        <a class="logo" href="/"
+          ><img src="/assets/logo.svg" alt="jetdb" width="67" height="24"
+        /></a>
+        <nav class="header-nav" aria-label="On this site">
+          <a class="nav-link" href="/#features">Features</a>
+          <a class="nav-link" href="/#compare">Compare</a>
+          <a class="nav-link" href="/#install">Install</a>
+        </nav>
+        <div class="header-actions">
+          <a class="header-github" href="https://github.com/dominion525/jetdb"
+            >GitHub</a
+          >
+        </div>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="section">
+        <div class="container">
+          <p class="back-link"><a href="/">Back to the main page</a></p>
+          <h1 class="page-title">Demo in the browser</h1>
+          <p class="section-lead">
+            Choose an Access file (.mdb / .accdb), and jetdb (the WebAssembly
+            build) opens it inside your browser and lists its tables. Files are
+            never sent outside the browser.
+          </p>
+          <p class="note dummy-note">
+            <span class="dummy-badge">Preview</span>For now, this page only
+            lists the tables, to check that it works. It cannot open
+            password-protected files.
+          </p>
+
+          <div class="demo">
+            <label class="demo-file">
+              <span>Choose a file</span>
+              <input type="file" id="demo-file" accept=".mdb,.accdb" disabled />
+            </label>
+            <p class="demo-status" id="demo-status" role="status">
+              Loading jetdb…
+            </p>
+            <div class="demo-result" id="demo-result" hidden>
+              <dl class="demo-meta">
+                <dt>File</dt>
+                <dd id="demo-name"></dd>
+                <dt>Engine version</dt>
+                <dd id="demo-version"></dd>
+                <dt>Tables</dt>
+                <dd id="demo-count"></dd>
+              </dl>
+              <ul class="demo-tables" id="demo-tables"></ul>
+            </div>
+          </div>
+          <noscript><p class="note">This demo needs JavaScript.</p></noscript>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container footer-inner">
+        <div>
+          <a class="logo" href="/"
+            ><img src="/assets/logo.svg" alt="jetdb" width="67" height="24"
+          /></a>
+          <p class="footer-license">MIT OR Apache-2.0</p>
+        </div>
+        <ul class="footer-links">
+          <li><a href="https://github.com/dominion525/jetdb">GitHub</a></li>
+          <li>
+            <a href="https://github.com/dominion525/jetdb/blob/main/docs/cli.md"
+              >CLI documentation</a
+            >
+          </li>
+          <li><a href="https://crates.io/crates/jetdb-cli">crates.io</a></li>
+          <li>
+            <a href="https://docs.rs/jetdb">Rust library (docs.rs)</a>
+          </li>
+          <li>
+            <a
+              href="https://github.com/dominion525/jetdb/blob/main/README.md#acknowledgments"
+              >Acknowledgments</a
+            >
+          </li>
+        </ul>
+        <div class="footer-author">
+          <a
+            class="footer-author-avatar"
+            href="https://dominion525.com/"
+            tabindex="-1"
+            aria-hidden="true"
+            ><img src="/assets/avatar.png" width="44" height="44" alt=""
+          /></a>
+          <a class="footer-author-name" href="https://dominion525.com/"
+            >Dominion525</a
+          >
+          <div class="footer-social">
+            <a href="https://x.com/dominion525" aria-label="X profile"
+              ><img src="/assets/icon-x.svg" width="20" height="20" alt=""
+            /></a>
+            <a href="https://github.com/dominion525" aria-label="GitHub profile"
+              ><img src="/assets/icon-github.svg" width="20" height="20" alt=""
+            /></a>
+          </div>
+        </div>
+        <p class="footer-bottom">
+          <span
+            >Microsoft Access is a trademark of Microsoft Corporation. jetdb is
+            a personal project not affiliated with Microsoft.</span
+          >
+          <span class="footer-copyright">© 2026 Dominion525</span>
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>
