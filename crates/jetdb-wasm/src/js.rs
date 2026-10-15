@@ -175,7 +175,7 @@ export interface Control {
 export interface FormProperty {
     id: number;
     name: string;
-    value: Value;
+    value: Scalar;
 }
 
 /**
@@ -313,7 +313,7 @@ export interface PropertyGroup {
 /** A property, with its value of the types a row has. */
 export interface Property {
     name: string;
-    value: Value;
+    value: Scalar;
 }
 
 /** The SQL dialect of `Database.ddl`. */
@@ -349,11 +349,42 @@ export interface DdlOptions {
  *   read as a date and time.
  * - Binary and OLE: a Uint8Array, as are the values of a column type that
  *   jetdb does not know.
- * - ComplexType (attachments, multiple values, version history): a number,
- *   the ID of the column's values in a hidden table.
+ * - ComplexType: an array of the column's values in the row, empty when it
+ *   has none: for multiple values, the values, each by the type of the
+ *   values; for attachments, an `Attachment` for each file; for the version
+ *   history of an append-only Long Text column, a `ColumnVersion` for each
+ *   version, oldest first. A complex column of a kind jetdb does not know
+ *   gives a number, the ID of its values in a hidden table.
  * - NULL: null.
  */
-export type Value = null | boolean | number | bigint | string | Uint8Array;
+export type Value = Scalar | Scalar[] | Attachment[] | ColumnVersion[];
+
+/** A value that is not of a complex column. */
+export type Scalar = null | boolean | number | bigint | string | Uint8Array;
+
+/** A file attached to an attachment column. */
+export interface Attachment {
+    /** The file name. */
+    name: string | null;
+    /** The file type Access gives the file, its extension without the dot. */
+    type: string | null;
+    /** The content of the file, or null if it could not be decoded. */
+    data: Uint8Array | null;
+    /** The FileURL Access keeps for the file, usually null. */
+    url: string | null;
+    /** The FileTimeStamp Access keeps for the file, usually null. */
+    timestamp: string | null;
+    /** The FileFlags Access keeps for the file, usually null. */
+    flags: number | null;
+}
+
+/** A version of an append-only Long Text column. */
+export interface ColumnVersion {
+    /** The text of the column in this version. */
+    value: string | null;
+    /** When the version was written, as a Timestamp value is shown. */
+    modified: string | null;
+}
 
 /** A row, keyed by the column names. */
 export type Row = Record<string, Value>;
@@ -1155,6 +1186,14 @@ fn cell_value(cell: Cell) -> JsValue {
         Cell::BigInt(v) => BigInt::from(v).into(),
         Cell::String(s) => s.into(),
         Cell::Bytes(bytes) => Uint8Array::from(bytes.as_slice()).into(),
+        Cell::List(cells) => cells.into_iter().map(cell_value).collect::<Array>().into(),
+        Cell::Record(fields) => {
+            let object = Object::new();
+            for (name, cell) in fields {
+                set(&object, name, cell_value(cell));
+            }
+            object.into()
+        }
     }
 }
 

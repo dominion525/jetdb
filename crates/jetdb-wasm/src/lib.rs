@@ -14,12 +14,12 @@ use jetdb::format::{index_flags, index_type, ColumnType, ObjectType};
 use jetdb::{
     calculated_column_types_in, control_type_name, data_macros_to_text, embedded_macro_to_text,
     entry_properties, find_table, list_forms_in, list_macros_in, query_to_sql, read_access_storage,
-    read_catalog, read_data_macros_in, read_embedded_macros_in, read_form_properties_in,
-    read_macro_in, read_object_properties, read_queries_in, read_relationships_in, read_table_def,
-    read_table_rows_with, read_vba_project_in, relationship_flags, timestamp, AccessStorage,
-    BlobProperty, BlobValue, CatalogEntry, FileError, FormObjectType, IndexColumnOrder, MacroDef,
-    MacroGrid, PageReader, PropMapType, QueryDef, QueryType, TableDef, Value, VbaModule,
-    VbaModuleType,
+    read_catalog, read_complex_values, read_data_macros_in, read_embedded_macros_in,
+    read_form_properties_in, read_macro_in, read_object_properties, read_queries_in,
+    read_relationships_in, read_table_def, read_table_rows_with, read_vba_project_in,
+    relationship_flags, timestamp, AccessStorage, BlobProperty, BlobValue, CatalogEntry,
+    ComplexValues, FileError, FormObjectType, IndexColumnOrder, MacroDef, MacroGrid, PageReader,
+    PropMapType, QueryDef, QueryType, TableDef, Value, VbaModule, VbaModuleType,
 };
 
 /// A database opened from bytes in memory.
@@ -234,6 +234,11 @@ pub enum Cell {
     BigInt(i64),
     String(String),
     Bytes(Vec<u8>),
+    /// The values of a complex column in a row.
+    List(Vec<Cell>),
+    /// A file of an attachment column or a version of a version history,
+    /// with the names of its fields.
+    Record(Vec<(&'static str, Cell)>),
 }
 
 impl From<BlobValue> for Cell {
@@ -276,6 +281,51 @@ impl From<Value> for Cell {
             | Value::DateTimeExtended(s) => Cell::String(s),
             Value::Binary(bytes) => Cell::Bytes(bytes),
         }
+    }
+}
+
+/// The values of the row whose complex column holds `number`, taken out of
+/// `values`, as each number is in one row only; `None` for a kind jetdb
+/// does not know, whose number stays.
+fn complex_cell(values: &mut ComplexValues, number: i32) -> Option<Cell> {
+    let list = |cells: Vec<Cell>| Some(Cell::List(cells));
+    match values {
+        ComplexValues::MultiValue(m) => list(
+            m.remove(&number)
+                .unwrap_or_default()
+                .into_iter()
+                .map(Cell::from)
+                .collect(),
+        ),
+        ComplexValues::Attachment(m) => list(
+            m.remove(&number)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|f| {
+                    Cell::Record(vec![
+                        ("name", f.name.into()),
+                        ("type", f.file_type.into()),
+                        ("data", f.data.into()),
+                        ("url", f.url.into()),
+                        ("timestamp", f.timestamp.into()),
+                        ("flags", f.flags.into()),
+                    ])
+                })
+                .collect(),
+        ),
+        ComplexValues::VersionHistory(m) => list(
+            m.remove(&number)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|v| {
+                    Cell::Record(vec![
+                        ("value", v.value.into()),
+                        ("modified", v.modified.into()),
+                    ])
+                })
+                .collect(),
+        ),
+        ComplexValues::Unknown { .. } => None,
     }
 }
 
@@ -398,6 +448,10 @@ impl Database {
             .filter(|&i| tdef.columns[i].is_shown(system_table))
             .collect();
         let (reader, catalog) = self.reader_and_catalog()?;
+        let mut complex = shown
+            .iter()
+            .map(|&i| read_complex_values(reader, catalog, &tdef, &tdef.columns[i]))
+            .collect::<Result<Vec<_>, _>>()?;
         let calculated = calculated_column_types_in(catalog, &tdef);
         let result = read_table_rows_with(reader, &tdef, &calculated)?;
         Ok(Rows {
@@ -411,7 +465,16 @@ impl Database {
                 .map(|mut row| {
                     shown
                         .iter()
-                        .map(|&i| std::mem::replace(&mut row[i], Value::Null).into())
+                        .zip(&mut complex)
+                        .map(|(&i, values)| {
+                            let value = std::mem::replace(&mut row[i], Value::Null);
+                            match (values, value) {
+                                (Some(values), Value::Long(n)) => {
+                                    complex_cell(values, n).unwrap_or_else(|| Value::Long(n).into())
+                                }
+                                (_, value) => value.into(),
+                            }
+                        })
                         .collect()
                 })
                 .collect(),
@@ -2210,6 +2273,69 @@ mod tests {
                 vec![Cell::Number(4.0), Cell::Null],
             ]
         );
+    }
+
+    #[test]
+    fn rows_of_complex_columns() {
+        let bytes = skip_if_missing!("V2007/complexDataTestV2007.accdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        let rows = db.rows("Table1").unwrap();
+        let list = |values: &[&str]| Cell::List(values.iter().map(|s| string(s)).collect());
+        assert_eq!(cell(&rows, string("row1"), "multi-value-data"), list(&[]));
+        assert_eq!(
+            cell(&rows, string("row2"), "multi-value-data"),
+            list(&["value1", "value4"])
+        );
+        let file = |name: &str, data: &str| {
+            Cell::Record(vec![
+                ("name", string(name)),
+                ("type", string("txt")),
+                ("data", Cell::Bytes(data.as_bytes().to_vec())),
+                ("url", Cell::Null),
+                ("timestamp", Cell::Null),
+                ("flags", Cell::Null),
+            ])
+        };
+        assert_eq!(
+            cell(&rows, string("row4"), "attach-data"),
+            Cell::List(vec![file(
+                "test_data2.txt",
+                "this is some more test data for attachment."
+            )])
+        );
+        let version = |value: &str, modified: &str| {
+            Cell::Record(vec![
+                ("value", string(value)),
+                ("modified", string(modified)),
+            ])
+        };
+        assert_eq!(
+            cell(
+                &rows,
+                string("row3"),
+                "VersionHistory_F5F8918F-0A3F-4DA9-AE71-184EE5012880"
+            ),
+            Cell::List(vec![
+                version("row3-memo", "2011-09-12 21:21:19"),
+                version("row3-memo-revised", "2011-09-12 21:22:33"),
+                version("row3-memo-again", "2011-09-12 21:22:45"),
+            ])
+        );
+    }
+
+    #[test]
+    fn rows_of_a_complex_column_of_an_unknown_kind() {
+        // The type table of UnknownComplex has a column of a type jetdb does
+        // not know, so the column keeps its numbers.
+        let bytes = skip_if_missing!("V2007/unsupportedFieldsTestV2007.accdb");
+        let mut db = Database::open(bytes, None).unwrap();
+        let rows = db.rows("Test").unwrap();
+        let i = rows
+            .columns
+            .iter()
+            .position(|c| c == "UnknownComplex")
+            .unwrap();
+        assert!(rows.rows.iter().all(|r| matches!(r[i], Cell::Number(_))));
     }
 
     #[test]

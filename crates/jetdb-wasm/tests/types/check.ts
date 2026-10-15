@@ -29,6 +29,9 @@ import {
   type Property,
   type Row,
   type Value,
+  type Scalar,
+  type Attachment,
+  type ColumnVersion,
   type ErrorCode,
   type JetdbError,
 } from "jetdb-wasm";
@@ -92,8 +95,18 @@ export const result: { columns: string[]; rows: Row[]; skipped: number } =
 export const rows: Row[] = result.rows;
 // @ts-expect-error: the rows are in the rows property.
 export const notRows: Row[] = db.rows("Table1");
-export const value: null | boolean | number | bigint | string | Uint8Array =
-  rows[0]["A"];
+export const value: Value = rows[0]["A"];
+// @ts-expect-error: a value of a complex column is an array.
+export const scalar: Scalar = rows[0]["A"];
+export const multipleValues: Value = ["a", 1, null];
+export const attachments: Attachment[] = [
+  { name: "a.txt", type: "txt", data: new Uint8Array([0x61]), url: null, timestamp: null, flags: null },
+];
+export const attachmentValue: Value = attachments;
+// @ts-expect-error: the content of a file is bytes.
+export const attachmentText: string | null = attachments[0].data;
+export const versions: ColumnVersion[] = [{ value: "a", modified: "2011-09-12 21:21:19" }];
+export const versionValue: Value = versions;
 export const values: Value[] = Object.values(rows[0]);
 // @ts-expect-error: a value is not always a string.
 export const text: string = rows[0]["A"];
@@ -163,7 +176,7 @@ export const control: { name: string; type: string; typeCode: number; properties
   design.controls[0];
 export const formProperty: { id: number; name: string; value: Value } = design.properties[0];
 export const controls: Control[] = design.controls;
-export const formValue: Value = design.properties[0].value;
+export const formValue: Scalar = design.properties[0].value;
 // @ts-expect-error: the form name is required.
 db.formProperties();
 db.formProperties("Shared", { type: "Report" });
