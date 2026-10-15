@@ -127,15 +127,14 @@ pre {
 }
 
 .logo {
-  font-weight: 800;
-  font-size: 1.375rem;
-  letter-spacing: -0.02em;
-  color: var(--hero-text);
-  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
 }
 
-.logo span {
-  color: var(--accent);
+.logo img {
+  display: block;
+  width: auto;
+  height: 24px;
 }
 
 .header-nav {
