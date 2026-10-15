@@ -1015,6 +1015,100 @@ pre {
   color: var(--muted);
 }
 
+.viewer-tabs {
+  margin: 16px 0;
+}
+
+/* 表: 横に長いときは表の中で横に送る */
+.viewer-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.viewer-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.viewer-table th,
+.viewer-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+  white-space: nowrap;
+}
+
+.viewer-table th {
+  background: var(--surface);
+  font-weight: 600;
+}
+
+.viewer-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.viewer-null,
+.viewer-binary {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.viewer-complex summary {
+  cursor: pointer;
+}
+
+.viewer-complex-list {
+  margin: 4px 0 0;
+  padding-left: 1.25em;
+}
+
+.viewer-pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 12px;
+  color: var(--muted);
+}
+
+.viewer-pager span {
+  margin-right: auto;
+}
+
+.viewer-save {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.viewer-save:hover:not(:disabled) {
+  background: var(--surface);
+}
+
+.viewer-save:disabled {
+  color: var(--muted);
+  cursor: default;
+  opacity: 0.6;
+}
+
+.viewer-props + .viewer-props {
+  margin-top: 20px;
+}
+
+.section .viewer-props h3 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+}
+
 @media (max-width: 720px) {
   .viewer {
     grid-template-columns: minmax(0, 1fr);
