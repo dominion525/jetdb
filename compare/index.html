@@ -1,0 +1,697 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>jetdb — Full comparison with other tools</title>
+    <meta
+      name="description"
+      content="A table comparing open-source tools that read Microsoft Access databases (jetdb, MDB Tools, Jackcess, mdb-reader, access-parser, MMKiwi.MdbReader) by supported versions, features, encryption, and DDL dialects."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@400;600&family=Noto+Sans+JP:wght@400;600;800&display=swap"
+    />
+    <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="jetdb" />
+    <meta property="og:locale" content="en_US" />
+    <meta
+      property="og:title"
+      content="jetdb — Full comparison with other tools"
+    />
+    <meta
+      property="og:description"
+      content="A table comparing open-source tools that read Microsoft Access databases (jetdb, MDB Tools, Jackcess, mdb-reader, access-parser, MMKiwi.MdbReader) by supported versions, features, encryption, and DDL dialects."
+    />
+    <meta property="og:url" content="https://jetdb.dominion525.com/compare/" />
+    <meta
+      property="og:image"
+      content="https://jetdb.dominion525.com/assets/ogp.png"
+    />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="jetdb: Read .mdb / .accdb files without Microsoft Access"
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="stylesheet" href="/assets/style.css" />
+    <script src="/assets/main.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header">
+      <div class="container header-inner">
+        <a class="logo" href="/"
+          ><img src="/assets/logo.svg" alt="jetdb" width="67" height="24"
+        /></a>
+        <nav class="header-nav" aria-label="On this site">
+          <a class="nav-link" href="/#features">Features</a>
+          <a class="nav-link" href="/#compare">Compare</a>
+          <a class="nav-link" href="/#install">Install</a>
+        </nav>
+        <div class="header-actions">
+          <a class="lang-switch" href="/ja/compare/" hreflang="ja" lang="ja"
+            >日本語</a
+          >
+          <a class="header-github" href="https://github.com/dominion525/jetdb"
+            >GitHub</a
+          >
+        </div>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="section">
+        <div class="container container-wide">
+          <p class="back-link">
+            <a href="/#compare">Back to the comparison on the main page</a>
+          </p>
+          <h1 class="page-title" id="full-compare-title">
+            Full comparison with other tools
+          </h1>
+          <p class="section-lead">
+            Open-source tools that read Access databases, compared by supported
+            versions, features, encryption, and DDL dialects. Each tool was
+            surveyed from the source code and documentation of its latest
+            release.
+          </p>
+          <div
+            class="table-wrap"
+            tabindex="0"
+            role="region"
+            aria-labelledby="full-compare-title"
+          >
+            <table class="compare compare-full">
+              <thead>
+                <tr>
+                  <th scope="col"><span class="visually-hidden">Item</span></th>
+                  <th scope="col" class="me">
+                    jetdb<span class="ver">0.4.0</span>
+                  </th>
+                  <th scope="col">
+                    MDB Tools<span class="ver"
+                      ><a
+                        href="https://github.com/mdbtools/mdbtools/releases/tag/v1.0.1"
+                        >1.0.1</a
+                      ></span
+                    >
+                  </th>
+                  <th scope="col">
+                    Jackcess<span class="ver"
+                      ><a
+                        href="https://central.sonatype.com/artifact/com.healthmarketscience.jackcess/jackcess/5.0.3"
+                        >5.0.3</a
+                      ></span
+                    >
+                  </th>
+                  <th scope="col">
+                    Jackcess (fork)<span class="ver"
+                      ><a
+                        href="https://github.com/spannm/jackcess/releases/tag/jackcess-5.1.7"
+                        >5.1.7</a
+                      ></span
+                    >
+                  </th>
+                  <th scope="col">
+                    mdb-reader<span class="ver"
+                      ><a
+                        href="https://www.npmjs.com/package/mdb-reader/v/3.2.0"
+                        >3.2.0</a
+                      ></span
+                    >
+                  </th>
+                  <th scope="col">
+                    access-parser<span class="ver"
+                      ><a
+                        href="https://github.com/claroty/access_parser/releases/tag/V0.0.6"
+                        >0.0.6</a
+                      ></span
+                    >
+                  </th>
+                  <th scope="col">
+                    MMKiwi.MdbReader<span class="ver"
+                      ><a
+                        href="https://www.nuget.org/packages/MMKiwi.MdbReader/0.1.0-beta1"
+                        >0.1.0-beta1</a
+                      ></span
+                    >
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="group">
+                  <th scope="rowgroup">Basics</th>
+                  <td colspan="7"></td>
+                </tr>
+                <tr>
+                  <th scope="row">Language</th>
+                  <td class="me">Rust</td>
+                  <td>C</td>
+                  <td>Java</td>
+                  <td>Java</td>
+                  <td>TypeScript</td>
+                  <td>Python</td>
+                  <td>C#</td>
+                </tr>
+                <tr>
+                  <th scope="row">License</th>
+                  <td class="me">MIT OR Apache-2.0</td>
+                  <td>LGPL / GPL</td>
+                  <td>Apache-2.0</td>
+                  <td>Apache-2.0</td>
+                  <td>MIT</td>
+                  <td>Apache-2.0</td>
+                  <td>LGPL-2.0</td>
+                </tr>
+                <tr>
+                  <th scope="row">Release date of the surveyed version</th>
+                  <td class="me">—</td>
+                  <td>2024-12-26</td>
+                  <td>2026-10-06</td>
+                  <td>2026-09-13</td>
+                  <td>2026-02-18</td>
+                  <td>2025-01-21</td>
+                  <td>2024-07-05</td>
+                </tr>
+                <tr class="group">
+                  <th scope="rowgroup">Supported versions</th>
+                  <td colspan="7"></td>
+                </tr>
+                <tr>
+                  <th scope="row">Jet3 (Access 97)</th>
+                  <td class="me">○</td>
+                  <td>○</td>
+                  <td>○</td>
+                  <td>○</td>
+                  <td>○</td>
+                  <td>○</td>
+                  <td>○</td>
+                </tr>
+                <tr>
+                  <th scope="row">Jet4 (Access 2000)</th>
+                  <td class="me">○</td>
+                  <td>○</td>
+                  <td>○</td>
+                  <td>○</td>
+                  <td>○</td>
+                  <td>○</td>
+                  <td>○</td>
+                </tr>
+                <tr>
+                  <th scope="row">Jet4 (Access 2002/2003)</th>
+                  <td class="me">○</td>
+                  <td>○</td>
+                  <td>○</td>
+                  <td>○</td>
+                  <td>○</td>
+                  <td>○</td>
+                  <td>○</td>
+                </tr>
+                <tr>
+                  <th scope="row">ACE12 (Access 2007)</th>
+                  <td class="me">○</td>
+                  <td>○</td>
+                  <td>○</td>
+                  <td>○</td>
+                  <td>○</td>
+                  <td>○</td>
+                  <td>○</td>
+                </tr>
+                <tr>
+                  <th scope="row">ACE14 (Access 2010/2013)</th>
+                  <td class="me">○</td>
+                  <td>○</td>
+                  <td>○</td>
+                  <td>○</td>
+                  <td>○</td>
+                  <td>○</td>
+                  <td>○</td>
+                </tr>
+                <tr>
+                  <th scope="row">ACE16 (Access 2016)</th>
+                  <td class="me">○</td>
+                  <td>○</td>
+                  <td>○</td>
+                  <td>○</td>
+                  <td>○</td>
+                  <td>×</td>
+                  <td>○</td>
+                </tr>
+                <tr>
+                  <th scope="row">ACE17 (Access 2019)</th>
+                  <td class="me">○</td>
+                  <td>○</td>
+                  <td>○</td>
+                  <td>○</td>
+                  <td>○</td>
+                  <td>×</td>
+                  <td>○</td>
+                </tr>
+                <tr>
+                  <th scope="row">MSISAM (MS Money)</th>
+                  <td class="me">×</td>
+                  <td>?</td>
+                  <td>△</td>
+                  <td>△</td>
+                  <td>△</td>
+                  <td>×</td>
+                  <td>×</td>
+                </tr>
+                <tr class="group">
+                  <th scope="rowgroup">Features</th>
+                  <td colspan="7"></td>
+                </tr>
+                <tr>
+                  <th scope="row">Reading tables</th>
+                  <td class="me">○</td>
+                  <td>○</td>
+                  <td>○</td>
+                  <td>○</td>
+                  <td>○</td>
+                  <td>△</td>
+                  <td>△</td>
+                </tr>
+                <tr>
+                  <th scope="row">SQL of saved queries</th>
+                  <td class="me">○</td>
+                  <td>△</td>
+                  <td>○</td>
+                  <td>○</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                </tr>
+                <tr>
+                  <th scope="row">Relationships</th>
+                  <td class="me">○</td>
+                  <td>△</td>
+                  <td>○</td>
+                  <td>○</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                </tr>
+                <tr>
+                  <th scope="row">Object properties</th>
+                  <td class="me">○</td>
+                  <td>○</td>
+                  <td>△</td>
+                  <td>△</td>
+                  <td>×</td>
+                  <td>△</td>
+                  <td>×</td>
+                </tr>
+                <tr>
+                  <th scope="row">VBA extraction</th>
+                  <td class="me">○</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                </tr>
+                <tr>
+                  <th scope="row">Named macros</th>
+                  <td class="me">○</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                </tr>
+                <tr>
+                  <th scope="row">Embedded macros (forms/reports)</th>
+                  <td class="me">○</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                </tr>
+                <tr>
+                  <th scope="row">Data macros (tables)</th>
+                  <td class="me">○</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                </tr>
+                <tr>
+                  <th scope="row">Form/report definitions</th>
+                  <td class="me">○</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                </tr>
+                <tr>
+                  <th scope="row">DDL generation</th>
+                  <td class="me">○</td>
+                  <td>○</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                </tr>
+                <tr>
+                  <th scope="row">Writing</th>
+                  <td class="me">×</td>
+                  <td>△</td>
+                  <td>○</td>
+                  <td>○</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                </tr>
+                <tr>
+                  <th scope="row">DateTimeExtended type</th>
+                  <td class="me">○</td>
+                  <td>×</td>
+                  <td>○</td>
+                  <td>○</td>
+                  <td>○</td>
+                  <td>×</td>
+                  <td>×</td>
+                </tr>
+                <tr>
+                  <th scope="row">Complex columns</th>
+                  <td class="me">△</td>
+                  <td>△</td>
+                  <td>○</td>
+                  <td>○</td>
+                  <td>△</td>
+                  <td>△</td>
+                  <td>×</td>
+                </tr>
+                <tr>
+                  <th scope="row">Attachment contents</th>
+                  <td class="me">○</td>
+                  <td>×</td>
+                  <td>○</td>
+                  <td>○</td>
+                  <td>○</td>
+                  <td>×</td>
+                  <td>×</td>
+                </tr>
+                <tr>
+                  <th scope="row">CLI</th>
+                  <td class="me">○</td>
+                  <td>○</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                </tr>
+                <tr>
+                  <th scope="row">Runs in the browser</th>
+                  <td class="me">○</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>○</td>
+                  <td>×</td>
+                  <td>×</td>
+                </tr>
+                <tr class="group">
+                  <th scope="rowgroup">Encryption</th>
+                  <td colspan="7"></td>
+                </tr>
+                <tr>
+                  <th scope="row">Legacy Jet RC4 (.mdb)</th>
+                  <td class="me">○</td>
+                  <td>○</td>
+                  <td>△</td>
+                  <td>△</td>
+                  <td>○</td>
+                  <td>×</td>
+                  <td>○</td>
+                </tr>
+                <tr>
+                  <th scope="row">RC4 CryptoAPI</th>
+                  <td class="me">○</td>
+                  <td>×</td>
+                  <td>△</td>
+                  <td>△</td>
+                  <td>△</td>
+                  <td>×</td>
+                  <td>×</td>
+                </tr>
+                <tr>
+                  <th scope="row">Standard AES</th>
+                  <td class="me">○</td>
+                  <td>×</td>
+                  <td>△</td>
+                  <td>△</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                </tr>
+                <tr>
+                  <th scope="row">Agile AES</th>
+                  <td class="me">○</td>
+                  <td>×</td>
+                  <td>△</td>
+                  <td>△</td>
+                  <td>○</td>
+                  <td>×</td>
+                  <td>×</td>
+                </tr>
+                <tr class="group">
+                  <th scope="rowgroup">DDL dialects</th>
+                  <td colspan="7"></td>
+                </tr>
+                <tr>
+                  <th scope="row">SQLite</th>
+                  <td class="me">○</td>
+                  <td>○</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                </tr>
+                <tr>
+                  <th scope="row">PostgreSQL</th>
+                  <td class="me">○</td>
+                  <td>○</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                </tr>
+                <tr>
+                  <th scope="row">MySQL</th>
+                  <td class="me">○</td>
+                  <td>○</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                </tr>
+                <tr>
+                  <th scope="row">Access SQL</th>
+                  <td class="me">○</td>
+                  <td>○</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                </tr>
+                <tr>
+                  <th scope="row">Oracle</th>
+                  <td class="me">×</td>
+                  <td>○</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                </tr>
+                <tr>
+                  <th scope="row">Sybase</th>
+                  <td class="me">×</td>
+                  <td>○</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                  <td>×</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="note">
+            ○ Supported　△ Partial or conditional　× Not supported　? No
+            evidence found either way
+          </p>
+          <p class="note">
+            ○ means usable with Access 2000 and later. Exceptions that apply
+            only to Access 97 are in the notes.
+          </p>
+          <ul class="note notes">
+            <li>
+              Supported versions are judged by whether the code handles that
+              version.
+            </li>
+            <li>
+              Complex columns are attachment, multivalued, and version history
+              columns.
+            </li>
+            <li>
+              Access 2013 saves files in the same format as Access 2010 (ACE14),
+              so it has no separate row.
+            </li>
+            <li>Archived tools and tools with no release are not listed.</li>
+          </ul>
+          <div class="tool-notes">
+            <h3>jetdb</h3>
+            <ul class="notes">
+              <li>
+                For complex columns, returns the contents of attachments.
+                Multivalued and version history columns give only reference IDs.
+              </li>
+              <li>Cannot read Access 97 forms/reports.</li>
+            </ul>
+            <h3>MDB Tools</h3>
+            <ul class="notes">
+              <li>
+                The library is LGPL-2.0 or later, and the CLI is GPL-2.0 or
+                later.
+              </li>
+              <li>
+                There is no code that either handles or rejects MSISAM, so we
+                could not tell whether it opens such files.
+              </li>
+              <li>Reconstructs only SELECT queries (no JOIN or GROUP BY).</li>
+              <li>
+                Relationships are available only as foreign keys in DDL (Oracle,
+                PostgreSQL, MySQL).
+              </li>
+              <li>
+                Writing is limited to adding and updating rows through the
+                library API.
+              </li>
+              <li>Complex columns give only reference IDs.</li>
+            </ul>
+            <h3>Jackcess</h3>
+            <ul class="notes">
+              <li>
+                Password-protected files and MSISAM open with the separate
+                Jackcess Encrypt library.
+              </li>
+              <li>
+                Reads properties of databases, tables, and columns. The original
+                also reads query properties.
+              </li>
+              <li>
+                Writes only Jet4 and ACE files (Access 97 is read-only). The
+                original can create complex columns from 5.0.3.
+              </li>
+            </ul>
+            <h3>mdb-reader</h3>
+            <ul class="notes">
+              <li>Cannot read encrypted MSISAM files.</li>
+              <li>Cannot read the non-standard form of RC4 CryptoAPI.</li>
+              <li>
+                For complex columns, returns only the contents of attachments.
+              </li>
+            </ul>
+            <h3>access-parser</h3>
+            <ul class="notes">
+              <li>
+                Has no public API that returns a table's column definitions.
+              </li>
+              <li>
+                Reads only per-column properties. Complex columns give only
+                reference IDs.
+              </li>
+            </ul>
+            <h3>MMKiwi.MdbReader</h3>
+            <ul class="notes">
+              <li>
+                Cannot read rows of tables that contain Numeric, complex,
+                BigInt, or DateTimeExtended columns.
+              </li>
+            </ul>
+          </div>
+          <p class="note survey-date">
+            Surveyed on 2026-10-11 (the latest release of each tool)
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container footer-inner">
+        <div>
+          <a class="logo" href="/"
+            ><img src="/assets/logo.svg" alt="jetdb" width="67" height="24"
+          /></a>
+          <p class="footer-license">MIT OR Apache-2.0</p>
+        </div>
+        <ul class="footer-links">
+          <li><a href="https://github.com/dominion525/jetdb">GitHub</a></li>
+          <li>
+            <a href="https://github.com/dominion525/jetdb/blob/main/docs/cli.md"
+              >CLI documentation</a
+            >
+          </li>
+          <li><a href="https://crates.io/crates/jetdb-cli">crates.io</a></li>
+          <li>
+            <a href="https://docs.rs/jetdb">Rust library (docs.rs)</a>
+          </li>
+          <li>
+            <a
+              href="https://github.com/dominion525/jetdb/blob/main/README.md#acknowledgments"
+              >Acknowledgments</a
+            >
+          </li>
+        </ul>
+        <div class="footer-author">
+          <a
+            class="footer-author-avatar"
+            href="https://dominion525.com/"
+            tabindex="-1"
+            aria-hidden="true"
+            ><img src="/assets/avatar.png" width="44" height="44" alt=""
+          /></a>
+          <a class="footer-author-name" href="https://dominion525.com/"
+            >Dominion525</a
+          >
+          <div class="footer-social">
+            <a href="https://x.com/dominion525" aria-label="X profile"
+              ><img src="/assets/icon-x.svg" width="20" height="20" alt=""
+            /></a>
+            <a href="https://github.com/dominion525" aria-label="GitHub profile"
+              ><img src="/assets/icon-github.svg" width="20" height="20" alt=""
+            /></a>
+          </div>
+        </div>
+        <p class="footer-bottom">
+          <span
+            >Microsoft Access is a trademark of Microsoft Corporation. jetdb is
+            a personal project not affiliated with Microsoft.</span
+          >
+          <span class="footer-copyright">© 2026 Dominion525</span>
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>
