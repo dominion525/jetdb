@@ -1,7 +1,9 @@
 //! The JavaScript interface: thin `wasm-bindgen` wrappers over [`crate::Database`].
 
 use jetdb::format::ObjectType;
-use jetdb::{FormObjectType, MacroSource, MacroStatement, MacroXmlElement, RowPosition};
+use jetdb::{
+    FormObjectType, MacroSource, MacroStatement, MacroXmlElement, RowPosition, StreamKind,
+};
 use js_sys::{Array, ArrayBuffer, BigInt, Object, Reflect, Symbol, Uint8Array};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
@@ -15,7 +17,8 @@ use crate::{
 // Query, Module, Form, FormProperties, Macro, ObjectProperties and Rows are used
 // through unchecked_return_type, and DdlDialect through unchecked_param_type.
 // TablesOptions, RelationshipsOptions, QueriesOptions, MacrosOptions,
-// FormOptions, PropertiesOptions, DdlOptions and RowsOptions are extern types rather than
+// FormOptions, FormStreamOptions, PropertiesOptions, DdlOptions and RowsOptions are extern
+// types rather than
 // unchecked_param_type, which would make the parameter required.
 #[wasm_bindgen(typescript_custom_section)]
 const TYPES: &str = r#"
@@ -294,6 +297,20 @@ export interface FormOptions {
     type?: FormType;
 }
 
+/**
+ * A stream of a form or report, as `jetdb form dump --stream` names it:
+ * `blob` holds the design (layout, controls, properties, events), `typeinfo`
+ * the names and types of the controls, `propdata` a little property data, and
+ * `blobdelta` changes, usually none.
+ */
+export type FormStreamKind = "blob" | "typeinfo" | "propdata" | "blobdelta";
+
+/** The options of `Database.formStream`. */
+export interface FormStreamOptions extends FormOptions {
+    /** The stream to read; `blob` when absent. */
+    stream?: FormStreamKind;
+}
+
 /** The properties of an object, as Access keeps them. */
 export interface ObjectProperties {
     /** The properties of the object itself. */
@@ -468,6 +485,9 @@ extern "C" {
 
     #[wasm_bindgen(typescript_type = "FormOptions")]
     pub type FormOptions;
+
+    #[wasm_bindgen(typescript_type = "FormStreamOptions")]
+    pub type FormStreamOptions;
 
     #[wasm_bindgen(typescript_type = "PropertiesOptions")]
     pub type PropertiesOptions;
@@ -646,6 +666,26 @@ impl JsDatabase {
                 object
             })
             .collect())
+    }
+
+    /// The bytes of a stream of a form or report, as `jetdb form dump` writes
+    /// them: the blob, or the stream the stream option names. A stream the
+    /// form or report does not have is FORM_NOT_FOUND, as in Access 97 files.
+    #[wasm_bindgen(js_name = formStream)]
+    pub fn form_stream(
+        &mut self,
+        #[wasm_bindgen(unchecked_param_type = "string")] name: JsValue,
+        options: Option<FormStreamOptions>,
+    ) -> Result<Uint8Array, JsValue> {
+        let name = string_arg(&name, "name")?;
+        let options = options.as_deref();
+        let form_type = form_type_option(options)?;
+        let kind = option_stream_kind(options)?;
+        let bytes = self
+            .inner
+            .form_stream(&name, kind, form_type)
+            .map_err(|e| properties_error(e, &name))?;
+        Ok(Uint8Array::from(bytes.as_slice()))
     }
 
     /// The design of a form or report, as `jetdb form props` shows it. In an
@@ -1239,6 +1279,21 @@ fn option_value(options: Option<&JsValue>, name: &str) -> Result<Option<JsValue>
     let value = Reflect::get(options, &JsValue::from_str(name))
         .map_err(|_| jetdb_error("INVALID_ARGUMENT", &format!("cannot read option {name}")))?;
     Ok((!value.is_undefined() && !value.is_null()).then_some(value))
+}
+
+/// Reads the option stream of `formStream`, a stream as `jetdb form dump
+/// --stream` names it; the blob when absent.
+fn option_stream_kind(options: Option<&JsValue>) -> Result<StreamKind, JsValue> {
+    match option_string(options, "stream")?.as_deref() {
+        None | Some("blob") => Ok(StreamKind::Blob),
+        Some("typeinfo") => Ok(StreamKind::TypeInfo),
+        Some("propdata") => Ok(StreamKind::PropData),
+        Some("blobdelta") => Ok(StreamKind::BlobDelta),
+        Some(_) => Err(jetdb_error(
+            "INVALID_ARGUMENT",
+            "option stream must be one of blob, typeinfo, propdata, blobdelta",
+        )),
+    }
 }
 
 /// Reads the option start of `rows`, a number that `rows` gave as next; the

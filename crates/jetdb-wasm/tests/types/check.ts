@@ -21,6 +21,8 @@ import {
   type FormType,
   type FormProperties,
   type Control,
+  type FormStreamKind,
+  type FormStreamOptions,
   type FormProperty,
   type Macro,
   type MacroStatement,
@@ -188,6 +190,14 @@ export const controls: Control[] = design.controls;
 export const formValue: Scalar = design.properties[0].value;
 // @ts-expect-error: the form name is required.
 db.formProperties();
+export const blob: Uint8Array = db.formStream("Form1");
+export const typeInfo: Uint8Array = db.formStream("Form1", { stream: "typeinfo", type: "Report" });
+export const streamKind: FormStreamKind = "blobdelta";
+export const streamOptions: FormStreamOptions = { stream: "propdata" };
+// @ts-expect-error: the streams are named in lowercase, as jetdb form dump names them.
+db.formStream("Form1", { stream: "Blob" });
+// @ts-expect-error: the form name is required.
+db.formStream();
 db.formProperties("Shared", { type: "Report" });
 db.embeddedMacros("Shared", { type: "Form" });
 // @ts-expect-error: Page is not a form type.
