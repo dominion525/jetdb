@@ -577,6 +577,8 @@ pre {
 
 .skill-install {
   display: grid;
+  /* 列を画面の幅に収め、長いコマンドは枠の中で横に送る */
+  grid-template-columns: minmax(0, 1fr);
   gap: 24px;
 }
 
@@ -617,12 +619,14 @@ pre {
   max-width: 680px;
   background: var(--code-bg);
   border-radius: var(--radius);
+  /* コピーのボタンの場所。pre の横に送る範囲を、ボタンの左で終わらせる */
+  padding-right: 76px;
 }
 
 .cmd-block pre {
   margin: 0;
   padding: 16px 20px;
-  padding-right: 96px;
+  padding-right: 20px;
   color: var(--code-text);
   font-size: 0.875rem;
   line-height: 1.7;
