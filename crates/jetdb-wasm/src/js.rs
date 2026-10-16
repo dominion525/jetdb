@@ -17,8 +17,8 @@ use crate::{
 // Query, Module, Form, FormProperties, Macro, ObjectProperties and Rows are used
 // through unchecked_return_type, and DdlDialect through unchecked_param_type.
 // TablesOptions, RelationshipsOptions, QueriesOptions, MacrosOptions,
-// FormOptions, FormStreamOptions, PropertiesOptions, DdlOptions and RowsOptions are extern
-// types rather than
+// FormOptions, FormStreamOptions, PropertiesOptions, DdlOptions, RowsOptions and CsvOptions
+// are extern types rather than
 // unchecked_param_type, which would make the parameter required.
 #[wasm_bindgen(typescript_custom_section)]
 const TYPES: &str = r#"
@@ -425,6 +425,30 @@ export interface RowsOptions {
     limit?: number;
 }
 
+/** The options of `Database.csv`, those of `jetdb export`. */
+export interface CsvOptions {
+    /** Write the names of the columns as the first row; true when absent. */
+    header?: boolean;
+    /** The delimiter, one character; `,` when absent. */
+    delimiter?: string;
+    /** The format of a date without a time, a subset of strftime; `%Y-%m-%d` when absent. */
+    dateFormat?: string;
+    /** The format of a date with a time; `%Y-%m-%d %H:%M:%S` when absent. */
+    datetimeFormat?: string;
+    /**
+     * How Binary and OLE Object values are written: nothing (`strip`), the
+     * bytes as text (`raw`), `\NNN` for each byte (`octal`) or two hex digits
+     * for each byte (`hex`); `hex` when absent.
+     */
+    bin?: "strip" | "raw" | "octal" | "hex";
+    /** The text of a NULL value; empty when absent. */
+    null?: string;
+    /** `TRUE` and `FALSE` rather than `1` and `0` for Yes/No values. */
+    booleanWords?: boolean;
+    /** Include the columns Access maintains and hides. */
+    systemColumns?: boolean;
+}
+
 /** The rows of a table, as `Database.rows` returns them. */
 export interface Rows {
     /**
@@ -508,6 +532,9 @@ extern "C" {
 
     #[wasm_bindgen(typescript_type = "RowsOptions")]
     pub type RowsOptions;
+
+    #[wasm_bindgen(typescript_type = "CsvOptions")]
+    pub type JsCsvOptions;
 
     #[wasm_bindgen(js_namespace = console, js_name = error)]
     fn console_error(message: &str);
@@ -898,6 +925,18 @@ impl JsDatabase {
         self.inner
             .ddl(dialect, table.as_deref(), indexes, relations)
             .map_err(to_js_error)
+    }
+
+    /// The CSV of a table, as `jetdb export` writes it with the options of
+    /// the same names. An attachment field gives the file names.
+    pub fn csv(
+        &mut self,
+        #[wasm_bindgen(unchecked_param_type = "string")] table: JsValue,
+        options: Option<JsCsvOptions>,
+    ) -> Result<String, JsValue> {
+        let table = string_arg(&table, "table")?;
+        let options = csv_options(options.as_deref())?;
+        self.inner.csv(&table, &options).map_err(to_js_error)
     }
 
     /// The names of the columns, in the order of the table, and the rows of
@@ -1331,6 +1370,52 @@ fn option_stream_kind(options: Option<&JsValue>) -> Result<StreamKind, JsValue> 
         Some(_) => Err(jetdb_error(
             "INVALID_ARGUMENT",
             "option stream must be one of blob, typeinfo, propdata, blobdelta",
+        )),
+    }
+}
+
+/// Reads the options of `csv` into those of `jetdb export`.
+fn csv_options(options: Option<&JsValue>) -> Result<jetdb::CsvOptions, JsValue> {
+    let defaults = jetdb::CsvOptions::default();
+    Ok(jetdb::CsvOptions {
+        header: option_bool(options, "header", defaults.header)?,
+        delimiter: option_delimiter(options)?.unwrap_or(defaults.delimiter),
+        date_format: option_string(options, "dateFormat")?.unwrap_or(defaults.date_format),
+        datetime_format: option_string(options, "datetimeFormat")?
+            .unwrap_or(defaults.datetime_format),
+        binary: option_binary(options)?.unwrap_or(defaults.binary),
+        null: option_string(options, "null")?.unwrap_or(defaults.null),
+        boolean_words: option_bool(options, "booleanWords", defaults.boolean_words)?,
+        system_columns: option_bool(options, "systemColumns", defaults.system_columns)?,
+    })
+}
+
+/// Reads the option delimiter of `csv`, one character.
+fn option_delimiter(options: Option<&JsValue>) -> Result<Option<char>, JsValue> {
+    let Some(text) = option_string(options, "delimiter")? else {
+        return Ok(None);
+    };
+    let mut chars = text.chars();
+    match (chars.next(), chars.next()) {
+        (Some(c), None) => Ok(Some(c)),
+        _ => Err(jetdb_error(
+            "INVALID_ARGUMENT",
+            "option delimiter must be one character",
+        )),
+    }
+}
+
+/// Reads the option bin of `csv`, as `jetdb export --bin` names the modes.
+fn option_binary(options: Option<&JsValue>) -> Result<Option<jetdb::BinaryFormat>, JsValue> {
+    match option_string(options, "bin")?.as_deref() {
+        None => Ok(None),
+        Some("strip") => Ok(Some(jetdb::BinaryFormat::Strip)),
+        Some("raw") => Ok(Some(jetdb::BinaryFormat::Raw)),
+        Some("octal") => Ok(Some(jetdb::BinaryFormat::Octal)),
+        Some("hex") => Ok(Some(jetdb::BinaryFormat::Hex)),
+        Some(_) => Err(jetdb_error(
+            "INVALID_ARGUMENT",
+            "option bin must be one of strip, raw, octal, hex",
         )),
     }
 }

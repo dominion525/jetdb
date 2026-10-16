@@ -19,10 +19,10 @@ use jetdb::{
     read_catalog, read_complex_column, read_data_macros_in, read_embedded_macros_in,
     read_form_properties_in, read_form_stream_in, read_form_type_info_in, read_macro_in,
     read_object_properties, read_queries_in, read_relationships_in, read_table_def,
-    read_vba_project_in, relationship_flags, timestamp, AccessStorage, BlobProperty, BlobValue,
-    CatalogEntry, ComplexColumn, ComplexValues, FileError, FormObjectType, IndexColumnOrder,
-    MacroDef, MacroGrid, PageReader, PropMapType, QueryDef, QueryType, RowPosition, StreamKind,
-    TableDef, TableRows, Value, VbaModule, VbaModuleType,
+    read_vba_project_in, relationship_flags, timestamp, write_csv, AccessStorage, BlobProperty,
+    BlobValue, CatalogEntry, ComplexColumn, ComplexValues, CsvOptions, FileError, FormObjectType,
+    IndexColumnOrder, MacroDef, MacroGrid, PageReader, PropMapType, QueryDef, QueryType,
+    RowPosition, StreamKind, TableDef, TableRows, Value, VbaModule, VbaModuleType,
 };
 
 /// A database opened from bytes in memory.
@@ -586,6 +586,17 @@ impl Database {
             }
         }
         Ok(())
+    }
+
+    /// The CSV of `table`, as `jetdb export` writes it with `options`: an
+    /// attachment field gives the file names. Rows that cannot be read are
+    /// left out, as [`Database::rows`] leaves them out.
+    pub fn csv(&mut self, table: &str, options: &CsvOptions) -> Result<String, FileError> {
+        let (tdef, _) = self.table_def(table)?;
+        let (reader, catalog) = self.reader_and_catalog()?;
+        let mut out = Vec::new();
+        write_csv(reader, catalog, &tdef, options, &mut out, None)?;
+        Ok(String::from_utf8_lossy(&out).into_owned())
     }
 
     /// The relationships between tables, sorted by name: without those of
@@ -2759,6 +2770,50 @@ mod tests {
         assert_eq!(position_number(RowPosition { page: 1, row: 2 }), 65538.0);
         for number in [-1.0, 0.5, f64::NAN, f64::INFINITY, 281_474_976_710_656.0] {
             assert_eq!(number_position(number), None, "{number}");
+        }
+    }
+
+    #[test]
+    fn csv_as_jetdb_export_writes_it() {
+        // Every table, system tables included, is the CSV the library writes
+        // for jetdb export, with the default options and with others.
+        let other = CsvOptions {
+            header: false,
+            delimiter: ';',
+            date_format: "%d.%m.%Y".to_string(),
+            datetime_format: "%Y%m%d %H%M".to_string(),
+            binary: jetdb::BinaryFormat::Octal,
+            null: "NULL".to_string(),
+            boolean_words: true,
+            system_columns: true,
+        };
+        for file in [
+            "V2003/testV2003.mdb",
+            "V2007/complexDataTestV2007.accdb",
+            "V2010/binIdxTestV2010.accdb",
+        ] {
+            let bytes = skip_if_missing!(file);
+            let mut db = Database::open(bytes.clone(), None).unwrap();
+            let mut reader = PageReader::open_reader(Cursor::new(bytes)).unwrap();
+            let catalog = read_catalog(&mut reader).unwrap();
+            let tables: Vec<&CatalogEntry> = catalog
+                .iter()
+                .filter(|e| e.object_type == ObjectType::Table)
+                .collect();
+            assert!(tables.len() > 5, "{file}");
+            for entry in tables {
+                let tdef = read_table_def(&mut reader, &entry.name, entry.table_page).unwrap();
+                for options in [CsvOptions::default(), other.clone()] {
+                    let mut expected = Vec::new();
+                    write_csv(&mut reader, &catalog, &tdef, &options, &mut expected, None).unwrap();
+                    assert_eq!(
+                        db.csv(&entry.name, &options).unwrap(),
+                        String::from_utf8(expected).unwrap(),
+                        "{file} {}",
+                        entry.name
+                    );
+                }
+            }
         }
     }
 

@@ -135,6 +135,23 @@ function checkRows(Database, build) {
   for (const options of [{ limit: 0 }, { limit: 1.5 }, { limit: "1" }, { start: -1 }, { start: 0.5 }, { start: "0" }]) {
     assert.throws(() => db.rows("Table1", options), { name: "JetdbError", code: "INVALID_ARGUMENT" }, build);
   }
+  // The CSV of a table, as jetdb export writes it.
+  assert.equal(
+    db.csv("Table1"),
+    'A,B,C,D,E,F,G,H,I\n"abcdefg","hijklmnop",2,222,333333333,444.555,1974-09-21,3.5000,1\n"a","b",0,0,0,0,1981-12-12,0.0000,0\n',
+    build,
+  );
+  assert.equal(
+    db.csv("Table1", { header: false, delimiter: "\t", dateFormat: "%d/%m/%Y", booleanWords: true }),
+    '"abcdefg"\t"hijklmnop"\t2\t222\t333333333\t444.555\t21/09/1974\t3.5000\tTRUE\n"a"\t"b"\t0\t0\t0\t0\t12/12/1981\t0.0000\tFALSE\n',
+    build,
+  );
+  const complexCsv = Database.open(read("V2007/complexDataTestV2007.accdb")).csv("Table1");
+  assert.ok(complexCsv.includes(',"value1;value4","test_data.txt;test_data2.txt"'), build);
+  for (const options of [{ delimiter: "" }, { delimiter: ",;" }, { bin: "HEX" }, { header: "no" }, { null: 0 }]) {
+    assert.throws(() => db.csv("Table1", options), { name: "JetdbError", code: "INVALID_ARGUMENT" }, build);
+  }
+  assert.throws(() => db.csv("NoSuchTable"), { name: "JetdbError", code: "TABLE_NOT_FOUND" }, build);
   // A table without rows still gives the names of its columns.
   const empty = db.rows("Table2");
   assert.deepEqual(empty.rows, [], build);
@@ -497,7 +514,7 @@ function checkStringArguments(Database, build) {
   // can still be read after it.
   const db = openTest(Database);
   const invalid = { name: "JetdbError", code: "INVALID_ARGUMENT" };
-  for (const method of ["columns", "indexes", "rows", "querySql", "moduleSource", "formProperties", "formStream", "formControls", "macro", "embeddedMacros", "dataMacros", "dataMacrosText"]) {
+  for (const method of ["columns", "indexes", "rows", "csv", "querySql", "moduleSource", "formProperties", "formStream", "formControls", "macro", "embeddedMacros", "dataMacros", "dataMacrosText"]) {
     for (const value of [undefined, null, 42, {}]) {
       assert.throws(() => db[method](value), invalid, `${build}: ${method}(${value})`);
     }
