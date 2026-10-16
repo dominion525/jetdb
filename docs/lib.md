@@ -242,6 +242,25 @@ fn main() -> Result<(), jetdb::FileError> {
 }
 ```
 
+## CSV
+
+[`write_csv`] writes a table as CSV, as `jetdb export` writes it, one row at a time. [`CsvOptions`] holds the options of `jetdb export`. An attachment field gives the file names, or, with a function given for `attachments`, what that function returns for each file it is given.
+
+```rust,no_run
+use jetdb::{find_table, read_catalog, read_table_def, write_csv, CsvOptions, PageReader};
+
+fn main() -> Result<(), jetdb::FileError> {
+    let mut reader = PageReader::open("database.mdb")?;
+    let catalog = read_catalog(&mut reader)?;
+    let entry = find_table(&catalog, "Orders")?;
+    let table = read_table_def(&mut reader, &entry.name, entry.table_page)?;
+    let options = CsvOptions { delimiter: '\t', ..CsvOptions::default() };
+    let mut out = std::io::stdout().lock();
+    write_csv(&mut reader, &catalog, &table, &options, &mut out, None)?;
+    Ok(())
+}
+```
+
 ## VBA Source Code
 
 [`read_vba_project`] extracts VBA module source code.

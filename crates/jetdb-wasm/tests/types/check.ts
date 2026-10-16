@@ -33,6 +33,7 @@ import {
   type Row,
   type Rows,
   type RowsOptions,
+  type CsvOptions,
   type Value,
   type Scalar,
   type Attachment,
@@ -100,6 +101,22 @@ export const result: { columns: string[]; rows: Row[]; skipped: number; next: nu
 export const part: Rows = db.rows("Table1", { limit: 100 });
 export const nextPart: Rows = db.rows("Table1", { start: part.next ?? 0, limit: 100 });
 export const rowsOptions: RowsOptions = { start: 0 };
+export const csvText: string = db.csv("Table1");
+export const csvOptions: CsvOptions = {
+  header: false,
+  delimiter: "\t",
+  dateFormat: "%d/%m/%Y",
+  datetimeFormat: "%Y-%m-%d %H:%M",
+  bin: "octal",
+  null: "NULL",
+  booleanWords: true,
+  systemColumns: true,
+};
+export const tabCsv: string = db.csv("Table1", csvOptions);
+// @ts-expect-error: bin is one of the four modes, in lowercase.
+db.csv("Table1", { bin: "HEX" });
+// @ts-expect-error: the table name is required.
+db.csv();
 // @ts-expect-error: next is a number or null, not always a number.
 export const nextNumber: number = part.next;
 // @ts-expect-error: start is a number.
