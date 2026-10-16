@@ -674,13 +674,7 @@ fn parse_blob(data: &[u8]) -> Result<(Vec<BlobProperty>, Vec<Vec<BlobProperty>>)
     }
 
     // Skip 8-byte blob header + 6-byte section preamble.
-    let mut pos = 14;
-    let mut all_props = Vec::new();
-
-    while let Some((property, next)) = parse_entry(data, pos, data.len()) {
-        all_props.push(property);
-        pos = next;
-    }
+    let (all_props, pos) = parse_group(data, 14, data.len());
 
     // The sequential parse above covers form-level properties but stops at binary
     // layout data in the middle. Control sections come later, each starting with a
@@ -723,26 +717,50 @@ fn scan_control_sections(data: &[u8], start: usize) -> Vec<Vec<BlobProperty>> {
     control_groups
 }
 
-/// The property entry at `pos`, which ends by `end`, and where the next entry
-/// starts; `None` when there is no entry there.
+/// The trailers that end a group of entries: the properties of the form or
+/// report itself end with 255, those of a control with 253.
+const GROUP_END: std::ops::RangeInclusive<u32> = 253..=255;
+
+/// The entries of the group from `start`, which ends by `end`: through the
+/// entry whose trailer ends the group (see [`GROUP_END`]), or up to the
+/// bytes that are not an entry. Returns them and where the reading stopped.
+fn parse_group(data: &[u8], start: usize, end: usize) -> (Vec<BlobProperty>, usize) {
+    let mut props = Vec::new();
+    let mut pos = start;
+    while let Some((property, next, last)) = parse_entry(data, pos, end) {
+        props.push(property);
+        pos = next;
+        if last {
+            break;
+        }
+    }
+    (props, pos)
+}
+
+/// The property entry at `pos`, which ends by `end`, where the next entry
+/// starts, and whether it ends its group; `None` when there is no entry
+/// there.
 ///
 /// An entry is reverse-engineered as `prop_id(u16) + type(u32) + B(u32) +
 /// C(u32)`, then C bytes of value and a 4-byte trailer. The type tells how
-/// to read the value (see [`entry_value`]); B is not used. An unknown type
-/// ends the entries, as the bytes after them are not entries.
-fn parse_entry(data: &[u8], pos: usize, end: usize) -> Option<(BlobProperty, usize)> {
+/// to read the value (see [`entry_value`]); B is not used. The trailer grows
+/// from one entry to the next, and is one of [`GROUP_END`] for the last entry
+/// of a group.
+fn parse_entry(data: &[u8], pos: usize, end: usize) -> Option<(BlobProperty, usize, bool)> {
     let header = data.get(pos..pos.checked_add(14)?)?;
     let prop_id = u16::from_le_bytes([header[0], header[1]]);
     let type_code = u32::from_le_bytes([header[2], header[3], header[4], header[5]]);
     let len = u32::from_le_bytes([header[10], header[11], header[12], header[13]]);
     let data_start = pos + 14;
     let data_end = variable_data_end(data_start, len, end)?;
-    let value = entry_value(type_code, &data[data_start..data_end])?;
-    Some((BlobProperty { prop_id, value }, data_end + 4))
+    let value = entry_value(type_code, &data[data_start..data_end]);
+    let t = &data[data_end..data_end + 4];
+    let trailer = u32::from_le_bytes([t[0], t[1], t[2], t[3]]);
+    let property = BlobProperty { prop_id, value };
+    Some((property, data_end + 4, GROUP_END.contains(&trailer)))
 }
 
-/// The value of an entry of type `type_code` whose value bytes are `bytes`;
-/// `None` for a type jetdb does not know.
+/// The value of an entry of type `type_code` whose value bytes are `bytes`.
 ///
 /// - 0x01 Yes/No: no bytes for [`BlobValue::NotDefault`], one byte for a
 ///   value (0 for No), and 2 or 4 bytes for an integer, such as `Overlaps`.
@@ -753,24 +771,30 @@ fn parse_entry(data: &[u8], pos: usize, end: usize) -> Option<(BlobProperty, usi
 /// - 0x08 a double of 8 bytes, 0x09 a GUID of 16 bytes.
 /// - 0x0A, 0x0C UTF-16LE text, 0x0B bytes.
 ///
-/// Bytes of a length the type does not have are given as they are.
-fn entry_value(type_code: u32, bytes: &[u8]) -> Option<BlobValue> {
+/// Bytes of a length the type does not have, and of a type jetdb does not
+/// know, are given as they are.
+fn entry_value(type_code: u32, bytes: &[u8]) -> BlobValue {
     let binary = || BlobValue::Binary(bytes.to_vec());
-    Some(match type_code {
+    match type_code {
         0x01 => yes_no_value(bytes),
         0x02 => integer_value(bytes)
             .and_then(|v| i16::try_from(v).ok())
             .map_or_else(binary, BlobValue::Short),
         0x03 => integer_value(bytes).map_or_else(binary, BlobValue::Long),
         0x04 => integer_value(bytes).map_or_else(binary, |v| BlobValue::Color(v as u32)),
-        0x06 | 0x08 | 0x09 => fixed_size_value(type_code, bytes).unwrap_or_else(binary),
+        0x06 => <[u8; 4]>::try_from(bytes).map_or_else(
+            |_| binary(),
+            |b| BlobValue::Double(f64::from(f32::from_le_bytes(b))),
+        ),
+        0x08 => <[u8; 8]>::try_from(bytes)
+            .map_or_else(|_| binary(), |b| BlobValue::Double(f64::from_le_bytes(b))),
+        0x09 if bytes.len() == 16 => BlobValue::Guid(format_guid(bytes)),
         0x0A | 0x0C => BlobValue::Text(
             encoding::decode_utf16le(bytes)
                 .unwrap_or_else(|_| String::from_utf8_lossy(bytes).into_owned()),
         ),
-        0x0B => binary(),
-        _ => return None,
-    })
+        _ => binary(),
+    }
 }
 
 /// The value of a Yes/No entry (type 0x01): [`BlobValue::NotDefault`] for
@@ -795,20 +819,6 @@ fn integer_value(bytes: &[u8]) -> Option<i32> {
     }
 }
 
-/// A single (0x06), a double (0x08) or a GUID (0x09), when the bytes are as
-/// many as the type has.
-fn fixed_size_value(type_code: u32, bytes: &[u8]) -> Option<BlobValue> {
-    match type_code {
-        0x06 => Some(BlobValue::Double(f64::from(f32::from_le_bytes(
-            bytes.try_into().ok()?,
-        )))),
-        0x08 => Some(BlobValue::Double(f64::from_le_bytes(
-            bytes.try_into().ok()?,
-        ))),
-        _ => (bytes.len() == 16).then(|| BlobValue::Guid(format_guid(bytes))),
-    }
-}
-
 /// The end of `len` bytes of variable-length data from `start`, when they and
 /// the 4-byte trailer after them end by `limit`. The sums are checked: `len`
 /// comes from the file, and `usize` has 32 bits in Wasm, where an unchecked
@@ -818,19 +828,10 @@ fn variable_data_end(start: usize, len: u32, limit: usize) -> Option<usize> {
     (end.checked_add(4)? <= limit).then_some(end)
 }
 
-/// Parse property entries from a section of the blob.
-///
-/// Same entry format as `parse_blob`, but limited to the given range.
+/// Parse property entries from a section of the blob: the group of entries
+/// from `start`, limited to the given range.
 fn parse_section_props(data: &[u8], start: usize, end: usize) -> Vec<BlobProperty> {
-    let mut props = Vec::new();
-    let mut pos = start;
-
-    while let Some((property, next)) = parse_entry(data, pos, end) {
-        props.push(property);
-        pos = next;
-    }
-
-    props
+    parse_group(data, start, end).0
 }
 
 /// Format 16 bytes as a GUID string `{xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}`.
@@ -864,7 +865,7 @@ fn format_guid(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
 
     fn test_data_path(relative: &str) -> Option<std::path::PathBuf> {
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
@@ -1073,16 +1074,19 @@ mod tests {
         make_entry(prop_id, type_code, 1, value.len() as u32, &payload)
     }
 
-    /// A block of a SaveAsText file being read: its depth, the control name,
-    /// its integers and its `NotDefault` lines.
-    type SaveAsTextBlock = (usize, Option<String>, Vec<i64>, usize);
+    /// The integer properties of a control in a SaveAsText file, by key.
+    type SavedIntegers = Vec<(String, i64)>;
 
-    /// The integers a SaveAsText file of a form or report writes for each
-    /// control, by its name ("" for the form or report itself), and the
-    /// number of its `NotDefault` lines.
-    fn save_as_text_integers(path: &std::path::Path) -> HashMap<String, (Vec<i64>, usize)> {
+    /// A block of a SaveAsText file being read: its depth, the control name,
+    /// its integer properties and its `NotDefault` lines.
+    type SaveAsTextBlock = (usize, Option<String>, SavedIntegers, usize);
+
+    /// The integer properties a SaveAsText file of a form or report writes
+    /// for each control, by its name ("" for the form or report itself), and
+    /// the number of its `NotDefault` lines.
+    fn save_as_text_integers(path: &std::path::Path) -> HashMap<String, (SavedIntegers, usize)> {
         let text = std::fs::read_to_string(path).unwrap();
-        let mut found: HashMap<String, (Vec<i64>, usize)> = HashMap::new();
+        let mut found: HashMap<String, (SavedIntegers, usize)> = HashMap::new();
         let mut blocks: Vec<SaveAsTextBlock> = Vec::new();
         // The depth of the binary data (`= Begin` ... `End`) being passed over.
         let mut binary = 0;
@@ -1109,7 +1113,7 @@ mod tests {
     /// Adds what `block` holds to `found`, under its control name ("" for
     /// the form or report itself); a block without a name is left out.
     fn close_save_as_text_block(
-        found: &mut HashMap<String, (Vec<i64>, usize)>,
+        found: &mut HashMap<String, (SavedIntegers, usize)>,
         (depth, name, ints, not_default): SaveAsTextBlock,
     ) {
         let Some(name) = (if depth == 0 {
@@ -1135,31 +1139,40 @@ mod tests {
         } else if value == "NotDefault" {
             block.3 += 1;
         } else if let Ok(v) = value.parse::<i64>() {
-            block.2.push(v);
+            block.2.push((key.to_string(), v));
         }
     }
 
-    /// Whether SaveAsText writes `value` among `ints`: `None` for a value it
-    /// does not write as an integer. A Yes value is -1, 1 or 255.
-    fn written_as_integer(value: &BlobValue, ints: &[i64]) -> Option<bool> {
-        let any = |values: &[i64]| values.iter().any(|v| ints.contains(v));
-        Some(match *value {
-            BlobValue::Short(v) => any(&[i64::from(v)]),
-            BlobValue::Long(v) => any(&[i64::from(v)]),
-            BlobValue::Color(v) => any(&[i64::from(v as i32)]),
-            BlobValue::Bool(false) => any(&[0]),
-            BlobValue::Bool(true) => any(&[-1, 1, 255]),
+    /// The keys of `saved` whose value is `value` as SaveAsText writes it:
+    /// `None` for a value it does not write as an integer. A Yes value is -1,
+    /// 1 or 255.
+    fn keys_of(value: &BlobValue, saved: &SavedIntegers) -> Option<HashSet<String>> {
+        let values: &[i64] = match *value {
+            BlobValue::Short(v) => &[i64::from(v)],
+            BlobValue::Long(v) => &[i64::from(v)],
+            BlobValue::Color(v) => &[i64::from(v as i32)],
+            BlobValue::Bool(false) => &[0],
+            BlobValue::Bool(true) => &[-1, 1, 255],
             _ => return None,
-        })
+        };
+        Some(
+            saved
+                .iter()
+                .filter(|(_, v)| values.contains(v))
+                .map(|(k, _)| k.clone())
+                .collect(),
+        )
     }
 
     /// Checks the values of the form or report `name` against its SaveAsText
-    /// file `file`, and returns how many were checked.
+    /// file `file`: narrows the keys each property may be in `keys`, and
+    /// returns how many values were checked.
     fn check_against_save_as_text(
         path: &std::path::Path,
         file: &std::path::Path,
         object_type: FormObjectType,
         name: &str,
+        keys: &mut HashMap<u16, HashSet<String>>,
     ) -> usize {
         let written = save_as_text_integers(file);
         let mut reader = PageReader::open(path).unwrap();
@@ -1168,17 +1181,25 @@ mod tests {
             .chain(read.controls.into_iter().map(|c| (c.name, c.properties)));
         let mut checked = 0;
         for (control, properties) in groups {
-            let (ints, not_default) = written.get(&control).cloned().unwrap_or_default();
+            let (saved, not_default) = written.get(&control).cloned().unwrap_or_default();
             // SaveAsText writes the right and bottom of a form only.
             let report_side = object_type == FormObjectType::Report && control.is_empty();
             let compared = properties.iter().filter(|p| {
                 p.prop_id != 0x0000 && !(report_side && matches!(p.prop_id, 0x0081 | 0x000C))
             });
             for p in compared {
-                if let Some(ok) = written_as_integer(&p.value, &ints) {
-                    assert!(ok, "{name} {control:?} {:#06x} {:?}", p.prop_id, p.value);
-                    checked += 1;
-                }
+                let Some(found) = keys_of(&p.value, &saved) else {
+                    continue;
+                };
+                assert!(
+                    !found.is_empty(),
+                    "{name} {control:?} {:#06x} {:?}",
+                    p.prop_id,
+                    p.value
+                );
+                let narrowed = keys.entry(p.prop_id).or_insert_with(|| found.clone());
+                narrowed.retain(|k| found.contains(k));
+                checked += 1;
             }
             if control.is_empty() {
                 let read_not_default = properties
@@ -1194,14 +1215,16 @@ mod tests {
     #[test]
     fn values_are_those_save_as_text_writes() {
         // Every integer and Yes/No value of a form and a report of
-        // Sports.accdb is one SaveAsText writes for the same control, and the
-        // form or report itself has as many NotDefault values as SaveAsText
-        // has lines. Left out: property 0x0000, which SaveAsText does not
-        // write, and the right and bottom (0x0081, 0x000C) of a report.
-        // Few properties of the controls of the report come after their
-        // names, where jetdb reads them, so fewer values are checked there.
+        // Sports.accdb is one SaveAsText writes for the same control under a
+        // key that is the same for every value of the property, and the form
+        // or report itself has as many NotDefault values as SaveAsText has
+        // lines. Left out: property 0x0000, which SaveAsText does not write,
+        // and the right and bottom (0x0081, 0x000C) of a report. Few
+        // properties of the controls of the report come after their names,
+        // where jetdb reads them, so fewer values are checked there.
         let path = skip_if_missing!("saveastext/SportsAdmin/Sports.accdb");
         let dir = path.parent().unwrap().to_path_buf();
+        let mut keys: HashMap<u16, HashSet<String>> = HashMap::new();
         for (file, object_type, name, at_least) in [
             (
                 "forms/Statistical Reports.bas",
@@ -1216,8 +1239,15 @@ mod tests {
                 5,
             ),
         ] {
-            let checked = check_against_save_as_text(&path, &dir.join(file), object_type, name);
+            let checked =
+                check_against_save_as_text(&path, &dir.join(file), object_type, name, &mut keys);
             assert!(checked >= at_least, "{name}: only {checked} values");
+        }
+        for (id, found) in &keys {
+            assert!(!found.is_empty(), "{id:#06x}: no key fits every value");
+        }
+        for (id, key) in [(0x0036, "Left"), (0x008D, "Top"), (0x0096, "Width")] {
+            assert!(keys[&id].contains(key), "{id:#06x}: {:?}", keys[&id]);
         }
     }
 
@@ -1357,18 +1387,56 @@ mod tests {
         assert!(matches!(props[3].value, BlobValue::Long(-1)));
     }
     #[test]
-    fn parse_blob_stops_on_unknown_type() {
-        let mut entries = Vec::new();
-        // Valid Bool entry
-        entries.extend_from_slice(&make_entry(0x0013, 0x01, 0, 0, &[0x01; 4]));
-        // Unknown type 0xFF
-        entries.extend_from_slice(&make_entry(0x9999, 0xFF, 0, 0, &[0x00; 10]));
-
-        let blob = make_blob(&entries);
-        let (props, _) = parse_blob(&blob).unwrap();
-        assert_eq!(props.len(), 1, "should stop at unknown type");
+    fn parse_blob_reads_on_past_unknown_types() {
+        // An entry of a type jetdb does not know (such as 0x11) is read by its
+        // length as bytes, and the entries after it are read too.
+        let mut entries = entry(0x0013, 0x01, &[]);
+        entries.extend(entry(0x0201, 0x11, &[1, 2, 3]));
+        entries.extend(entry(0x0230, 0x01, &[0x00]));
+        let (props, _) = parse_blob(&make_blob(&entries)).unwrap();
+        assert_eq!(props.len(), 3);
+        assert!(matches!(props[0].value, BlobValue::NotDefault));
+        assert!(matches!(&props[1].value, BlobValue::Binary(b) if b == &[1, 2, 3]));
+        assert!(matches!(props[2].value, BlobValue::Bool(false)));
     }
 
+    #[test]
+    fn a_group_ends_with_a_trailer_of_253_to_255() {
+        // The entry whose trailer is 253, 254 or 255 is the last of its group:
+        // what follows is not read as an entry of it.
+        for end in [253u32, 254, 255] {
+            let mut entries = entry(0x0029, 0x03, &[0x14, 0x00]);
+            let mut last = vec![0x01];
+            last.extend_from_slice(&end.to_le_bytes());
+            entries.extend(make_entry(0x02E6, 0x01, 1, 1, &last));
+            entries.extend(entry(0x0230, 0x01, &[0x00]));
+            let (props, _) = parse_blob(&make_blob(&entries)).unwrap();
+            assert_eq!(props.len(), 2, "{end}");
+            assert_eq!(props[1].prop_id, 0x02E6);
+            let section = parse_section_props(&entries, 0, entries.len());
+            assert_eq!(section.len(), 2, "{end}");
+        }
+    }
+
+    #[test]
+    fn properties_after_an_entry_of_an_unknown_type() {
+        // The form Shared has an entry 0x0201 of type 0x11 (730 bytes), and
+        // twelve more after it, through 0x02E6, whose trailer 255 ends the
+        // properties of the form.
+        let path = skip_if_missing!("V2007/sameNameTestV2007.accdb");
+        let mut reader = PageReader::open(&path).unwrap();
+        let read =
+            read_form_properties_of_type(&mut reader, "Shared", FormObjectType::Form).unwrap();
+        let ids: Vec<u16> = read.properties.iter().map(|p| p.prop_id).collect();
+        let at = ids.iter().position(|&id| id == 0x0201).unwrap();
+        assert!(matches!(&read.properties[at].value, BlobValue::Binary(b) if b.len() == 730));
+        assert_eq!(ids.len() - at - 1, 12);
+        assert_eq!(ids.last(), Some(&0x02E6));
+        assert!(read
+            .properties
+            .iter()
+            .any(|p| p.prop_id == 0x0277 && matches!(p.value, BlobValue::Double(_))));
+    }
     #[test]
     fn parse_blob_guid_entry() {
         // GUID (type 0x09): 16 bytes.
