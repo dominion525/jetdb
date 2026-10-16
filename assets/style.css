@@ -1130,6 +1130,24 @@ pre {
   white-space: pre;
 }
 
+/* コントロールの一覧: 1 つずつ開いてプロパティを見る */
+.viewer-control {
+  border-bottom: 1px solid var(--border);
+}
+
+.viewer-control summary {
+  padding: 8px 4px;
+  cursor: pointer;
+}
+
+.viewer-control[open] summary {
+  margin-bottom: 8px;
+}
+
+.viewer-control .viewer-table-wrap {
+  margin-bottom: 12px;
+}
+
 .viewer-props + .viewer-props {
   margin-top: 20px;
 }

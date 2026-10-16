@@ -611,6 +611,89 @@ function showMacro(name) {
   return [textView(macro.text, fileName(name, "txt"))];
 }
 
+// ---- フォーム/レポート ----
+
+const propertyTable = (props) =>
+  props.length === 0
+    ? el("p", { class: "note" }, "None.")
+    : table(
+        ["Name", "Value"],
+        props.map((p) => [p.name, value(p.value)]),
+      );
+
+function formControls(design) {
+  if (design.controls.length === 0)
+    return el("p", { class: "note" }, "This design has no controls.");
+  return el(
+    "div",
+    { class: "viewer-controls" },
+    design.controls.map((c) =>
+      el(
+        "details",
+        { class: "viewer-control" },
+        el("summary", {}, el("strong", {}, c.name), ` (${c.type})`),
+        propertyTable(c.properties),
+      ),
+    ),
+  );
+}
+
+// 埋め込みマクロ: どのコントロールのどのイベントのものかを見出しにする
+function formMacros(name, type) {
+  const macros = db.embeddedMacros(name, { type });
+  if (macros.length === 0)
+    return el("p", { class: "note" }, "There are no embedded macros.");
+  return el(
+    "div",
+    {},
+    macros.map((m) => {
+      const where = [m.source.control ?? name, m.source.event]
+        .filter(Boolean)
+        .join(".");
+      return el(
+        "section",
+        { class: "viewer-props" },
+        el("h3", {}, where),
+        m.text === null
+          ? el(
+              "p",
+              { class: "note" },
+              "This macro was stored without XML, so jetdb has no text to show.",
+            )
+          : textView(m.text, fileName(where, "txt")),
+      );
+    }),
+  );
+}
+
+// フォームのモジュールがあれば、それを開くリンクを出す
+function formModule(name, type) {
+  const moduleName = `${type}_${name}`;
+  if (!db.modules().some((m) => m.name === moduleName))
+    return el(
+      "p",
+      { class: "note" },
+      `This ${type.toLowerCase()} has no module.`,
+    );
+  return el(
+    "p",
+    {},
+    "The VBA of this design is in the module ",
+    el("a", { href: hashOf("module", moduleName) }, moduleName),
+    ".",
+  );
+}
+
+function showForm(name, type) {
+  const design = db.formProperties(name, { type });
+  return tabs([
+    ["Properties", () => propertyTable(design.properties)],
+    ["Controls", () => formControls(design)],
+    ["Embedded macros", () => formMacros(name, type)],
+    ["Module", () => formModule(name, type)],
+  ]);
+}
+
 // 種類の下に添える一文（クエリとモジュールは、その種類も）
 function subtitle(kind, name) {
   if (kind === "database") return "The whole database";
@@ -630,6 +713,8 @@ const RENDERERS = {
   query: showQuery,
   module: showModule,
   macro: showMacro,
+  form: (name) => showForm(name, "Form"),
+  report: (name) => showForm(name, "Report"),
 };
 
 // ---- 右の中身 ----
