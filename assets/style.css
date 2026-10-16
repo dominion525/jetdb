@@ -1100,6 +1100,36 @@ pre {
   opacity: 0.6;
 }
 
+/* テキスト（SQL・VBA・マクロ）: 等幅で、長い行は枠の中で横に送る */
+.viewer-code {
+  margin-top: 16px;
+}
+
+.viewer-tabs + .viewer-panel .viewer-code {
+  margin-top: 0;
+}
+
+.viewer-code-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.viewer-code pre {
+  margin: 0;
+  max-height: 70vh;
+  overflow: auto;
+  padding: 14px 16px;
+  background: var(--code-bg);
+  color: var(--code-text);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  white-space: pre;
+}
+
 .viewer-props + .viewer-props {
   margin-top: 20px;
 }

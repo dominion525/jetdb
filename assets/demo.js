@@ -552,6 +552,86 @@ function showTable(name) {
   ]);
 }
 
+// ---- テキスト（SQL・VBA・マクロ）----
+
+// テキストを等幅で出し、コピーとファイルとして保存のボタンを付ける
+function textView(text, filename) {
+  const copy = el(
+    "button",
+    {
+      type: "button",
+      class: "viewer-save",
+      onclick: async () => {
+        try {
+          await navigator.clipboard.writeText(text);
+          copy.textContent = "Copied";
+        } catch {
+          copy.textContent = "Could not copy";
+        }
+        setTimeout(() => (copy.textContent = "Copy"), 2000);
+      },
+    },
+    "Copy",
+  );
+  const save = saveButton("Save", new TextEncoder().encode(text), filename);
+  return el(
+    "div",
+    { class: "viewer-code" },
+    el("div", { class: "viewer-code-actions" }, copy, save),
+    el("pre", {}, el("code", {}, text)),
+  );
+}
+
+// ファイル名に使えない文字を _ にする
+const fileName = (name, ext) => `${name.replace(/[\\/:*?"<>|]/g, "_")}.${ext}`;
+
+function showQuery(name) {
+  return tabs([
+    ["SQL", () => textView(db.querySql(name), fileName(name, "sql"))],
+    ["Properties", () => propertiesView(name, "Query")],
+  ]);
+}
+
+function showModule(name) {
+  const module = db.modules().find((m) => m.name === name);
+  const ext = module?.type === "Standard" ? "bas" : "cls";
+  return [textView(db.moduleSource(name), fileName(name, ext))];
+}
+
+function showMacro(name) {
+  const macro = db.macro(name);
+  if (macro.text === null)
+    return [
+      el(
+        "p",
+        { class: "note" },
+        "jetdb could not read the actions of this macro, so there is no text to show.",
+      ),
+    ];
+  return [textView(macro.text, fileName(name, "txt"))];
+}
+
+// 種類の下に添える一文（クエリとモジュールは、その種類も）
+function subtitle(kind, name) {
+  if (kind === "database") return "The whole database";
+  if (kind === "query") {
+    const q = db.queries({ system: true }).find((x) => x.name === name);
+    return q ? `query · ${q.type}` : "query";
+  }
+  if (kind === "module") {
+    const m = db.modules().find((x) => x.name === name);
+    return m ? `module · ${m.type}` : "module";
+  }
+  return KIND_LABELS[kind];
+}
+
+const RENDERERS = {
+  table: showTable,
+  query: showQuery,
+  module: showModule,
+  macro: showMacro,
+};
+
 // ---- 右の中身 ----
 
 function showDetail(kind, name) {
@@ -560,24 +640,22 @@ function showDetail(kind, name) {
     { class: "viewer-title" },
     kind === "database" ? "Database" : name,
   );
-  const type = el(
-    "p",
-    { class: "viewer-type" },
-    kind === "database" ? "The whole database" : KIND_LABELS[kind],
-  );
+  let type;
   let body;
   try {
-    body =
-      kind === "table"
-        ? showTable(name)
-        : [
-            el(
-              "p",
-              { class: "note" },
-              "The contents come in a later step of this page.",
-            ),
-          ];
+    type = el("p", { class: "viewer-type" }, subtitle(kind, name));
+    const render = RENDERERS[kind];
+    body = render
+      ? render(name)
+      : [
+          el(
+            "p",
+            { class: "note" },
+            "The contents come in a later step of this page.",
+          ),
+        ];
   } catch (e) {
+    type ??= el("p", { class: "viewer-type" }, KIND_LABELS[kind] ?? "");
     body = [failure(e)];
   }
   detail.replaceChildren(heading, type, ...body);
