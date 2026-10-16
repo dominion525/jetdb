@@ -1,0 +1,10 @@
+{
+  // テストと設定のファイルの型の検査だけをする（JS は作らない）
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "rootDir": ".."
+  },
+  "include": ["../src", "./**/*.ts", "../*.config.ts"]
+}

@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "check": "tsc -p tsconfig.json --noEmit && biome check",
+    "check": "tsc -p tsconfig.json --noEmit && tsc -p tests/tsconfig.json && biome check",
     "lint": "biome check",
     "test": "vitest run",
     "test:e2e": "playwright test"
