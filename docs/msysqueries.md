@@ -73,7 +73,7 @@ Type codes:
 
 Embedded queries often lack the ATTR_TYPE (Attribute=1) row. A typical composition consists only of Attribute=0 (Header), 3 (FLAG), 5 (TABLE), and 255 (Terminator).
 
-Measured values from the IKP database:
+Measured values from a database in real use:
 
   Total query count (Query entries in MSysObjects): 227
   Queries with ATTR_TYPE: 43 (all user-defined queries)
