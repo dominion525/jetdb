@@ -348,6 +348,20 @@ function checkForms(Database, build) {
     { name: "フォームヘッダー", type: "FormHeader", typeCode: 0x1899 },
     build,
   );
+  // The controls of a form, as jetdb form controls lists them: the names and
+  // types of the controls of formProperties, each with its own index.
+  const controls = db.formControls("jp_フォーム_2");
+  assert.equal(controls.length, design.controls.length, build);
+  assert.deepEqual(Object.keys(controls[0]), ["name", "type", "typeCode", "index"], build);
+  assert.deepEqual(
+    controls.map((c) => `${c.name} ${c.type} ${c.typeCode}`).sort(),
+    design.controls.map((c) => `${c.name} ${c.type} ${c.typeCode}`).sort(),
+    build,
+  );
+  const indexes = controls.map((c) => c.index);
+  assert.ok(indexes.every((i) => Number.isInteger(i) && i >= 0), build);
+  assert.equal(new Set(indexes).size, indexes.length, build);
+  assert.throws(() => db.formControls("NoSuchForm"), { name: "JetdbError", code: "FORM_NOT_FOUND" }, build);
   // The streams of a form, as jetdb form dump writes them; the blob starts
   // with the header every form design has.
   const blob = db.formStream("jp_フォーム_2");
@@ -366,6 +380,10 @@ function checkForms(Database, build) {
   assert.throws(() => shared.formProperties("Shared"), { name: "JetdbError", code: "INVALID_ARGUMENT" }, build);
   assert.equal(shared.formProperties("Shared", { type: "Report" }).type, "Report", build);
   assert.throws(() => shared.formStream("Shared"), { name: "JetdbError", code: "INVALID_ARGUMENT" }, build);
+  assert.throws(() => shared.formControls("Shared"), { name: "JetdbError", code: "INVALID_ARGUMENT" }, build);
+  // Made by VBA, these have an empty TypeInfo, which jetdb form controls
+  // cannot read either.
+  assert.throws(() => shared.formControls("Shared", { type: "Report" }), { name: "JetdbError", code: "INVALID_FILE" }, build);
   assert.ok(shared.formStream("Shared", { type: "Report" }).length > 0, build);
   assert.equal(shared.embeddedMacros("Shared", { type: "Report" })[0].source.event, "OnOpen", build);
   assert.throws(() => shared.embeddedMacros("Shared", { type: "Page" }), { name: "JetdbError", code: "INVALID_ARGUMENT" }, build);
@@ -479,7 +497,7 @@ function checkStringArguments(Database, build) {
   // can still be read after it.
   const db = openTest(Database);
   const invalid = { name: "JetdbError", code: "INVALID_ARGUMENT" };
-  for (const method of ["columns", "indexes", "rows", "querySql", "moduleSource", "formProperties", "formStream", "macro", "embeddedMacros", "dataMacros", "dataMacrosText"]) {
+  for (const method of ["columns", "indexes", "rows", "querySql", "moduleSource", "formProperties", "formStream", "formControls", "macro", "embeddedMacros", "dataMacros", "dataMacrosText"]) {
     for (const value of [undefined, null, 42, {}]) {
       assert.throws(() => db[method](value), invalid, `${build}: ${method}(${value})`);
     }

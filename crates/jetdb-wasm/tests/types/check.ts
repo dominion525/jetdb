@@ -22,6 +22,7 @@ import {
   type FormProperties,
   type Control,
   type FormStreamKind,
+  type FormControl,
   type FormStreamOptions,
   type FormProperty,
   type Macro,
@@ -198,6 +199,13 @@ export const streamOptions: FormStreamOptions = { stream: "propdata" };
 db.formStream("Form1", { stream: "Blob" });
 // @ts-expect-error: the form name is required.
 db.formStream();
+export const formControls: FormControl[] = db.formControls("Form1", { type: "Form" });
+export const formControl: { name: string; type: string; typeCode: number; index: number } =
+  formControls[0];
+// @ts-expect-error: a control of formControls has no properties.
+formControls[0].properties;
+// @ts-expect-error: the form name is required.
+db.formControls();
 db.formProperties("Shared", { type: "Report" });
 db.embeddedMacros("Shared", { type: "Form" });
 // @ts-expect-error: Page is not a form type.

@@ -17,12 +17,12 @@ use jetdb::{
     calculated_column_types_in, control_type_name, data_macros_to_text, embedded_macro_to_text,
     entry_properties, find_table, list_forms_in, list_macros_in, query_to_sql, read_access_storage,
     read_catalog, read_complex_column, read_data_macros_in, read_embedded_macros_in,
-    read_form_properties_in, read_form_stream_in, read_macro_in, read_object_properties,
-    read_queries_in, read_relationships_in, read_table_def, read_vba_project_in,
-    relationship_flags, timestamp, AccessStorage, BlobProperty, BlobValue, CatalogEntry,
-    ComplexColumn, ComplexValues, FileError, FormObjectType, IndexColumnOrder, MacroDef, MacroGrid,
-    PageReader, PropMapType, QueryDef, QueryType, RowPosition, StreamKind, TableDef, TableRows,
-    Value, VbaModule, VbaModuleType,
+    read_form_properties_in, read_form_stream_in, read_form_type_info_in, read_macro_in,
+    read_object_properties, read_queries_in, read_relationships_in, read_table_def,
+    read_vba_project_in, relationship_flags, timestamp, AccessStorage, BlobProperty, BlobValue,
+    CatalogEntry, ComplexColumn, ComplexValues, FileError, FormObjectType, IndexColumnOrder,
+    MacroDef, MacroGrid, PageReader, PropMapType, QueryDef, QueryType, RowPosition, StreamKind,
+    TableDef, TableRows, Value, VbaModule, VbaModuleType,
 };
 
 /// A database opened from bytes in memory.
@@ -251,6 +251,23 @@ pub fn number_position(number: f64) -> Option<RowPosition> {
         page: u32::try_from(number >> 16).ok()?,
         row: (number & 0xFFFF) as u16,
     })
+}
+
+/// A control of a form or report, as `Database::form_controls` returns it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ControlEntry {
+    pub name: String,
+    /// The type name (see [`control_type`]).
+    pub type_name: String,
+    pub type_code: u16,
+    /// The index of the control in the form or report.
+    pub index: u32,
+}
+
+/// The name of the control type `code`, or the code as `0x....` for a type
+/// jetdb does not know, as `jetdb form controls` shows it.
+fn control_type(code: u16) -> String {
+    control_type_name(code).map_or_else(|| format!("0x{code:04X}"), str::to_string)
 }
 
 /// A value of a row, in the JavaScript type it becomes.
@@ -691,6 +708,27 @@ impl Database {
         Ok(out)
     }
 
+    /// The controls of the form or report `name`, as `jetdb form controls`
+    /// lists them: in the order of its TypeInfo, with their index.
+    pub fn form_controls(
+        &mut self,
+        name: &str,
+        form_type: Option<FormObjectType>,
+    ) -> Result<Vec<ControlEntry>, PropertiesError> {
+        let form_type = self.form_type(name, form_type)?;
+        let type_info = read_form_type_info_in(self.storage()?, name, form_type)?;
+        Ok(type_info
+            .controls
+            .into_iter()
+            .map(|c| ControlEntry {
+                name: c.name,
+                type_name: control_type(c.type_code),
+                type_code: c.type_code,
+                index: c.index,
+            })
+            .collect())
+    }
+
     /// The bytes of the stream `kind` of the form or report `name`, as
     /// `jetdb form dump` writes them.
     pub fn form_stream(
@@ -732,8 +770,7 @@ impl Database {
                 .into_iter()
                 .map(|c| Control {
                     name: c.name,
-                    type_name: control_type_name(c.type_code)
-                        .map_or_else(|| format!("0x{:04X}", c.type_code), str::to_string),
+                    type_name: control_type(c.type_code),
                     type_code: c.type_code,
                     properties: properties(c.properties),
                 })
@@ -1089,7 +1126,7 @@ mod tests {
     // which the tests compare Database with.
     use jetdb::{
         list_forms, list_macros, read_data_macros, read_embedded_macros, read_form_properties,
-        read_form_stream_of_type, read_macro, read_vba_project,
+        read_form_stream_of_type, read_form_type_info_of_type, read_macro, read_vba_project,
     };
 
     fn test_data(relative: &str) -> Option<Vec<u8>> {
@@ -1842,6 +1879,105 @@ mod tests {
                 assert_eq!(got, expected, "{file} {} {kind:?}", entry.name);
             }
         }
+    }
+
+    /// The controls of `entry` as Database gives them, and as the library
+    /// function jetdb form controls uses gives them, with the error as text.
+    fn both_control_lists(
+        db: &mut Database,
+        reader: &mut PageReader,
+        entry: &jetdb::FormEntry,
+    ) -> (
+        Result<Vec<ControlEntry>, String>,
+        Result<Vec<ControlEntry>, String>,
+    ) {
+        let expected = read_form_type_info_of_type(reader, &entry.name, entry.object_type)
+            .map(|t| {
+                t.controls
+                    .into_iter()
+                    .map(|c| ControlEntry {
+                        type_name: control_name_of_cli(c.type_code),
+                        name: c.name,
+                        type_code: c.type_code,
+                        index: c.index,
+                    })
+                    .collect()
+            })
+            .map_err(|e| e.to_string());
+        let got = db
+            .form_controls(&entry.name, Some(entry.object_type))
+            .map_err(|e| match e {
+                PropertiesError::File(e) => e.to_string(),
+                other => panic!("{other:?}"),
+            });
+        (got, expected)
+    }
+
+    /// The type name jetdb form controls prints for `code`.
+    fn control_name_of_cli(code: u16) -> String {
+        control_type_name(code)
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| format!("0x{code:04X}"))
+    }
+
+    #[test]
+    fn form_controls_as_jetdb_form_controls_lists_them() {
+        // The controls of each form and report are those jetdb form controls
+        // lists, in its order; their names, ignoring case, and types are those
+        // of the controls of formProperties. A control of Sports.accdb is
+        // H_Code in TypeInfo and H_code in the Blob.
+        for file in ["formPropTest.accdb", "saveastext/SportsAdmin/Sports.accdb"] {
+            let bytes = skip_if_missing!(file);
+            let mut db = Database::open(bytes.clone(), None).unwrap();
+            let mut reader = PageReader::open_reader(Cursor::new(bytes)).unwrap();
+            let entries = list_forms(&mut reader).unwrap();
+            assert!(!entries.is_empty(), "{file}");
+            for entry in &entries {
+                let (got, expected) = both_control_lists(&mut db, &mut reader, entry);
+                assert_eq!(got, expected, "{file} {}", entry.name);
+                let Ok(controls) = got else {
+                    continue;
+                };
+                let mut listed: Vec<(String, String)> = controls
+                    .into_iter()
+                    .map(|c| (c.name.to_lowercase(), c.type_name))
+                    .collect();
+                let design = db
+                    .form_properties(&entry.name, Some(entry.object_type))
+                    .unwrap();
+                let mut designed: Vec<(String, String)> = design
+                    .controls
+                    .into_iter()
+                    .map(|c| (c.name.to_lowercase(), c.type_name))
+                    .collect();
+                listed.sort();
+                designed.sort();
+                assert_eq!(listed, designed, "{file} {}", entry.name);
+            }
+        }
+    }
+
+    #[test]
+    fn form_controls_of_a_form_and_report_of_the_same_name() {
+        let bytes = skip_if_missing!("V2007/sameNameTestV2007.accdb");
+        let mut db = Database::open(bytes.clone(), None).unwrap();
+        assert!(matches!(
+            db.form_controls("Shared", None),
+            Err(PropertiesError::SeveralTypes(_))
+        ));
+        let mut reader = PageReader::open_reader(Cursor::new(bytes)).unwrap();
+        for object_type in [FormObjectType::Form, FormObjectType::Report] {
+            let entry = jetdb::FormEntry {
+                name: "Shared".to_string(),
+                object_type,
+            };
+            let (got, expected) = both_control_lists(&mut db, &mut reader, &entry);
+            assert_eq!(got, expected, "{object_type:?}");
+        }
+        assert!(matches!(
+            db.form_controls("NoSuchForm", None),
+            Err(PropertiesError::File(FileError::FormNotFound { .. }))
+        ));
     }
 
     #[test]
