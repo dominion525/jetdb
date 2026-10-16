@@ -1,6 +1,10 @@
 // デモのページ: jetdb（WebAssembly 版）でデータベースを開き、中身を見せる。
 // 最初はサイトに置いたサンプルを開く。利用者が選んだファイルはブラウザの外に送らない。
 import init, { Database } from "/assets/wasm/jetdb_wasm.js";
+import { MESSAGES } from "/assets/demo-messages.js";
+
+// ページの言語の文字
+const T = MESSAGES[document.documentElement.lang === "ja" ? "ja" : "en"];
 
 const SAMPLE_URL = "/assets/jetdb-sample.accdb";
 const SAMPLE_NAME = "jetdb-sample.accdb";
@@ -20,26 +24,17 @@ let db = null;
 let pending = null;
 
 // 左の一覧に出す種類。read は名前の一覧を返す（system はシステムや隠しのものも含めるか）
-const KINDS = [
+const KIND_READERS = [
   {
     kind: "table",
-    one: "table",
-    many: "tables",
-    title: "Tables",
     read: (system) => db.tables({ system }),
   },
   {
     kind: "query",
-    one: "query",
-    many: "queries",
-    title: "Queries",
     read: (system) => db.queries({ system }).map((q) => q.name),
   },
   {
     kind: "form",
-    one: "form",
-    many: "forms",
-    title: "Forms",
     read: () =>
       db
         .forms()
@@ -48,9 +43,6 @@ const KINDS = [
   },
   {
     kind: "report",
-    one: "report",
-    many: "reports",
-    title: "Reports",
     read: () =>
       db
         .forms()
@@ -59,26 +51,21 @@ const KINDS = [
   },
   {
     kind: "macro",
-    one: "macro",
-    many: "macros",
-    title: "Macros",
     read: (system) => db.macros({ system }),
   },
   {
     kind: "module",
-    one: "module",
-    many: "modules",
-    title: "Modules",
     read: () => db.modules().map((m) => m.name),
   },
   {
     kind: "relationship",
-    one: "relationship",
-    many: "relationships",
-    title: "Relationships",
     read: (system) => db.relationships({ system }).map((r) => r.name),
   },
 ];
+const KINDS = KIND_READERS.map((k) => {
+  const [one, many, title] = T.kinds[k.kind];
+  return { ...k, one, many, title };
+});
 const KIND_LABELS = Object.fromEntries(KINDS.map((k) => [k.kind, k.one]));
 
 // 種類ごとに名前の一覧を読む。読めなかった種類は、名前の代わりにエラーを持つ
@@ -105,14 +92,14 @@ function open(bytes, label, name, password) {
       passwordInput.focus();
       status.textContent =
         e.code === "PASSWORD_REQUIRED"
-          ? `${name} is password-protected. Enter its password.`
-          : "The password is wrong. Try again.";
+          ? T.passwordRequired(name)
+          : T.passwordWrong;
       return;
     }
     status.textContent =
       e.code === "INVALID_FILE"
-        ? `Could not open ${name}: it is not an Access database, or it is damaged (${e.message}).`
-        : `Could not open ${name}: ${e.message}`;
+        ? T.invalidFile(name, e.message)
+        : T.openFailed(name, e.message);
     return;
   }
   pending = null;
@@ -134,8 +121,14 @@ function showSummary(name) {
       const n = k.names ? k.names.length : null;
       const li = document.createElement("li");
       const value = document.createElement("strong");
-      value.textContent = n === null ? "—" : String(n);
-      li.append(value, ` ${n === 1 ? k.one : k.many}`);
+      if (n === null) {
+        value.textContent = "—";
+        li.append(value, ` ${k.many}`);
+      } else {
+        const [count, noun] = T.count(n, k.one, k.many);
+        value.textContent = count;
+        li.append(value, noun);
+      }
       return li;
     }),
   );
@@ -179,7 +172,7 @@ function showNav() {
     if (k.error) {
       const p = document.createElement("p");
       p.className = "viewer-error";
-      p.textContent = `Could not read: ${k.error}`;
+      p.textContent = T.couldNotRead(k.error);
       group.append(p);
     } else {
       const ul = document.createElement("ul");
@@ -194,7 +187,7 @@ function showNav() {
   });
   nav.replaceChildren(
     navSelect(kinds),
-    navButton("database", null, "Database"),
+    navButton("database", null, T.database),
     ...groups,
   );
   markCurrent();
@@ -206,9 +199,9 @@ function navSelect(kinds) {
     "select",
     {
       class: "viewer-select viewer-nav-select",
-      "aria-label": "Object to show",
+      "aria-label": T.objectToShow,
     },
-    el("option", { value: "#database" }, "Database"),
+    el("option", { value: "#database" }, T.database),
     kinds
       .filter((k) => k.names && k.names.length > 0)
       .map((k) =>
@@ -271,7 +264,7 @@ function el(tag, attrs = {}, ...children) {
 
 // 読めなかったときに、その場に出す一文
 const failure = (e) =>
-  el("p", { class: "viewer-error" }, `Could not read: ${e.message}`);
+  el("p", { class: "viewer-error" }, T.couldNotRead(e.message));
 
 // 見出しの行と行の配列から表を作る。値は文字列か要素
 function table(headers, rows) {
@@ -325,7 +318,7 @@ function saveButton(label, bytes, filename) {
 
 const sizeOf = (n) =>
   n < 1024
-    ? `${n} bytes`
+    ? T.bytes(n)
     : n < 1024 * 1024
       ? `${(n / 1024).toFixed(1)} KB`
       : `${(n / 1024 / 1024).toFixed(1)} MB`;
@@ -355,7 +348,7 @@ function value(v) {
     return el(
       "span",
       { class: "viewer-binary" },
-      `binary, ${sizeOf(v.length)}`,
+      T.binary(sizeOf(v.length)),
     );
   if (Array.isArray(v)) return complex(v);
   return JSON.stringify(v);
@@ -363,20 +356,21 @@ function value(v) {
 
 // 複合列の値: 件数を出し、開くと中身を見られる
 function complex(items) {
-  if (items.length === 0) return el("span", { class: "viewer-null" }, "none");
+  if (items.length === 0)
+    return el("span", { class: "viewer-null" }, T.noneValue);
   const files = items.every(isAttachment);
   const versions = items.every(isVersion);
   const noun = files
-    ? ["file", "files"]
+    ? T.complexNouns.file
     : versions
-      ? ["version", "versions"]
-      : ["value", "values"];
+      ? T.complexNouns.version
+      : T.complexNouns.value;
   const list = el(
     "ul",
     { class: "viewer-complex-list" },
     items.map((item) => {
       if (files) {
-        const name = item.name ?? "(no name)";
+        const name = item.name ?? T.noName;
         return el(
           "li",
           {},
@@ -384,16 +378,16 @@ function complex(items) {
           item.data
             ? [
                 ` (${sizeOf(item.data.length)}) `,
-                saveButton("Save", item.data, name),
+                saveButton(T.save, item.data, name),
               ]
-            : " (could not be decoded)",
+            : T.notDecoded,
         );
       }
       if (versions)
         return el(
           "li",
           {},
-          item.modified ?? "(no date)",
+          item.modified ?? T.noDate,
           ": ",
           value(item.value),
         );
@@ -406,7 +400,7 @@ function complex(items) {
     el(
       "summary",
       {},
-      `${items.length} ${items.length === 1 ? noun[0] : noun[1]}`,
+      T.complexCount(items.length, noun[0], noun[1]),
     ),
     list,
   );
@@ -478,8 +472,8 @@ function tableData(name) {
     const last = page * PAGE_SIZE + rows.rows.length;
     const range =
       rows.rows.length === 0
-        ? "No rows"
-        : `Rows ${first}–${last}${total !== null ? ` of ${total}` : ""}`;
+        ? T.noRows
+        : T.rows(first, last, total);
     const pager = el(
       "div",
       { class: "viewer-pager" },
@@ -492,7 +486,7 @@ function tableData(name) {
           onclick: () => show(page - 1),
           ...(page === 0 ? { disabled: "" } : {}),
         },
-        "Previous",
+        T.previous,
       ),
       el(
         "button",
@@ -502,7 +496,7 @@ function tableData(name) {
           onclick: () => show(page + 1),
           ...(rows.next === null ? { disabled: "" } : {}),
         },
-        "Next",
+        T.next,
       ),
     );
     const skipped =
@@ -510,7 +504,7 @@ function tableData(name) {
         ? el(
             "p",
             { class: "note" },
-            `${rows.skipped} rows on this page could not be read and were left out.`,
+            T.skipped(rows.skipped),
           )
         : null;
     box.replaceChildren(
@@ -528,14 +522,14 @@ function tableData(name) {
 
 function tableColumns(name) {
   return table(
-    ["Name", "Type", "Size", "Notes"],
+    T.columnHeads,
     db
       .columns(name)
       .map((c) => [
         c.name,
         c.type === "Numeric" ? `Numeric(${c.precision}, ${c.scale})` : c.type,
         String(c.size),
-        [c.autoNumber && "AutoNumber", c.calculated && "Calculated"]
+        [c.autoNumber && T.autoNumber, c.calculated && T.calculated]
           .filter(Boolean)
           .join(", "),
       ]),
@@ -545,19 +539,19 @@ function tableColumns(name) {
 function tableIndexes(name) {
   const indexes = db.indexes(name);
   if (indexes.length === 0)
-    return el("p", { class: "note" }, "This table has no indexes.");
+    return el("p", { class: "note" }, T.noIndexes);
   return table(
-    ["Name", "Columns", "Notes"],
+    T.indexHeads,
     indexes.map((ix) => [
       ix.name,
       ix.columns
         .map((c) => `${c.name} ${c.descending ? "DESC" : "ASC"}`)
         .join(", "),
       [
-        ix.primaryKey && "Primary key",
-        ix.unique && "Unique",
-        ix.ignoreNulls && "Ignore nulls",
-        ix.required && "Required",
+        ix.primaryKey && T.primaryKey,
+        ix.unique && T.unique,
+        ix.ignoreNulls && T.ignoreNulls,
+        ix.required && T.required,
       ]
         .filter(Boolean)
         .join(", "),
@@ -574,36 +568,36 @@ function propertiesView(name, type) {
       { class: "viewer-props" },
       el("h3", {}, title),
       props.length === 0
-        ? el("p", { class: "note" }, "None.")
+        ? el("p", { class: "note" }, T.none)
         : table(
-            ["Name", "Value"],
+            T.propertyHeads,
             props.map((x) => [x.name, value(x.value)]),
           ),
     );
   return el(
     "div",
     {},
-    group(`${type} properties`, p.object),
-    p.columns.map((c) => group(`Column: ${c.name}`, c.properties)),
+    group(T.objectProperties(T.typeNames[type]), p.object),
+    p.columns.map((c) => group(T.columnGroup(c.name), c.properties)),
     p.additional.map((g) => group(g.name, g.properties)),
   );
 }
 
 function showTable(name) {
   return tabs([
-    ["Data", () => tableData(name)],
-    ["Columns", () => tableColumns(name)],
-    ["Indexes", () => tableIndexes(name)],
-    ["Properties", () => propertiesView(name, "Table")],
-    ["Data macros", () => tableDataMacros(name)],
-    ["DDL", () => ddlView(name)],
+    [T.tabs.data, () => tableData(name)],
+    [T.tabs.columns, () => tableColumns(name)],
+    [T.tabs.indexes, () => tableIndexes(name)],
+    [T.tabs.properties, () => propertiesView(name, "Table")],
+    [T.tabs.dataMacros, () => tableDataMacros(name)],
+    [T.tabs.ddl, () => ddlView(name)],
   ]);
 }
 
 function tableDataMacros(name) {
   const text = db.dataMacrosText(name);
   if (text === "")
-    return el("p", { class: "note" }, "This table has no data macros.");
+    return el("p", { class: "note" }, T.noDataMacros);
   return textView(text, fileName(`${name}-data-macros`, "xml"));
 }
 
@@ -621,7 +615,7 @@ function ddlView(table) {
   const box = el("div");
   const select = el(
     "select",
-    { class: "viewer-select", "aria-label": "SQL dialect" },
+    { class: "viewer-select", "aria-label": T.dialectLabel },
     DIALECTS.map(([v, label]) => el("option", { value: v }, label)),
   );
   function show() {
@@ -637,7 +631,7 @@ function ddlView(table) {
       body = failure(e);
     }
     box.replaceChildren(
-      el("label", { class: "viewer-dialect" }, "Dialect ", select),
+      el("label", { class: "viewer-dialect" }, T.dialect, select),
       body,
     );
   }
@@ -661,17 +655,17 @@ function showRelationship(name) {
       tableLink(r.toTable),
     ),
     table(
-      [`${r.fromTable} column`, `${r.toTable} column`],
+      [T.relationColumn(r.fromTable), T.relationColumn(r.toTable)],
       r.columns.map((c) => [c.from, c.to]),
     ),
     el(
       "ul",
       { class: "viewer-flags" },
       [
-        ["Referential integrity", r.referentialIntegrity],
-        ["Cascade update", r.cascadeUpdate],
-        ["Cascade delete", r.cascadeDelete],
-      ].map(([label, on]) => el("li", {}, `${label}: ${on ? "yes" : "no"}`)),
+        [T.referentialIntegrity, r.referentialIntegrity],
+        [T.cascadeUpdate, r.cascadeUpdate],
+        [T.cascadeDelete, r.cascadeDelete],
+      ].map(([label, on]) => el("li", {}, `${label}: ${on ? T.yes : T.no}`)),
     ),
   ];
 }
@@ -681,13 +675,13 @@ function showRelationship(name) {
 // データベースのプロパティ: MSysDb、SummaryInfo（タイトル・作成者など）、UserDefined
 function databaseProperties() {
   const groups = [
-    ["Database properties", () => db.properties("MSysDb").object],
+    [T.databaseProperties, () => db.properties("MSysDb").object],
     [
-      "Summary info",
+      T.summaryInfo,
       () => db.properties("SummaryInfo", { type: "DatabaseProperty" }).object,
     ],
     [
-      "User-defined",
+      T.userDefined,
       () => db.properties("UserDefined", { type: "DatabaseProperty" }).object,
     ],
   ];
@@ -701,7 +695,7 @@ function databaseProperties() {
       } catch (e) {
         content =
           e.code === "OBJECT_NOT_FOUND"
-            ? el("p", { class: "note" }, "None.")
+            ? el("p", { class: "note" }, T.none)
             : failure(e);
       }
       return el(
@@ -716,8 +710,8 @@ function databaseProperties() {
 
 function showDatabase() {
   return tabs([
-    ["DDL", () => ddlView(null)],
-    ["Properties", () => databaseProperties()],
+    [T.tabs.ddl, () => ddlView(null)],
+    [T.tabs.properties, () => databaseProperties()],
   ]);
 }
 
@@ -733,16 +727,16 @@ function textView(text, filename) {
       onclick: async () => {
         try {
           await navigator.clipboard.writeText(text);
-          copy.textContent = "Copied";
+          copy.textContent = T.copied;
         } catch {
-          copy.textContent = "Could not copy";
+          copy.textContent = T.copyFailed;
         }
-        setTimeout(() => (copy.textContent = "Copy"), 2000);
+        setTimeout(() => (copy.textContent = T.copy), 2000);
       },
     },
-    "Copy",
+    T.copy,
   );
-  const save = saveButton("Save", new TextEncoder().encode(text), filename);
+  const save = saveButton(T.save, new TextEncoder().encode(text), filename);
   // 長い行を枠の中で折り返すかどうか。テキストは CLI と同じ形のまま
   const pre = el("pre", {}, el("code", {}, text));
   const wrapBox = el("input", { type: "checkbox" });
@@ -755,7 +749,7 @@ function textView(text, filename) {
     el(
       "div",
       { class: "viewer-code-actions" },
-      el("label", { class: "viewer-wrap" }, wrapBox, "Wrap lines"),
+      el("label", { class: "viewer-wrap" }, wrapBox, T.wrapLines),
       copy,
       save,
     ),
@@ -768,8 +762,8 @@ const fileName = (name, ext) => `${name.replace(/[\\/:*?"<>|]/g, "_")}.${ext}`;
 
 function showQuery(name) {
   return tabs([
-    ["SQL", () => textView(db.querySql(name), fileName(name, "sql"))],
-    ["Properties", () => propertiesView(name, "Query")],
+    [T.tabs.sql, () => textView(db.querySql(name), fileName(name, "sql"))],
+    [T.tabs.properties, () => propertiesView(name, "Query")],
   ]);
 }
 
@@ -782,13 +776,7 @@ function showModule(name) {
 function showMacro(name) {
   const macro = db.macro(name);
   if (macro.text === null)
-    return [
-      el(
-        "p",
-        { class: "note" },
-        "jetdb could not read the actions of this macro, so there is no text to show.",
-      ),
-    ];
+    return [el("p", { class: "note" }, T.macroNoText)];
   return [textView(macro.text, fileName(name, "txt"))];
 }
 
@@ -796,15 +784,15 @@ function showMacro(name) {
 
 const propertyTable = (props) =>
   props.length === 0
-    ? el("p", { class: "note" }, "None.")
+    ? el("p", { class: "note" }, T.none)
     : table(
-        ["Name", "Value"],
+        T.propertyHeads,
         props.map((p) => [p.name, value(p.value)]),
       );
 
 function formControls(design) {
   if (design.controls.length === 0)
-    return el("p", { class: "note" }, "This design has no controls.");
+    return el("p", { class: "note" }, T.noControls);
   return el(
     "div",
     { class: "viewer-controls" },
@@ -823,7 +811,7 @@ function formControls(design) {
 function formMacros(name, type) {
   const macros = db.embeddedMacros(name, { type });
   if (macros.length === 0)
-    return el("p", { class: "note" }, "There are no embedded macros.");
+    return el("p", { class: "note" }, T.noEmbeddedMacros);
   return el(
     "div",
     {},
@@ -836,11 +824,7 @@ function formMacros(name, type) {
         { class: "viewer-props" },
         el("h3", {}, where),
         m.text === null
-          ? el(
-              "p",
-              { class: "note" },
-              "This macro was stored without XML, so jetdb has no text to show.",
-            )
+          ? el("p", { class: "note" }, T.embeddedNoXml)
           : textView(m.text, fileName(where, "txt")),
       );
     }),
@@ -851,40 +835,34 @@ function formMacros(name, type) {
 function formModule(name, type) {
   const moduleName = `${type}_${name}`;
   if (!db.modules().some((m) => m.name === moduleName))
-    return el(
-      "p",
-      { class: "note" },
-      `This ${type.toLowerCase()} has no module.`,
-    );
+    return el("p", { class: "note" }, T.noModule(type));
   return el(
     "p",
     {},
-    "The VBA of this design is in the module ",
-    el("a", { href: hashOf("module", moduleName) }, moduleName),
-    ".",
+    T.moduleLink(el("a", { href: hashOf("module", moduleName) }, moduleName)),
   );
 }
 
 function showForm(name, type) {
   const design = db.formProperties(name, { type });
   return tabs([
-    ["Properties", () => propertyTable(design.properties)],
-    ["Controls", () => formControls(design)],
-    ["Embedded macros", () => formMacros(name, type)],
-    ["Module", () => formModule(name, type)],
+    [T.tabs.properties, () => propertyTable(design.properties)],
+    [T.tabs.controls, () => formControls(design)],
+    [T.tabs.embeddedMacros, () => formMacros(name, type)],
+    [T.tabs.module, () => formModule(name, type)],
   ]);
 }
 
 // 種類の下に添える一文（クエリとモジュールは、その種類も）
 function subtitle(kind, name) {
-  if (kind === "database") return "The whole database";
+  if (kind === "database") return T.wholeDatabase;
   if (kind === "query") {
     const q = db.queries({ system: true }).find((x) => x.name === name);
-    return q ? `query · ${q.type}` : "query";
+    return q ? `${KIND_LABELS.query} · ${q.type}` : KIND_LABELS.query;
   }
   if (kind === "module") {
     const m = db.modules().find((x) => x.name === name);
-    return m ? `module · ${m.type}` : "module";
+    return m ? `${KIND_LABELS.module} · ${m.type}` : KIND_LABELS.module;
   }
   return KIND_LABELS[kind];
 }
@@ -906,22 +884,13 @@ function showDetail(kind, name) {
   const heading = el(
     "h2",
     { class: "viewer-title" },
-    kind === "database" ? "Database" : name,
+    kind === "database" ? T.database : name,
   );
   let type;
   let body;
   try {
     type = el("p", { class: "viewer-type" }, subtitle(kind, name));
-    const render = RENDERERS[kind];
-    body = render
-      ? render(name)
-      : [
-          el(
-            "p",
-            { class: "note" },
-            "The contents come in a later step of this page.",
-          ),
-        ];
+    body = RENDERERS[kind](name);
   } catch (e) {
     type ??= el("p", { class: "viewer-type" }, KIND_LABELS[kind] ?? "");
     body = [failure(e)];
@@ -939,19 +908,19 @@ systemToggle.addEventListener("change", () => {
 try {
   await init();
   input.disabled = false;
-  status.textContent = "Opening the sample…";
+  status.textContent = T.openingSample;
   const response = await fetch(SAMPLE_URL);
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   const bytes = new Uint8Array(await response.arrayBuffer());
-  open(bytes, `Sample: ${SAMPLE_NAME}`, SAMPLE_NAME, null);
+  open(bytes, T.sample(SAMPLE_NAME), SAMPLE_NAME, null);
 } catch (e) {
-  status.textContent = `Could not load the demo: ${e.message}`;
+  status.textContent = T.loadFailed(e.message);
 }
 
 input.addEventListener("change", async () => {
   const file = input.files[0];
   if (!file) return;
-  status.textContent = `Opening ${file.name}…`;
+  status.textContent = T.opening(file.name);
   const bytes = new Uint8Array(await file.arrayBuffer());
   // 開いている間は画面が止まるので、先に「開いています」を描かせる
   await new Promise((resolve) =>
