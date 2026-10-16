@@ -348,6 +348,15 @@ function checkForms(Database, build) {
     { name: "フォームヘッダー", type: "FormHeader", typeCode: 0x1899 },
     build,
   );
+  // The streams of a form, as jetdb form dump writes them; the blob starts
+  // with the header every form design has.
+  const blob = db.formStream("jp_フォーム_2");
+  assert.ok(blob instanceof Uint8Array, build);
+  assert.deepEqual([...blob.slice(0, 8)], [0x15, 0x00, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00], build);
+  assert.deepEqual(db.formStream("jp_フォーム_2", { stream: "blob" }), blob, build);
+  assert.ok(db.formStream("jp_フォーム_2", { stream: "typeinfo" }).length > 0, build);
+  assert.throws(() => db.formStream("jp_フォーム_2", { stream: "Blob" }), { name: "JetdbError", code: "INVALID_ARGUMENT" }, build);
+  assert.throws(() => db.formStream("NoSuchForm"), { name: "JetdbError", code: "FORM_NOT_FOUND" }, build);
   assert.throws(() => db.formProperties("NoSuchForm"), { name: "JetdbError", code: "FORM_NOT_FOUND" }, build);
   assert.deepEqual(openTest(Database).forms(), [], build);
 
@@ -356,6 +365,8 @@ function checkForms(Database, build) {
   assert.deepEqual(shared.forms(), [{ name: "Shared", type: "Form" }, { name: "Shared", type: "Report" }], build);
   assert.throws(() => shared.formProperties("Shared"), { name: "JetdbError", code: "INVALID_ARGUMENT" }, build);
   assert.equal(shared.formProperties("Shared", { type: "Report" }).type, "Report", build);
+  assert.throws(() => shared.formStream("Shared"), { name: "JetdbError", code: "INVALID_ARGUMENT" }, build);
+  assert.ok(shared.formStream("Shared", { type: "Report" }).length > 0, build);
   assert.equal(shared.embeddedMacros("Shared", { type: "Report" })[0].source.event, "OnOpen", build);
   assert.throws(() => shared.embeddedMacros("Shared", { type: "Page" }), { name: "JetdbError", code: "INVALID_ARGUMENT" }, build);
 
@@ -468,7 +479,7 @@ function checkStringArguments(Database, build) {
   // can still be read after it.
   const db = openTest(Database);
   const invalid = { name: "JetdbError", code: "INVALID_ARGUMENT" };
-  for (const method of ["columns", "indexes", "rows", "querySql", "moduleSource", "formProperties", "macro", "embeddedMacros", "dataMacros", "dataMacrosText"]) {
+  for (const method of ["columns", "indexes", "rows", "querySql", "moduleSource", "formProperties", "formStream", "macro", "embeddedMacros", "dataMacros", "dataMacrosText"]) {
     for (const value of [undefined, null, 42, {}]) {
       assert.throws(() => db[method](value), invalid, `${build}: ${method}(${value})`);
     }

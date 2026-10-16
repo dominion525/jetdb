@@ -194,6 +194,18 @@ pub fn read_form_stream_of_type(
     read_stream(reader, name, Some(object_type), stream_kind)
 }
 
+/// [`read_form_stream`] in the storage already read: of `object_type` when
+/// it is given, and otherwise the form when a form and a report share the
+/// name.
+pub fn read_form_stream_in(
+    storage: &AccessStorage,
+    name: &str,
+    object_type: Option<FormObjectType>,
+    stream_kind: StreamKind,
+) -> Result<FormStream, FileError> {
+    stream_in(storage, name, object_type, stream_kind)
+}
+
 /// A stream of the form or report named `name`, of `object_type` when it
 /// is given and otherwise the form when a form and a report share the name.
 pub(crate) fn read_stream(

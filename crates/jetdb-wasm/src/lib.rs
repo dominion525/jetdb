@@ -17,11 +17,12 @@ use jetdb::{
     calculated_column_types_in, control_type_name, data_macros_to_text, embedded_macro_to_text,
     entry_properties, find_table, list_forms_in, list_macros_in, query_to_sql, read_access_storage,
     read_catalog, read_complex_column, read_data_macros_in, read_embedded_macros_in,
-    read_form_properties_in, read_macro_in, read_object_properties, read_queries_in,
-    read_relationships_in, read_table_def, read_vba_project_in, relationship_flags, timestamp,
-    AccessStorage, BlobProperty, BlobValue, CatalogEntry, ComplexColumn, ComplexValues, FileError,
-    FormObjectType, IndexColumnOrder, MacroDef, MacroGrid, PageReader, PropMapType, QueryDef,
-    QueryType, RowPosition, TableDef, TableRows, Value, VbaModule, VbaModuleType,
+    read_form_properties_in, read_form_stream_in, read_macro_in, read_object_properties,
+    read_queries_in, read_relationships_in, read_table_def, read_vba_project_in,
+    relationship_flags, timestamp, AccessStorage, BlobProperty, BlobValue, CatalogEntry,
+    ComplexColumn, ComplexValues, FileError, FormObjectType, IndexColumnOrder, MacroDef, MacroGrid,
+    PageReader, PropMapType, QueryDef, QueryType, RowPosition, StreamKind, TableDef, TableRows,
+    Value, VbaModule, VbaModuleType,
 };
 
 /// A database opened from bytes in memory.
@@ -690,6 +691,18 @@ impl Database {
         Ok(out)
     }
 
+    /// The bytes of the stream `kind` of the form or report `name`, as
+    /// `jetdb form dump` writes them.
+    pub fn form_stream(
+        &mut self,
+        name: &str,
+        kind: StreamKind,
+        form_type: Option<FormObjectType>,
+    ) -> Result<Vec<u8>, PropertiesError> {
+        let form_type = self.form_type(name, form_type)?;
+        Ok(read_form_stream_in(self.storage()?, name, form_type, kind)?.data)
+    }
+
     /// The design of the form or report `name`, as `jetdb form props` shows
     /// it: each property by its name, or by its number as `0x....` for one
     /// jetdb does not know.
@@ -1076,7 +1089,7 @@ mod tests {
     // which the tests compare Database with.
     use jetdb::{
         list_forms, list_macros, read_data_macros, read_embedded_macros, read_form_properties,
-        read_macro, read_vba_project,
+        read_form_stream_of_type, read_macro, read_vba_project,
     };
 
     fn test_data(relative: &str) -> Option<Vec<u8>> {
@@ -1786,6 +1799,75 @@ mod tests {
             name: name.to_string(),
             type_name,
         }
+    }
+
+    /// The stream `kind` of the form or report `entry`, read by Database and
+    /// by the library function jetdb form dump uses, with the error as text.
+    fn both_streams(
+        db: &mut Database,
+        reader: &mut PageReader,
+        entry: &jetdb::FormEntry,
+        kind: StreamKind,
+    ) -> (Result<Vec<u8>, String>, Result<Vec<u8>, String>) {
+        let expected = read_form_stream_of_type(reader, &entry.name, entry.object_type, kind)
+            .map(|s| s.data)
+            .map_err(|e| e.to_string());
+        let got = db
+            .form_stream(&entry.name, kind, Some(entry.object_type))
+            .map_err(|e| match e {
+                PropertiesError::File(e) => e.to_string(),
+                other => panic!("{other:?}"),
+            });
+        (got, expected)
+    }
+
+    #[test]
+    fn form_streams_as_jetdb_form_dump_writes_them() {
+        // Each stream of each form and report is what the library gives
+        // jetdb form dump, or the same error.
+        let kinds = [
+            StreamKind::Blob,
+            StreamKind::TypeInfo,
+            StreamKind::PropData,
+            StreamKind::BlobDelta,
+        ];
+        for file in ["formPropTest.accdb", "saveastext/SportsAdmin/Sports.accdb"] {
+            let bytes = skip_if_missing!(file);
+            let mut db = Database::open(bytes.clone(), None).unwrap();
+            let mut reader = PageReader::open_reader(Cursor::new(bytes)).unwrap();
+            let entries = list_forms(&mut reader).unwrap();
+            assert!(!entries.is_empty(), "{file}");
+            for (entry, kind) in entries.iter().flat_map(|e| kinds.map(|k| (e, k))) {
+                let (got, expected) = both_streams(&mut db, &mut reader, entry, kind);
+                assert_eq!(got, expected, "{file} {} {kind:?}", entry.name);
+            }
+        }
+    }
+
+    #[test]
+    fn form_stream_of_a_form_and_report_of_the_same_name() {
+        let bytes = skip_if_missing!("V2007/sameNameTestV2007.accdb");
+        let mut db = Database::open(bytes.clone(), None).unwrap();
+        assert!(matches!(
+            db.form_stream("Shared", StreamKind::Blob, None),
+            Err(PropertiesError::SeveralTypes(_))
+        ));
+        let mut reader = PageReader::open_reader(Cursor::new(bytes)).unwrap();
+        for object_type in [FormObjectType::Form, FormObjectType::Report] {
+            let expected =
+                read_form_stream_of_type(&mut reader, "Shared", object_type, StreamKind::Blob)
+                    .unwrap()
+                    .data;
+            assert_eq!(
+                db.form_stream("Shared", StreamKind::Blob, Some(object_type))
+                    .unwrap(),
+                expected
+            );
+        }
+        assert!(matches!(
+            db.form_stream("NoSuchForm", StreamKind::Blob, None),
+            Err(PropertiesError::File(FileError::FormNotFound { .. }))
+        ));
     }
 
     #[test]
