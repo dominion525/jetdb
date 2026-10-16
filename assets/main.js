@@ -1,6 +1,7 @@
 "use strict";
 // 紹介ページの小さな動き: コマンドのコピーボタン、インストール方法のタブ、ダミーのリンク。
-// HTML から <script defer> で読む（モジュールではない）ので、import / export は書かない
+// HTML から <script defer> で読む（モジュールではない）ので、import / export は書かない。
+// サイトの全部のページが読む（コピーボタンとタブがあるのは紹介ページ）。デモの動きは src/demo/ にある
 document.documentElement.classList.add("js");
 const SITE_MESSAGES = {
     ja: {

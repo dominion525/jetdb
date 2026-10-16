@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MESSAGES, type Messages } from "../../src/demo-messages.ts";
+import { MESSAGES, type Messages } from "../../../src/demo/messages.ts";
 
 // 入れ子の表を「a.b.c」の形のキーの一覧にする
 function keys(table: object, prefix = ""): string[] {
