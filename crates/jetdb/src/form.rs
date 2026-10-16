@@ -343,7 +343,10 @@ pub fn prop_id_name(prop_id: u16) -> Option<&'static str> {
 ///
 /// Each name is the SaveAsText key whose values agree with every value of the
 /// ID in the forms and reports of Sports.accdb (ruddj/SportsAdmin), where the
-/// values vary, so that one key fits them all.
+/// values vary, so that one key fits them all. Only IDs up to 0x01C4 are
+/// named: Access for Microsoft 365 writes the IDs above, such as those of
+/// the anchors and the layout, one higher than the Access that made
+/// Sports.accdb.
 pub fn number_prop_id_name(prop_id: u16) -> Option<&'static str> {
     match prop_id {
         0x0009 => Some("BorderStyle"),
@@ -361,13 +364,6 @@ pub fn number_prop_id_name(prop_id: u16) -> Option<&'static str> {
         0x0105 => Some("TabIndex"),
         0x013F => Some("DatasheetGridlinesColor"),
         0x01C4 => Some("FilterOnLoad"),
-        0x01DD => Some("VerticalAnchor"),
-        0x01DE => Some("HorizontalAnchor"),
-        0x0246 => Some("DatasheetGridlinesColor12"),
-        0x024A => Some("LayoutCachedLeft"),
-        0x024B => Some("LayoutCachedTop"),
-        0x024C => Some("LayoutCachedWidth"),
-        0x024D => Some("LayoutCachedHeight"),
         _ => None,
     }
 }
