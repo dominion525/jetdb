@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>jetdb — ブラウザで試せるデモ</title>
+    <meta
+      name="description"
+      content="Access のデータベース（.mdb / .accdb）をブラウザの中だけで開き、テーブル・クエリ・VBA・マクロ・フォームの中身を見られるデモです。ファイルはブラウザの外に送りません。"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@400;600&family=Noto+Sans+JP:wght@400;600;800&display=swap"
+    />
+    <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="jetdb" />
+    <meta property="og:locale" content="ja_JP" />
+    <meta property="og:title" content="jetdb — ブラウザで試せるデモ" />
+    <meta
+      property="og:description"
+      content="Access のデータベース（.mdb / .accdb）をブラウザの中だけで開き、テーブル・クエリ・VBA・マクロ・フォームの中身を見られるデモです。ファイルはブラウザの外に送りません。"
+    />
+    <meta property="og:url" content="https://jetdb.dominion525.com/ja/demo/" />
+    <meta
+      property="og:image"
+      content="https://jetdb.dominion525.com/assets/ogp.png"
+    />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="jetdb: Read .mdb / .accdb files without Microsoft Access"
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link
+      rel="alternate"
+      hreflang="en"
+      href="https://jetdb.dominion525.com/demo/"
+    />
+    <link
+      rel="alternate"
+      hreflang="ja"
+      href="https://jetdb.dominion525.com/ja/demo/"
+    />
+    <link
+      rel="alternate"
+      hreflang="x-default"
+      href="https://jetdb.dominion525.com/demo/"
+    />
+    <link rel="stylesheet" href="/assets/style.css" />
+    <script src="/assets/main.js" defer></script>
+    <script src="/assets/demo.js" type="module"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">本文へ移動</a>
+
+    <header class="site-header">
+      <div class="container header-inner">
+        <a class="logo" href="/ja/"
+          ><img src="/assets/logo.svg" alt="jetdb" width="67" height="24"
+        /></a>
+        <nav class="header-nav" aria-label="ページ内">
+          <a class="nav-link" href="/ja/#features">特徴</a>
+          <a class="nav-link" href="/ja/#compare">比較</a>
+          <a class="nav-link" href="/ja/#install">インストール</a>
+        </nav>
+        <div class="header-actions">
+          <a class="lang-switch" href="/demo/" hreflang="en" lang="en"
+            >English</a
+          >
+          <a class="header-github" href="https://github.com/dominion525/jetdb"
+            >GitHub</a
+          >
+        </div>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="section">
+        <div class="container">
+          <p class="back-link"><a href="/ja/">紹介ページに戻る</a></p>
+          <h1 class="page-title">ブラウザで試せるデモ</h1>
+          <p class="section-lead">
+            jetdb（WebAssembly 版）が、Access のデータベース（.mdb /
+            .accdb）をブラウザの中で開いて、中身を見せます。最初はサンプルのデータベースを開いています。自分のファイルも開けます。
+          </p>
+          <ul class="note demo-privacy">
+            <li>サンプルは、このサイトから読み込みます。</li>
+            <li>
+              自分で開いたファイルは、ブラウザの中だけで読みます。どこにも送りません。
+            </li>
+          </ul>
+
+          <div class="demo">
+            <div class="demo-source">
+              <p class="demo-current">
+                表示中: <strong id="demo-current">—</strong>
+              </p>
+              <label class="demo-file">
+                <span>自分のファイルを開く</span>
+                <input
+                  type="file"
+                  id="demo-file"
+                  accept=".mdb,.accdb"
+                  disabled
+                />
+              </label>
+            </div>
+            <form class="demo-password" id="demo-password" hidden>
+              <label>
+                <span>パスワード</span>
+                <input
+                  type="password"
+                  id="demo-password-input"
+                  autocomplete="off"
+                />
+              </label>
+              <button class="btn btn-outline" type="submit">開く</button>
+            </form>
+            <p class="demo-status" id="demo-status" role="status">
+              jetdb を読み込んでいます…
+            </p>
+            <div class="demo-result" id="demo-result" hidden>
+              <dl class="demo-meta">
+                <dt>ファイル</dt>
+                <dd id="demo-name"></dd>
+                <dt>エンジンの版</dt>
+                <dd id="demo-version"></dd>
+              </dl>
+              <ul class="demo-counts" id="demo-counts"></ul>
+              <div class="viewer">
+                <nav
+                  class="viewer-nav"
+                  aria-label="データベースの中のオブジェクト"
+                >
+                  <label class="viewer-system">
+                    <input type="checkbox" id="demo-system" />
+                    システムのオブジェクトも出す
+                  </label>
+                  <div id="demo-nav"></div>
+                </nav>
+                <section
+                  class="viewer-detail"
+                  id="demo-detail"
+                  aria-live="polite"
+                ></section>
+              </div>
+            </div>
+          </div>
+          <noscript
+            ><p class="note">このデモには JavaScript が要ります。</p></noscript
+          >
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container footer-inner">
+        <div>
+          <a class="logo" href="/ja/"
+            ><img src="/assets/logo.svg" alt="jetdb" width="67" height="24"
+          /></a>
+          <p class="footer-license">MIT OR Apache-2.0</p>
+        </div>
+        <ul class="footer-links">
+          <li><a href="https://github.com/dominion525/jetdb">GitHub</a></li>
+          <li>
+            <a
+              href="https://github.com/dominion525/jetdb/blob/main/docs/cli.ja.md"
+              >CLI のドキュメント</a
+            >
+          </li>
+          <li><a href="https://crates.io/crates/jetdb-cli">crates.io</a></li>
+          <li>
+            <a href="https://docs.rs/jetdb">Rust ライブラリ（docs.rs）</a>
+          </li>
+          <li>
+            <a
+              href="https://github.com/dominion525/jetdb/blob/main/README.ja.md#謝辞"
+              >謝辞</a
+            >
+          </li>
+        </ul>
+        <div class="footer-author">
+          <a
+            class="footer-author-avatar"
+            href="https://dominion525.com/"
+            tabindex="-1"
+            aria-hidden="true"
+            ><img src="/assets/avatar.png" width="44" height="44" alt=""
+          /></a>
+          <a class="footer-author-name" href="https://dominion525.com/"
+            >Dominion525</a
+          >
+          <div class="footer-social">
+            <a href="https://x.com/dominion525" aria-label="X のプロフィール"
+              ><img src="/assets/icon-x.svg" width="20" height="20" alt=""
+            /></a>
+            <a
+              href="https://github.com/dominion525"
+              aria-label="GitHub のプロフィール"
+              ><img src="/assets/icon-github.svg" width="20" height="20" alt=""
+            /></a>
+          </div>
+        </div>
+        <p class="footer-bottom">
+          <span
+            >Microsoft Access は Microsoft Corporation の商標です。jetdb は
+            Microsoft とは関係のない個人のプロジェクトです。</span
+          >
+          <span class="footer-copyright">© 2026 Dominion525</span>
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>
