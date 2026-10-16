@@ -2087,8 +2087,8 @@ mod tests {
         // A Yes/No property stored without a value, as SaveAsText writes NotDefault.
         assert_eq!(*value("0x013A"), Cell::String("NotDefault".into()));
         assert_eq!(*value("0x0093"), Cell::Number(5.0));
-        // A color (DatasheetGridlinesColor) as the number Access writes.
-        assert_eq!(*value("0x013F"), Cell::Number(f64::from(0x00E8_E8E8)));
+        // A color as the number Access writes.
+        assert_eq!(*value("DatasheetGridlinesColor"), Cell::Number(f64::from(0x00E8_E8E8)));
         assert!(matches!(value("0x0178"), Cell::String(s) if s.starts_with('{')));
         assert!(matches!(value("0x0179"), Cell::Bytes(b) if b.len() == 384));
         assert!(matches!(
@@ -2111,11 +2111,11 @@ mod tests {
             .find(|p| p.name == "RecordSource")
             .unwrap();
         assert_eq!(record_source.id, 0x009C);
-        // The same 32-bit type holds numbers that are not colors: 0x00DB is
+        // The same 32-bit type holds numbers that are not colors, such as
         // HelpContextId, which SaveAsText writes as 270.
         let design = db.form_properties("Statistical Reports", None).unwrap();
         assert_eq!(
-            *form_property(&design.properties, "0x00DB"),
+            *form_property(&design.properties, "HelpContextId"),
             Cell::Number(270.0)
         );
     }

@@ -284,12 +284,14 @@ pub fn read_form_type_info_in(
     })
 }
 
-/// Return the known property name for a given prop_id, or `None`.
+/// Return the known name of the property `prop_id` whose value is text, or
+/// `None`.
 ///
-/// Every named property holds text. The same ID can hold a value of another
-/// type where the property does not apply, as a different property: 0x0068
-/// is `OnKeyDown` on a form, but holds a color on a label, which has no key
-/// events. [`BlobProperty::name`] names only text values for this reason.
+/// The same ID can hold a value of another type where the property does not
+/// apply, as a different property: 0x0068 is `OnKeyDown` on a form, but holds
+/// a color on a label, which has no key events. [`BlobProperty::name`] names
+/// a text value by this table, and an integer or Yes/No value by
+/// [`number_prop_id_name`].
 pub fn prop_id_name(prop_id: u16) -> Option<&'static str> {
     match prop_id {
         0x0011 => Some("Caption"),
@@ -336,6 +338,40 @@ pub fn prop_id_name(prop_id: u16) -> Option<&'static str> {
     }
 }
 
+/// Return the known name of the property `prop_id` whose value is an integer
+/// or Yes/No, or `None`.
+///
+/// Each name is the SaveAsText key whose values agree with every value of the
+/// ID in the forms and reports of Sports.accdb (ruddj/SportsAdmin), where the
+/// values vary, so that one key fits them all.
+pub fn number_prop_id_name(prop_id: u16) -> Option<&'static str> {
+    match prop_id {
+        0x0009 => Some("BorderStyle"),
+        0x000C => Some("Bottom"),
+        0x0029 => Some("GridX"),
+        0x002A => Some("GridY"),
+        0x0036 => Some("Left"),
+        0x0081 => Some("Right"),
+        0x008D => Some("Top"),
+        0x0096 => Some("Width"),
+        0x0098 => Some("ScrollBars"),
+        0x009E => Some("ItemSuffix"),
+        0x00A1 => Some("DatasheetFontHeight"),
+        0x00DB => Some("HelpContextId"),
+        0x0105 => Some("TabIndex"),
+        0x013F => Some("DatasheetGridlinesColor"),
+        0x01C4 => Some("FilterOnLoad"),
+        0x01DD => Some("VerticalAnchor"),
+        0x01DE => Some("HorizontalAnchor"),
+        0x0246 => Some("DatasheetGridlinesColor12"),
+        0x024A => Some("LayoutCachedLeft"),
+        0x024B => Some("LayoutCachedTop"),
+        0x024C => Some("LayoutCachedWidth"),
+        0x024D => Some("LayoutCachedHeight"),
+        _ => None,
+    }
+}
+
 /// Return the known control type name for a given TypeInfo type_code, or `None`.
 pub fn control_type_name(type_code: u16) -> Option<&'static str> {
     match type_code {
@@ -376,12 +412,15 @@ pub fn control_type_name(type_code: u16) -> Option<&'static str> {
 }
 
 impl BlobProperty {
-    /// Return the known property name, or `None` for unknown IDs and for a
-    /// value that is not text, which is another property (see
-    /// [`prop_id_name`]).
+    /// Return the known property name, or `None` for unknown IDs: a text
+    /// value is named by [`prop_id_name`], an integer or Yes/No value by
+    /// [`number_prop_id_name`], and other values not at all.
     pub fn name(&self) -> Option<&'static str> {
         match self.value {
             BlobValue::Text(_) => prop_id_name(self.prop_id),
+            BlobValue::Bool(_) | BlobValue::Short(_) | BlobValue::Long(_) | BlobValue::Color(_) => {
+                number_prop_id_name(self.prop_id)
+            }
             _ => None,
         }
     }
@@ -1218,7 +1257,7 @@ mod tests {
         // Sports.accdb is one SaveAsText writes for the same control under a
         // key that is the same for every value of the property, and the form
         // or report itself has as many NotDefault values as SaveAsText has
-        // lines. Left out: property 0x0000, which SaveAsText does not write,
+        // lines, and a named property is under its name. Left out: property 0x0000, which SaveAsText does not write,
         // and the right and bottom (0x0081, 0x000C) of a report. Few
         // properties of the controls of the report come after their names,
         // where jetdb reads them, so fewer values are checked there.
@@ -1246,9 +1285,14 @@ mod tests {
         for (id, found) in &keys {
             assert!(!found.is_empty(), "{id:#06x}: no key fits every value");
         }
-        for (id, key) in [(0x0036, "Left"), (0x008D, "Top"), (0x0096, "Width")] {
-            assert!(keys[&id].contains(key), "{id:#06x}: {:?}", keys[&id]);
+        let mut named = 0;
+        for (id, found) in &keys {
+            if let Some(key) = number_prop_id_name(*id) {
+                assert!(found.contains(key), "{id:#06x} {key}: {found:?}");
+                named += 1;
+            }
         }
+        assert!(named >= 10, "only {named} named properties checked");
     }
 
     #[test]
@@ -1474,17 +1518,29 @@ mod tests {
     }
 
     #[test]
-    fn names_only_text_values() {
+    fn names_by_the_type_of_the_value() {
         // 0x0068 is OnKeyDown on a form, but holds a color on a label.
-        let property = |value| BlobProperty {
-            prop_id: 0x0068,
-            value,
-        };
-        let event = property(BlobValue::Text("[Event Procedure]".to_string()));
+        let property = |prop_id, value| BlobProperty { prop_id, value };
+        let event = property(0x0068, BlobValue::Text("[Event Procedure]".to_string()));
         assert_eq!(event.name(), Some("OnKeyDown"));
-        let color = property(BlobValue::Color(0));
+        let color = property(0x0068, BlobValue::Color(0));
         assert_eq!(color.name(), None);
         assert_eq!(color.display_name(), "0x0068");
+        // 0x0036 is Left, an integer.
+        assert_eq!(property(0x0036, BlobValue::Short(120)).name(), Some("Left"));
+        assert_eq!(
+            property(0x0036, BlobValue::Long(70000)).name(),
+            Some("Left")
+        );
+        assert_eq!(
+            property(0x01C4, BlobValue::Bool(false)).name(),
+            Some("FilterOnLoad")
+        );
+        assert_eq!(property(0x0036, BlobValue::NotDefault).name(), None);
+        assert_eq!(
+            property(0x0036, BlobValue::Text("x".to_string())).name(),
+            None
+        );
     }
 
     #[test]
@@ -1988,10 +2044,23 @@ mod tests {
                 if let Some(value) = saved_string(value) {
                     properties.insert(key.to_string(), value);
                     last_key = Some(key.to_string());
+                } else {
+                    properties.insert(key.to_string(), value.trim().to_string());
                 }
             }
         }
         saved
+    }
+
+    /// The ways SaveAsText writes `value`: a Yes value is -1, 1 or 255, and a
+    /// color a signed integer.
+    fn saved_forms(value: &BlobValue) -> Vec<String> {
+        match *value {
+            BlobValue::Bool(true) => vec!["-1".into(), "1".into(), "255".into()],
+            BlobValue::Bool(false) => vec!["0".into()],
+            BlobValue::Color(v) => vec![(v as i32).to_string()],
+            ref other => vec![other.to_string()],
+        }
     }
 
     /// The name jetdb gives the type that SaveAsText names `saved`.
@@ -2087,9 +2156,19 @@ mod tests {
                 .find(|p| p.name() == Some(key))
                 .map(|p| p.value.to_string())
         };
-        for (name, file, controls) in [
-            ("Statistical Reports", "forms/Statistical Reports.bas", 69),
-            ("Field (High Jump)", "reports/Field (High Jump).bas", 78),
+        for (name, file, controls, report) in [
+            (
+                "Statistical Reports",
+                "forms/Statistical Reports.bas",
+                69,
+                false,
+            ),
+            (
+                "Field (High Jump)",
+                "reports/Field (High Jump).bas",
+                78,
+                true,
+            ),
         ] {
             let text = std::fs::read_to_string(path.parent().unwrap().join(file)).unwrap();
             let saved = read_saveastext(&text);
@@ -2102,16 +2181,21 @@ mod tests {
                 );
             }
             // Every property jetdb names holds the value Access saved under
-            // that name.
+            // that name. SaveAsText writes the right and bottom of a form
+            // only.
             let mut named = 0;
             let mut check_named =
                 |properties: &[BlobProperty], saved: &HashMap<String, String>, at: &str| {
                     for p in properties {
                         let Some(key) = p.name() else { continue };
-                        assert_eq!(
-                            Some(p.value.to_string()),
-                            saved.get(key).cloned(),
-                            "{name}: {at}.{key}"
+                        if report && at == "(itself)" && matches!(key, "Right" | "Bottom") {
+                            continue;
+                        }
+                        let saved_value = saved.get(key);
+                        assert!(
+                            saved_value.is_some_and(|v| saved_forms(&p.value).contains(v)),
+                            "{name}: {at}.{key}: {} against {saved_value:?}",
+                            p.value
                         );
                         named += 1;
                     }

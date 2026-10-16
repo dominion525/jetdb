@@ -202,7 +202,7 @@ type values of text:
 
 ### prop_id Mapping
 
-Known prop_id values are displayed by name; unknown ones are shown in `0xXXXX` numeric format. Every named property holds text: an ID whose value is not text belongs to another property in that place and is shown by number. For example, 0x0068 is OnKeyDown on a form, but holds a color on a label, which has no key events. Where the data has them, the names were checked against the SaveAsText output of Access for the 116 forms and reports of `Sports.accdb` (ruddj/SportsAdmin): each value matched the property of that name, except that 12 forms and reports have a FontName of their own that their SaveAsText output does not have.
+Known prop_id values are displayed by name; unknown ones are shown in `0xXXXX` numeric format. A name is given to values of one kind: text values by the first table below, and integer, color and Yes/No values by the second. An ID whose value is of another kind belongs to another property in that place and is shown by number. For example, 0x0068 is OnKeyDown on a form, but holds a color on a label, which has no key events. Where the data has them, the names were checked against the SaveAsText output of Access for the 116 forms and reports of `Sports.accdb` (ruddj/SportsAdmin): each value matched the property of that name, except that 12 forms and reports have a FontName of their own that their SaveAsText output does not have.
 
 | ID | Property Name | Purpose |
 |--------|--------------|------|
@@ -247,6 +247,33 @@ Known prop_id values are displayed by name; unknown ones are shown in `0xXXXX` n
 | 0x015A | InputMask | Input mask |
 | 0x0161 | Toolbar | Toolbar |
 
+Names of integer, color and Yes/No values: each is the SaveAsText key that the values of the ID agree with in every form and report of `Sports.accdb` where it appears. Only IDs whose values vary there are named, so that one key fits them all; an ID whose value is always the same is shown by number. SaveAsText writes the right and bottom of a form only, so `Right` and `Bottom` were checked on forms.
+
+| ID | Property Name | Purpose |
+|--------|--------------|------|
+| 0x0009 | BorderStyle | Border style |
+| 0x000C | Bottom | Bottom of the form (forms only) |
+| 0x0029 | GridX | Horizontal grid spacing |
+| 0x002A | GridY | Vertical grid spacing |
+| 0x0036 | Left | Left position |
+| 0x0081 | Right | Right of the form (forms only) |
+| 0x008D | Top | Top position |
+| 0x0096 | Width | Width |
+| 0x0098 | ScrollBars | Scroll bars shown |
+| 0x009E | ItemSuffix | Number used for the next control name |
+| 0x00A1 | DatasheetFontHeight | Datasheet font size |
+| 0x00DB | HelpContextId | Help context ID |
+| 0x0105 | TabIndex | Tab order |
+| 0x013F | DatasheetGridlinesColor | Datasheet gridline color |
+| 0x01C4 | FilterOnLoad | Apply the filter on load (Yes/No) |
+| 0x01DD | VerticalAnchor | Vertical anchoring |
+| 0x01DE | HorizontalAnchor | Horizontal anchoring |
+| 0x0246 | DatasheetGridlinesColor12 | Datasheet gridline color (Access 2007 and later) |
+| 0x024A | LayoutCachedLeft | Cached left position in a layout |
+| 0x024B | LayoutCachedTop | Cached top position in a layout |
+| 0x024C | LayoutCachedWidth | Cached width in a layout |
+| 0x024D | LayoutCachedHeight | Cached height in a layout |
+
 Frequently occurring unknown IDs:
 
 | ID | Occurrence Context (Estimated) |
@@ -255,8 +282,6 @@ Frequently occurring unknown IDs:
 | 0x0013 | Form-level Yes/No, stored without a value (`NotDefault`) |
 | 0x001D | Within controls |
 | 0x0178 | GUID (appears in all controls) |
-| 0x024A | Integer of 4 bytes within controls |
-| 0x024C | Integer of 4 bytes within controls |
 | 0x0268 | Color-related property |
 | 0x0274 | Color-related property |
 | 0x01CA-0x01D2 | Integer within controls (appears in consecutive sequence) |
