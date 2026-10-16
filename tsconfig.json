@@ -1,0 +1,25 @@
+{
+  // src/ の TS を、assets/ に 1 ファイルずつ ES モジュールの JS として出す（バンドラーは使わない）
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "es2022",
+    "moduleResolution": "bundler",
+    "lib": ["es2023", "dom", "dom.iterable"],
+    "rootDir": "src",
+    "outDir": "assets",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "exactOptionalPropertyTypes": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "removeComments": false,
+    "newLine": "lf",
+    // ページは jetdb-wasm を /assets/wasm/ から読む。型は、作ったときの出力の .d.ts を写したものを使う
+    "paths": {
+      "/assets/wasm/jetdb_wasm.js": ["./assets/wasm/jetdb_wasm.d.ts"]
+    }
+  },
+  "include": ["src"]
+}
