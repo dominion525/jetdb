@@ -247,7 +247,7 @@ prop_id(u16) + type(u32) + B(u32) + length(u32) + value[length バイト] + trai
 | 0x015A | InputMask | 入力マスク |
 | 0x0161 | Toolbar | ツールバー |
 
-整数・色・はい/いいえの値の名前は、`Sports.accdb` のその ID が出てくるすべてのフォームとレポートで、値が一致する SaveAsText のキーである。1 つのキーがすべての値に合うよう、値がいろいろに変わる ID にだけ名前を付け、値がいつも同じ ID は数値で表示する。SaveAsText はフォームの右端と下端しか書かないので、`Right` と `Bottom` はフォームで確かめた。
+整数・色・はい/いいえの値の名前は、`Sports.accdb` のその ID が出てくるすべてのフォームとレポートで、値が一致する SaveAsText のキーである。1 つのキーがすべての値に合うよう、値がいろいろに変わる ID にだけ名前を付け、値がいつも同じ ID は数値で表示する。SaveAsText はフォームの右端と下端しか書かないので、`Right` と `Bottom` はフォームで確かめた。名前は 0x01C4 までの ID にだけ付ける。Microsoft 365 の Access は、Anchor やレイアウトのものなど、それより大きい ID を、`Sports.accdb` を作った Access より 1 つ大きく書くため。
 
 | ID | プロパティ名 | 用途 |
 |--------|--------------|------|
@@ -266,13 +266,6 @@ prop_id(u16) + type(u32) + B(u32) + length(u32) + value[length バイト] + trai
 | 0x0105 | TabIndex | タブの順番 |
 | 0x013F | DatasheetGridlinesColor | データシートの枠線の色 |
 | 0x01C4 | FilterOnLoad | 読み込み時にフィルターを適用する（はい/いいえ） |
-| 0x01DD | VerticalAnchor | 縦方向のアンカー |
-| 0x01DE | HorizontalAnchor | 横方向のアンカー |
-| 0x0246 | DatasheetGridlinesColor12 | データシートの枠線の色（Access 2007 以降） |
-| 0x024A | LayoutCachedLeft | レイアウトでの左端の位置（キャッシュ） |
-| 0x024B | LayoutCachedTop | レイアウトでの上端の位置（キャッシュ） |
-| 0x024C | LayoutCachedWidth | レイアウトでの幅（キャッシュ） |
-| 0x024D | LayoutCachedHeight | レイアウトでの高さ（キャッシュ） |
 
 頻出する未知 ID:
 

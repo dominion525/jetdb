@@ -247,7 +247,7 @@ Known prop_id values are displayed by name; unknown ones are shown in `0xXXXX` n
 | 0x015A | InputMask | Input mask |
 | 0x0161 | Toolbar | Toolbar |
 
-Names of integer, color and Yes/No values: each is the SaveAsText key that the values of the ID agree with in every form and report of `Sports.accdb` where it appears. Only IDs whose values vary there are named, so that one key fits them all; an ID whose value is always the same is shown by number. SaveAsText writes the right and bottom of a form only, so `Right` and `Bottom` were checked on forms.
+Names of integer, color and Yes/No values: each is the SaveAsText key that the values of the ID agree with in every form and report of `Sports.accdb` where it appears. Only IDs whose values vary there are named, so that one key fits them all; an ID whose value is always the same is shown by number. SaveAsText writes the right and bottom of a form only, so `Right` and `Bottom` were checked on forms. Only IDs up to 0x01C4 are named: Access for Microsoft 365 writes the IDs above, such as those of the anchors and the layout, one higher than the Access that made `Sports.accdb`.
 
 | ID | Property Name | Purpose |
 |--------|--------------|------|
@@ -266,13 +266,6 @@ Names of integer, color and Yes/No values: each is the SaveAsText key that the v
 | 0x0105 | TabIndex | Tab order |
 | 0x013F | DatasheetGridlinesColor | Datasheet gridline color |
 | 0x01C4 | FilterOnLoad | Apply the filter on load (Yes/No) |
-| 0x01DD | VerticalAnchor | Vertical anchoring |
-| 0x01DE | HorizontalAnchor | Horizontal anchoring |
-| 0x0246 | DatasheetGridlinesColor12 | Datasheet gridline color (Access 2007 and later) |
-| 0x024A | LayoutCachedLeft | Cached left position in a layout |
-| 0x024B | LayoutCachedTop | Cached top position in a layout |
-| 0x024C | LayoutCachedWidth | Cached width in a layout |
-| 0x024D | LayoutCachedHeight | Cached height in a layout |
 
 Frequently occurring unknown IDs:
 
