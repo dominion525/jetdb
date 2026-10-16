@@ -981,7 +981,10 @@ pre {
   font: inherit;
   font-size: 0.9375rem;
   text-align: left;
-  overflow-wrap: anywhere;
+  /* 長い名前は 1 行で「…」と切る（全部の名前は title で見られる） */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   cursor: pointer;
 }
 
@@ -1192,9 +1195,41 @@ pre {
   font-size: 1rem;
 }
 
+/* 長い行を折り返す切り替え */
+.viewer-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.viewer-code pre.is-wrapped {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* 狭い幅で一覧の代わりに出す選択の欄。広い幅では出さない */
+.viewer-nav-select {
+  display: none;
+}
+
 @media (max-width: 720px) {
   .viewer {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* 狭い幅では、一覧のまとまりの代わりに選択の欄を出す */
+  .viewer-nav-select {
+    display: block;
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .viewer-nav > div > .viewer-item,
+  .viewer-nav .viewer-group {
+    display: none;
   }
 }
 

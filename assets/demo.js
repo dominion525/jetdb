@@ -109,7 +109,10 @@ function open(bytes, label, name, password) {
           : "The password is wrong. Try again.";
       return;
     }
-    status.textContent = `Could not open ${name}: ${e.message}`;
+    status.textContent =
+      e.code === "INVALID_FILE"
+        ? `Could not open ${name}: it is not an Access database, or it is damaged (${e.message}).`
+        : `Could not open ${name}: ${e.message}`;
     return;
   }
   pending = null;
@@ -148,6 +151,8 @@ function navButton(kind, name, label) {
   button.type = "button";
   button.className = "viewer-item";
   button.textContent = label;
+  // 長い名前は 1 行で「…」と切るので、全部の名前を title に持たせる
+  button.title = label;
   button.dataset.hash = hashOf(kind, name);
   button.addEventListener("click", () => {
     if (location.hash !== button.dataset.hash)
@@ -156,11 +161,18 @@ function navButton(kind, name, label) {
   return button;
 }
 
+// この数を超えるまとまりは、最初は閉じておく（選んでいるものがあれば開く）
+const OPEN_LIMIT = 50;
+
 function showNav() {
-  const groups = listObjects(systemToggle.checked).map((k) => {
+  const kinds = listObjects(systemToggle.checked);
+  const groups = kinds.map((k) => {
     const group = document.createElement("details");
     group.className = "viewer-group";
-    group.open = true;
+    const current = (k.names ?? []).some(
+      (n) => hashOf(k.kind, n) === location.hash,
+    );
+    group.open = !k.names || k.names.length <= OPEN_LIMIT || current;
     const summary = document.createElement("summary");
     summary.textContent = `${k.title} (${k.names ? k.names.length : "—"})`;
     group.append(summary);
@@ -180,17 +192,51 @@ function showNav() {
     }
     return group;
   });
-  nav.replaceChildren(navButton("database", null, "Database"), ...groups);
+  nav.replaceChildren(
+    navSelect(kinds),
+    navButton("database", null, "Database"),
+    ...groups,
+  );
   markCurrent();
+}
+
+// 狭い幅で一覧の代わりに出す選択の欄。種類ごとにまとめる
+function navSelect(kinds) {
+  const select = el(
+    "select",
+    {
+      class: "viewer-select viewer-nav-select",
+      "aria-label": "Object to show",
+    },
+    el("option", { value: "#database" }, "Database"),
+    kinds
+      .filter((k) => k.names && k.names.length > 0)
+      .map((k) =>
+        el(
+          "optgroup",
+          { label: `${k.title} (${k.names.length})` },
+          k.names.map((n) => el("option", { value: hashOf(k.kind, n) }, n)),
+        ),
+      ),
+  );
+  select.addEventListener("change", () => {
+    location.hash = select.value;
+  });
+  return select;
 }
 
 // 今選んでいるものに印を付ける
 function markCurrent() {
   for (const button of nav.querySelectorAll(".viewer-item")) {
-    if (button.dataset.hash === location.hash)
+    if (button.dataset.hash === location.hash) {
       button.setAttribute("aria-current", "true");
-    else button.removeAttribute("aria-current");
+      // 閉じているまとまりの中のものなら、まとまりを開く
+      const group = button.closest("details");
+      if (group) group.open = true;
+    } else button.removeAttribute("aria-current");
   }
+  const select = nav.querySelector(".viewer-nav-select");
+  if (select) select.value = location.hash;
 }
 
 // # のものを右に出す。開いたファイルに無いもの、# が無いときは Database を出す
@@ -697,11 +743,23 @@ function textView(text, filename) {
     "Copy",
   );
   const save = saveButton("Save", new TextEncoder().encode(text), filename);
+  // 長い行を枠の中で折り返すかどうか。テキストは CLI と同じ形のまま
+  const pre = el("pre", {}, el("code", {}, text));
+  const wrapBox = el("input", { type: "checkbox" });
+  wrapBox.addEventListener("change", () =>
+    pre.classList.toggle("is-wrapped", wrapBox.checked),
+  );
   return el(
     "div",
     { class: "viewer-code" },
-    el("div", { class: "viewer-code-actions" }, copy, save),
-    el("pre", {}, el("code", {}, text)),
+    el(
+      "div",
+      { class: "viewer-code-actions" },
+      el("label", { class: "viewer-wrap" }, wrapBox, "Wrap lines"),
+      copy,
+      save,
+    ),
+    pre,
   );
 }
 
@@ -895,6 +953,10 @@ input.addEventListener("change", async () => {
   if (!file) return;
   status.textContent = `Opening ${file.name}…`;
   const bytes = new Uint8Array(await file.arrayBuffer());
+  // 開いている間は画面が止まるので、先に「開いています」を描かせる
+  await new Promise((resolve) =>
+    requestAnimationFrame(() => setTimeout(resolve)),
+  );
   open(bytes, file.name, file.name, null);
 });
 
