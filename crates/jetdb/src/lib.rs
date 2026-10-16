@@ -3,6 +3,7 @@
 pub mod catalog;
 pub mod complex;
 pub(crate) mod crypto;
+pub mod csv;
 pub mod data;
 pub mod ddl;
 pub mod encoding;
@@ -26,6 +27,7 @@ pub use catalog::{find_table, read_catalog, table_names, CatalogEntry};
 pub use complex::{
     read_complex_column, Attachment, ComplexColumn, ComplexKind, ComplexValues, Version,
 };
+pub use csv::{write_csv, AttachmentWriter, BinaryFormat, CsvOptions};
 pub use file::{find_row, DbHeader, FileError, PageReader};
 pub use format::{
     catalog_flags, column_flags, index_flags, index_type, ColumnType, FormatError, JetFormat,

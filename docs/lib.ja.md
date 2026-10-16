@@ -241,6 +241,25 @@ fn main() -> Result<(), jetdb::FileError> {
 }
 ```
 
+## CSV
+
+[`write_csv`] は、テーブルを `jetdb export` と同じ CSV で、1 行ずつ書きます。[`CsvOptions`] は、`jetdb export` の選択肢を持ちます。添付ファイルのフィールドは、ファイル名を出します。`attachments` に関数を渡すと、各ファイルについて、その関数が返すものを出します。
+
+```rust,no_run
+use jetdb::{find_table, read_catalog, read_table_def, write_csv, CsvOptions, PageReader};
+
+fn main() -> Result<(), jetdb::FileError> {
+    let mut reader = PageReader::open("database.mdb")?;
+    let catalog = read_catalog(&mut reader)?;
+    let entry = find_table(&catalog, "Orders")?;
+    let table = read_table_def(&mut reader, &entry.name, entry.table_page)?;
+    let options = CsvOptions { delimiter: '\t', ..CsvOptions::default() };
+    let mut out = std::io::stdout().lock();
+    write_csv(&mut reader, &catalog, &table, &options, &mut out, None)?;
+    Ok(())
+}
+```
+
 ## VBA ソースコード
 
 [`read_vba_project`] で VBA モジュールのソースコードを抽出できます。
