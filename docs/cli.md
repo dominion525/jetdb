@@ -479,7 +479,7 @@ jetdb form props [OPTIONS] <FILE> <NAME>
 
 Parse the Blob binary stream and display properties for the form/report itself and each control. Properties include RecordSource, ControlSource, Filter, Caption, FontName, event handlers, and more.
 
-Known property IDs are displayed by name; unknown IDs are shown as `0xXXXX`. Binary values are shown as `(N bytes)`, GUIDs as `{...}`, and booleans as `yes`/`no`.
+Known property IDs are displayed by name; unknown IDs are shown as `0xXXXX`. Binary values are shown as `(N bytes)`, GUIDs as `{...}`, booleans as `yes`/`no`, and a Yes/No property stored without a value, set to the value that is not its default, as `NotDefault`, as SaveAsText writes it.
 
 ##### Options
 

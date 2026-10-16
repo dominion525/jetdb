@@ -173,30 +173,17 @@ The main binary body of the form design. Contains structural information includi
 
 ### Property Entry Format
 
-Property names are not stored as strings; they are identified by numeric IDs (u16).
+Property names are not stored as strings; they are identified by numeric IDs (u16). Every entry has the same layout:
 
-**Variable-length properties (string types):**
 ```
-prop_id(u16) + unknown(u16) + type(u32) + flags(u32) + byte_length(u32) + UTF-16LE data
+prop_id(u16) + type(u32) + B(u32) + length(u32) + value[length bytes] + trailer(u32)
 ```
 
-type values:
+`length` is the number of bytes of the value. The 4-byte trailer after the value is a number that grows from one entry to the next. The type tells how to read the value (see "type Support Status"); B is not used.
+
+type values of text:
 - 0x0A -- Name/font types (Name, FontName, Format, RowSourceType, ColumnWidths)
 - 0x0C -- Text/data types (RecordSource, ControlSource, RowSource, Filter, Event, Caption)
-
-**Fixed-length properties (numeric types):**
-```
-prop_id(u16) + unknown(u16) + type(u32) + flags(u32) + data[type-dependent]
-```
-
-type values:
-- 0x01 -- Bool (4B)
-- 0x02 -- Short (4B)
-- 0x03 -- Long (6B)
-- 0x04 -- Color (8B)
-- 0x08 -- Double (8B)
-- 0x09 -- GUID (16B)
-- 0x0B -- Binary (variable length)
 
 ### Section Boundaries
 
@@ -209,7 +196,7 @@ type values:
 ### Parser Limitations
 
 - **Form level**: Sequential parsing from the beginning of the Blob, but parsing halts when an unknown type is encountered. Form-level properties after the halt point cannot be retrieved. In currently observed data, all major properties (RecordSource, Filter, Caption, FontName, etc.) appear before the halt point, and no practical issues have been identified.
-- **Control level**: Separate from form-level parsing, a byte scan detects the Name property pattern `[14 00 0A 00 00 00]` to locate each control section, which is then parsed individually. When an unknown type is encountered within a control, the remaining properties of that control cannot be retrieved.
+- **Control level**: Separate from form-level parsing, a byte scan detects the Name property pattern `[14 00 0A 00 00 00]` to locate each control section, which is then parsed individually. When an unknown type is encountered within a control, the remaining properties of that control cannot be retrieved. The properties a control keeps before its Name (in the forms and reports compared with SaveAsText, such as `Left`, `Top`, `Width`, `Height` and most `NotDefault` values) are not read.
 - **Layout coordinates & printer settings**: Stored in non-property regions within the Blob and are not extraction targets.
 - **Jet3 (Access 97)**: Not supported because it uses a different format stored in MSysAccessObjects rather than MSysAccessStorage.
 
@@ -276,20 +263,22 @@ Frequently occurring unknown IDs:
 
 ### type Support Status
 
-| type | Name | Data Size | Status |
-|------|------|-------------|----------|
-| 0x01 | Bool | 4B | Supported |
-| 0x02 | Short | 5B | Supported |
-| 0x03 | Long | 6B | Supported |
-| 0x04 | Color | 8B | Supported |
-| 0x06 | (Unknown) | 6B | Supported (interpreted as Long) |
-| 0x08 | Double | 8B+4B trailer | Supported |
-| 0x09 | GUID | 16B+4B trailer | Supported |
-| 0x0A | Text | C bytes+4B trailer | Supported (UTF-16LE) |
-| 0x0B | Binary | C bytes+4B trailer | Supported |
-| 0x0C | Memo | C bytes+4B trailer | Supported (UTF-16LE) |
-| 0x05 | (Unknown) | Unknown | Not supported (parsing halts on encounter) |
-| 0x07 | (Unknown) | Unknown | Not supported (parsing halts on encounter) |
+| type | Value | Status |
+|------|-------|--------|
+| 0x01 | Yes/No: no bytes for a property set to the value that is not its default (SaveAsText writes `NotDefault`), 1 byte for a value (0 is No), 2 or 4 bytes for an integer such as `Overlaps` | Supported |
+| 0x02 | Integer of 1 byte, unsigned | Supported |
+| 0x03 | Integer of 2 or 4 bytes, signed | Supported |
+| 0x04 | 32-bit value of 4 bytes, often a color | Supported |
+| 0x06 | Single of 4 bytes, such as `AlternateBackShade` | Supported |
+| 0x08 | Double of 8 bytes | Supported |
+| 0x09 | GUID of 16 bytes | Supported |
+| 0x0A | Text (UTF-16LE) | Supported |
+| 0x0B | Binary | Supported |
+| 0x0C | Memo (UTF-16LE) | Supported |
+| 0x05 | (Unknown) | Not supported (parsing halts on encounter) |
+| 0x07 | (Unknown) | Not supported (parsing halts on encounter) |
+
+A value of a length its type does not have is given as its bytes. The values of 115 forms and reports of Sports.accdb were compared with their SaveAsText output: of the integer and Yes/No values SaveAsText writes, all agree.
 
 ## References
 

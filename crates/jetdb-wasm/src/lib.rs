@@ -294,6 +294,7 @@ impl From<BlobValue> for Cell {
     fn from(value: BlobValue) -> Self {
         match value {
             BlobValue::Bool(v) => Cell::Bool(v),
+            BlobValue::NotDefault => Cell::String("NotDefault".to_string()),
             BlobValue::Short(v) => Cell::Number(v.into()),
             BlobValue::Long(v) => Cell::Number(v.into()),
             BlobValue::Double(v) => Cell::Number(v),
@@ -2083,8 +2084,9 @@ mod tests {
         assert_eq!(design.type_name, "Form");
         let value = |name| form_property(&design.properties, name);
         assert_eq!(*value("RecordSource"), Cell::String("jp_クエリ_02".into()));
-        assert_eq!(*value("0x013A"), Cell::Bool(true));
-        assert_eq!(*value("0x0093"), Cell::Number(14085.0));
+        // A Yes/No property stored without a value, as SaveAsText writes NotDefault.
+        assert_eq!(*value("0x013A"), Cell::String("NotDefault".into()));
+        assert_eq!(*value("0x0093"), Cell::Number(5.0));
         // A color (DatasheetGridlinesColor) as the number Access writes.
         assert_eq!(*value("0x013F"), Cell::Number(f64::from(0x00E8_E8E8)));
         assert!(matches!(value("0x0178"), Cell::String(s) if s.starts_with('{')));

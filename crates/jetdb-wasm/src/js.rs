@@ -178,6 +178,11 @@ export interface Control {
 export interface FormProperty {
     id: number;
     name: string;
+    /**
+     * The value; for a Yes/No property stored without a value, set to the
+     * value that is not its default, the string `NotDefault`, as SaveAsText
+     * writes it.
+     */
     value: Scalar;
 }
 

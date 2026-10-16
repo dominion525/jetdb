@@ -355,8 +355,8 @@ function checkForms(Database, build) {
   assert.equal(value(design.properties, "RecordSource"), "jp_クエリ_02", build);
   assert.equal(design.properties.find((p) => p.name === "RecordSource").id, 0x9c, build);
   assert.equal(design.properties.find((p) => p.name === "0x013A").id, 0x13a, build);
-  assert.equal(value(design.properties, "0x013A"), true, build);
-  assert.equal(value(design.properties, "0x0093"), 14085, build);
+  assert.equal(value(design.properties, "0x013A"), "NotDefault", build);
+  assert.equal(value(design.properties, "0x0093"), 5, build);
   assert.equal(value(design.properties, "0x013F"), 0xe8e8e8, build);
   assert.ok(value(design.properties, "0x0179") instanceof Uint8Array, build);
   assert.equal(design.controls.length, 21, build);
