@@ -1130,6 +1130,41 @@ pre {
   white-space: pre;
 }
 
+/* DDL の方言を選ぶ欄 */
+.viewer-dialect {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.viewer-select {
+  min-height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+.viewer-dialect + .viewer-code {
+  margin-top: -32px;
+}
+
+/* リレーションシップ */
+.viewer-relation {
+  margin: 16px 0 12px;
+  font-weight: 600;
+}
+
+.viewer-flags {
+  margin: 12px 0 0;
+  padding-left: 1.25em;
+  color: var(--muted);
+}
+
 /* コントロールの一覧: 1 つずつ開いてプロパティを見る */
 .viewer-control {
   border-bottom: 1px solid var(--border);

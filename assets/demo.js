@@ -549,6 +549,129 @@ function showTable(name) {
     ["Columns", () => tableColumns(name)],
     ["Indexes", () => tableIndexes(name)],
     ["Properties", () => propertiesView(name, "Table")],
+    ["Data macros", () => tableDataMacros(name)],
+    ["DDL", () => ddlView(name)],
+  ]);
+}
+
+function tableDataMacros(name) {
+  const text = db.dataMacrosText(name);
+  if (text === "")
+    return el("p", { class: "note" }, "This table has no data macros.");
+  return textView(text, fileName(`${name}-data-macros`, "xml"));
+}
+
+// ---- DDL ----
+
+const DIALECTS = [
+  ["sqlite", "SQLite"],
+  ["postgres", "PostgreSQL"],
+  ["mysql", "MySQL"],
+  ["access", "Access SQL"],
+];
+
+// 方言を選んで DDL を出す。table が無ければ全部のテーブル
+function ddlView(table) {
+  const box = el("div");
+  const select = el(
+    "select",
+    { class: "viewer-select", "aria-label": "SQL dialect" },
+    DIALECTS.map(([v, label]) => el("option", { value: v }, label)),
+  );
+  function show() {
+    const dialect = select.value;
+    let body;
+    try {
+      const sql = db.ddl(dialect, table ? { table } : {});
+      body = textView(
+        sql,
+        fileName(`${table ?? "database"}-${dialect}`, "sql"),
+      );
+    } catch (e) {
+      body = failure(e);
+    }
+    box.replaceChildren(
+      el("label", { class: "viewer-dialect" }, "Dialect ", select),
+      body,
+    );
+  }
+  select.addEventListener("change", show);
+  show();
+  return box;
+}
+
+// ---- リレーションシップ ----
+
+function showRelationship(name) {
+  const r = db.relationships({ system: true }).find((x) => x.name === name);
+  if (!r) throw new Error(`no relationship named ${name}`);
+  const tableLink = (t) => el("a", { href: hashOf("table", t) }, t);
+  return [
+    el(
+      "p",
+      { class: "viewer-relation" },
+      tableLink(r.fromTable),
+      " → ",
+      tableLink(r.toTable),
+    ),
+    table(
+      [`${r.fromTable} column`, `${r.toTable} column`],
+      r.columns.map((c) => [c.from, c.to]),
+    ),
+    el(
+      "ul",
+      { class: "viewer-flags" },
+      [
+        ["Referential integrity", r.referentialIntegrity],
+        ["Cascade update", r.cascadeUpdate],
+        ["Cascade delete", r.cascadeDelete],
+      ].map(([label, on]) => el("li", {}, `${label}: ${on ? "yes" : "no"}`)),
+    ),
+  ];
+}
+
+// ---- データベース全体 ----
+
+// データベースのプロパティ: MSysDb、SummaryInfo（タイトル・作成者など）、UserDefined
+function databaseProperties() {
+  const groups = [
+    ["Database properties", () => db.properties("MSysDb").object],
+    [
+      "Summary info",
+      () => db.properties("SummaryInfo", { type: "DatabaseProperty" }).object,
+    ],
+    [
+      "User-defined",
+      () => db.properties("UserDefined", { type: "DatabaseProperty" }).object,
+    ],
+  ];
+  return el(
+    "div",
+    {},
+    groups.map(([title, read]) => {
+      let content;
+      try {
+        content = propertyTable(read());
+      } catch (e) {
+        content =
+          e.code === "OBJECT_NOT_FOUND"
+            ? el("p", { class: "note" }, "None.")
+            : failure(e);
+      }
+      return el(
+        "section",
+        { class: "viewer-props" },
+        el("h3", {}, title),
+        content,
+      );
+    }),
+  );
+}
+
+function showDatabase() {
+  return tabs([
+    ["DDL", () => ddlView(null)],
+    ["Properties", () => databaseProperties()],
   ]);
 }
 
@@ -715,6 +838,8 @@ const RENDERERS = {
   macro: showMacro,
   form: (name) => showForm(name, "Form"),
   report: (name) => showForm(name, "Report"),
+  relationship: showRelationship,
+  database: showDatabase,
 };
 
 // ---- 右の中身 ----
