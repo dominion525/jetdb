@@ -1,4 +1,4 @@
-// ページを通すテスト。scripts/serve.mjs で配るサイトを、Chromium・Firefox・WebKit で開く
+// ページを通すテスト。scripts/serve.ts で配るサイトを、Chromium・Firefox・WebKit で開く
 import { defineConfig, devices } from "@playwright/test";
 
 const port = 8710;
@@ -10,7 +10,7 @@ export default defineConfig({
   reporter: "list",
   use: { baseURL: url },
   webServer: {
-    command: `node scripts/serve.mjs ${port}`,
+    command: `node scripts/serve.ts ${port}`,
     url,
   },
   projects: [

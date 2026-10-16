@@ -1,9 +1,10 @@
 // サイト（このリポジトリの直下）を HTTP で配る。ページを通すテスト（Playwright）が使う
 //
-//   node scripts/serve.mjs [port]
+//   node scripts/serve.ts [port]
 //
 // 127.0.0.1 だけで待つ。Wasm は、ブラウザが読みながらコンパイルできるように
-// application/wasm で返す。書き換えた JS をすぐ読めるように、キャッシュさせない
+// application/wasm で返す。書き換えた JS をすぐ読めるように、キャッシュさせない。
+// Node.js 24 は型を取り除いてそのまま動かすので、型は消せる書き方だけを使う
 
 import { readFile, stat } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -13,7 +14,7 @@ import { fileURLToPath } from "node:url";
 const root = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const port = Number(process.argv[2] ?? 8080);
 
-const types = {
+const types: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
@@ -25,7 +26,7 @@ const types = {
 };
 
 createServer(async (request, response) => {
-  let path;
+  let path: string;
   try {
     path = decodeURIComponent(
       new URL(request.url ?? "/", "http://localhost").pathname,

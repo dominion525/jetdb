@@ -61,6 +61,13 @@ describe("ビューアの文字の表", () => {
     );
   });
 
+  it("バイト数は、英語では 1 のとき単数", () => {
+    expect(MESSAGES.en.bytes(1)).toBe("1 byte");
+    expect(MESSAGES.en.bytes(0)).toBe("0 bytes");
+    expect(MESSAGES.en.bytes(2)).toBe("2 bytes");
+    expect(MESSAGES.ja.bytes(1)).toBe("1 バイト");
+  });
+
   it("行の範囲は、総数がわかったときだけ総数を出す", () => {
     expect(MESSAGES.en.rows(1, 100, null)).toBe("Rows 1–100");
     expect(MESSAGES.en.rows(101, 105, 105)).toBe("Rows 101–105 of 105");

@@ -11,7 +11,7 @@ jetdb の紹介ページ・全項目の比較表・ブラウザで試せるデ�
 - `assets/main.js`・`assets/demo/`: `src/` から作った JavaScript。ページはこれを読む
 - `tests/unit/`: `src/` の関数のテスト（Vitest のブラウザモード、Chromium）
 - `tests/e2e/`: ページを開いて確かめるテスト（Playwright、Chromium・Firefox・WebKit）
-- `scripts/serve.mjs`: サイトを手元で配るスクリプト
+- `scripts/serve.ts`: サイトを手元で配るスクリプト
 
 ## 前提
 
@@ -36,7 +36,7 @@ npm run check      # 型の検査（src/ とテスト）と Biome の検査
 npm run lint       # Biome の検査だけ
 npm test           # tests/unit/ のテスト
 npm run test:e2e   # tests/e2e/ のテスト
-node scripts/serve.mjs 8080   # http://localhost:8080/ でサイトを配る（キャッシュさせない）
+node scripts/serve.ts 8080   # http://localhost:8080/ でサイトを配る（キャッシュさせない）
 ```
 
 ## 決まり

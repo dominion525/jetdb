@@ -41,7 +41,7 @@ const en = {
   none: "None.",
   noneValue: "none",
   binary: (size: string) => `binary, ${size}`,
-  bytes: (n: number) => `${n} bytes`,
+  bytes: (n: number) => `${n} ${n === 1 ? "byte" : "bytes"}`,
   complexNouns: {
     file: ["file", "files"] as Nouns,
     version: ["version", "versions"] as Nouns,

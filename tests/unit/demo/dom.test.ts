@@ -155,7 +155,7 @@ describe("値の出し方", () => {
     const items = [...details.querySelectorAll("li")];
     expect(items.map((li) => li.textContent)).toEqual([
       "a.txt (10 bytes) Save",
-      "(no name) (1 bytes) Save",
+      "(no name) (1 byte) Save",
       "broken.bin (could not be decoded)",
     ]);
     expect(items[2]?.querySelector("button")).toBeNull();
