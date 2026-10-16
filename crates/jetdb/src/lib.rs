@@ -49,9 +49,9 @@ pub use data::{
 pub use form::{
     control_type_name, list_forms, list_forms_in, read_form_properties, read_form_properties_in,
     read_form_properties_of_type, read_form_stream, read_form_stream_in, read_form_stream_of_type,
-    read_form_type_info, read_form_type_info_of_type, BlobProperty, BlobValue, ControlInfo,
-    ControlProperties, FormEntry, FormObjectType, FormProperties, FormStream, FormTypeInfo,
-    StreamKind,
+    read_form_type_info, read_form_type_info_in, read_form_type_info_of_type, BlobProperty,
+    BlobValue, ControlInfo, ControlProperties, FormEntry, FormObjectType, FormProperties,
+    FormStream, FormTypeInfo, StreamKind,
 };
 pub use macro_action::{macro_action, macro_argument_value_name, MacroAction, MACRO_ACTIONS};
 pub use macro_def::{

@@ -259,9 +259,19 @@ fn type_info(
     name: &str,
     object_type: Option<FormObjectType>,
 ) -> Result<FormTypeInfo, FileError> {
-    let entries = storage::read_storage_entries(reader)?;
+    read_form_type_info_in(&storage::read_access_storage(reader)?, name, object_type)
+}
+
+/// [`read_form_type_info`] in the storage already read: of `object_type`
+/// when it is given, and otherwise the form when a form and a report share
+/// the name.
+pub fn read_form_type_info_in(
+    storage: &AccessStorage,
+    name: &str,
+    object_type: Option<FormObjectType>,
+) -> Result<FormTypeInfo, FileError> {
     let (object_type, stream_data) =
-        find_stream(&entries, name, object_type, StreamKind::TypeInfo)?;
+        find_stream(&storage.entries, name, object_type, StreamKind::TypeInfo)?;
     let controls = parse_type_info(&stream_data)?;
 
     Ok(FormTypeInfo {

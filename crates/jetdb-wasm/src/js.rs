@@ -288,13 +288,24 @@ export interface PropertiesOptions {
     type?: ObjectType;
 }
 
-/** The options of `Database.formProperties` and `Database.embeddedMacros`. */
+/** The options of `Database.formProperties`, `Database.formControls` and `Database.embeddedMacros`. */
 export interface FormOptions {
     /**
      * Form or report, needed when a form and a report share the name. Without
      * it, the only form or report of the name is read.
      */
     type?: FormType;
+}
+
+/** A control of a form or report, as `Database.formControls` lists it. */
+export interface FormControl {
+    name: string;
+    /** The type, such as `TextBox`, or its number as `0x....` for one jetdb does not know. */
+    type: string;
+    /** The number of the type. */
+    typeCode: number;
+    /** The index of the control in the form or report. */
+    index: number;
 }
 
 /**
@@ -664,6 +675,34 @@ impl JsDatabase {
                 set(&object, "name", f.name.as_str().into());
                 set(&object, "type", f.type_name.into());
                 object
+            })
+            .collect())
+    }
+
+    /// The controls of a form or report, as `jetdb form controls` lists
+    /// them: in the order of its TypeInfo, with their index. A form or report
+    /// without a TypeInfo is FORM_NOT_FOUND.
+    #[wasm_bindgen(js_name = formControls, unchecked_return_type = "FormControl[]")]
+    pub fn form_controls(
+        &mut self,
+        #[wasm_bindgen(unchecked_param_type = "string")] name: JsValue,
+        options: Option<FormOptions>,
+    ) -> Result<Array, JsValue> {
+        let name = string_arg(&name, "name")?;
+        let form_type = form_type_option(options.as_deref())?;
+        let controls = self
+            .inner
+            .form_controls(&name, form_type)
+            .map_err(|e| properties_error(e, &name))?;
+        Ok(controls
+            .into_iter()
+            .map(|c| {
+                let control = Object::new();
+                set(&control, "name", c.name.into());
+                set(&control, "type", c.type_name.into());
+                set(&control, "typeCode", c.type_code.into());
+                set(&control, "index", c.index.into());
+                control
             })
             .collect())
     }
