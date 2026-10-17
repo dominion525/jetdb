@@ -177,6 +177,16 @@ This file was created by the jetdb project using Microsoft Access for Microsoft 
 
 It was made with the VBA module `bigint-generators/bigint-generator.bas` (`CreateBigIntTestTable`), imported into a new, empty `.accdb` and run once from the Immediate window.
 
+## Created independently: Japanese Access 97 test database
+
+This file was created by the jetdb project with DAO 3.6, which comes with Windows, as Access 2013 and later cannot create Access 97 files.
+
+| File | Purpose |
+|------|---------|
+| V1997/japaneseTestV1997.mdb | An Access 97 (Jet3) database in code page 932: a table `顧客` with columns `ID`, `氏名` (text, described as `顧客の氏名`) and `備考` (memo), an index `氏名索引`, three rows (`山田太郎` / `東京都千代田区`, `ﾃｽﾄ` / `①～髙`, `Smith` / `ASCII only`), and a query `顧客一覧` (`SELECT 氏名 FROM 顧客 WHERE 氏名 LIKE '山*'`) |
+
+It was made with the script `jet3-generators/jet3-japanese-generator.vbs`, run once with the 32-bit Windows Script Host (`C:\Windows\SysWOW64\cscript.exe`), which creates the database with `CreateDatabase` and the Japanese collating order. The script names the file `japaneseJet3.mdb`; it was renamed to follow the names of the other files.
+
 ## Created independently: Japanese VBA test databases
 
 These files were created by the jetdb project using Microsoft Access for Microsoft 365 MSO (Version 2609 Build 16.0.20430.20092, 64-bit), on Windows whose language for non-Unicode programs is Japanese (code page 932).
