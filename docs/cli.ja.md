@@ -203,6 +203,10 @@ ALTER TABLE "Table1" ADD CONSTRAINT "Table3Table1"
 | mysql | MySQL |
 | access | Access SQL |
 
+#### 値要求の列
+
+プロパティ Required がはいの列（Access のテーブルのデザインの「値要求」）は、DDL でも、列の一覧の `NOT NULL` でも、`NOT NULL` にする。オートナンバー型の列も同じ。
+
 #### GUID のオートナンバー型の列
 
 GUID のオートナンバー型（レプリケーション ID）の列には、新しい GUID を作る既定値を付ける。列が文字列のときは、jetdb が GUID を書き出す形（`{7B4C91E0-774D-4889-B11A-0B9D2CF3D167}`）で作る。

@@ -15,8 +15,8 @@ use std::collections::HashMap;
 
 use crate::format::{column_flags, index_flags, index_type, ColumnType, ObjectType};
 use crate::{
-    CatalogEntry, ColumnDef, FileError, IndexDef, PageReader, Relationship, RelationshipColumn,
-    TableDef,
+    CatalogEntry, ColumnDef, FileError, IndexDef, PageReader, PropMapType, PropertyMap,
+    Relationship, RelationshipColumn, TableDef, Value,
 };
 
 /// The names of the dialects, as `jetdb schema --ddl` takes them.
@@ -36,7 +36,9 @@ pub fn dialect(name: &str) -> Option<&'static dyn DdlDialect> {
 /// The definitions of the tables `jetdb schema` shows: the user tables in
 /// catalog order, or `table` alone, which may be a system table. Each
 /// calculated column has the type of its result (see
-/// [`with_calculated_column_types`]), which its values have.
+/// [`with_calculated_column_types`]), which its values have, and a column
+/// whose `Required` property is Yes is not [`column_flags::NULLABLE`]: Access
+/// keeps that flag on every column and stores "Required" as the property.
 pub fn schema_tables(
     reader: &mut PageReader,
     catalog: &[CatalogEntry],
@@ -49,13 +51,51 @@ pub fn schema_tables(
             .filter(|e| e.object_type == ObjectType::Table && !e.is_system_or_hidden())
             .collect(),
     };
+    let is_jet3 = reader.header().version.is_jet3();
     let mut tables = Vec::with_capacity(targets.len());
     for entry in targets {
         let tdef = crate::read_table_def(reader, &entry.name, entry.table_page)?;
         let calculated = crate::calculated_column_types_in(catalog, &tdef);
-        tables.push(with_calculated_column_types(&tdef, &calculated));
+        let mut tdef = with_calculated_column_types(&tdef, &calculated);
+        clear_nullable_of_required(&mut tdef, entry, is_jet3);
+        tables.push(tdef);
     }
     Ok(tables)
+}
+
+/// Clears [`column_flags::NULLABLE`] on each column of `tdef` whose
+/// `Required` property, in the properties of `entry`, is Yes.
+fn clear_nullable_of_required(tdef: &mut TableDef, entry: &CatalogEntry, is_jet3: bool) {
+    let properties = match crate::entry_properties(entry, is_jet3) {
+        Ok(properties) => properties,
+        Err(e) => {
+            log::warn!("{}: the properties could not be read: {e}", entry.name);
+            return;
+        }
+    };
+    let required: Vec<&str> = properties
+        .maps
+        .iter()
+        .filter(|m| is_required(m))
+        .map(|m| m.name.as_str())
+        .collect();
+    for column in tdef
+        .columns
+        .iter_mut()
+        .filter(|c| required.contains(&c.name.as_str()))
+    {
+        column.flags &= !column_flags::NULLABLE;
+    }
+}
+
+/// Whether `map` holds the properties of a column whose `Required` property
+/// is Yes.
+fn is_required(map: &PropertyMap) -> bool {
+    map.map_type == PropMapType::Column
+        && map
+            .properties
+            .iter()
+            .any(|p| p.name == "Required" && matches!(p.value, Value::Bool(true)))
 }
 
 // ---------------------------------------------------------------------------
@@ -2034,6 +2074,31 @@ mod tests {
                 }
             }
         };
+    }
+
+    #[test]
+    fn required_columns_are_not_null() {
+        // Made by testdata/lp-sample-generators/lp-sample-generator.bas:
+        // CustomerName, ProductName and the columns of tblOrders but OrderID
+        // and Shipped are created NOT NULL, which Access keeps as their
+        // Required property, not in the flags of the columns.
+        let path = skip_if_missing!("jetdb-sample.accdb");
+        let mut reader = crate::file::PageReader::open(&path).unwrap();
+        let catalog = crate::catalog::read_catalog(&mut reader).unwrap();
+        let tables = schema_tables(&mut reader, &catalog, None).unwrap();
+        let ddl = generate_ddl(&Postgres, &tables, &[], false, false);
+        for column in [
+            "\"ProductName\" VARCHAR(50) NOT NULL,",
+            "\"Quantity\" SMALLINT NOT NULL,",
+        ] {
+            assert!(ddl.contains(column), "{column}\n{ddl}");
+        }
+        for column in ["\"UnitPrice\" NUMERIC(19,4),", "\"Shipped\" BOOLEAN"] {
+            assert!(ddl.contains(column), "{column}\n{ddl}");
+        }
+        let not_null = ddl.lines().filter(|l| l.contains(" NOT NULL")).count();
+        // Six required columns and the three AutoNumber IDs.
+        assert_eq!(not_null, 9, "{ddl}");
     }
 
     fn create_table_ddl(path: &std::path::Path, table_name: &str) -> String {
