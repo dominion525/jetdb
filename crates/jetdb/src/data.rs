@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::catalog::CatalogEntry;
-use crate::encoding;
+use crate::encoding::{self, TextEncoding};
 use crate::file::{find_row, FileError, PageReader};
 use crate::format::{row, ColumnType, ObjectType};
 use crate::money;
@@ -134,7 +134,7 @@ pub fn calculated_column_types_in(
     catalog
         .iter()
         .find(|e| e.object_type == ObjectType::Table && e.name == table.name)
-        .and_then(|e| crate::prop::entry_properties(e, table.is_jet3).ok())
+        .and_then(|e| crate::prop::entry_properties(e, table.text_encoding).ok())
         .map(|props| calculated_result_types(&props))
         .unwrap_or_default()
 }
@@ -771,6 +771,7 @@ fn read_column_value(
     reader: &mut PageReader,
     calculated: &HashMap<String, ColumnType>,
 ) -> Value {
+    let text = reader.text_encoding();
     // Boolean is special: value comes from the null mask. A calculated
     // Boolean is not stored there; its cached value is read below.
     if col.col_type == ColumnType::Boolean && !col.is_calculated {
@@ -794,11 +795,11 @@ fn read_column_value(
                 // the envelope is inside the resolved bytes.
                 if result_type == ColumnType::Memo {
                     return match read_lval_data(var_data, Some(reader)) {
-                        Some(data) => read_calculated_value(&data, result_type, is_jet3),
+                        Some(data) => read_calculated_value(&data, result_type, text),
                         None => Value::Null,
                     };
                 }
-                return read_calculated_value(var_data, result_type, is_jet3);
+                return read_calculated_value(var_data, result_type, text);
             }
         }
     }
@@ -806,7 +807,7 @@ fn read_column_value(
     if col.is_fixed {
         read_fixed_value(cracked, col, is_jet3)
     } else {
-        read_variable_value(cracked, col, is_jet3, reader)
+        read_variable_value(cracked, col, text, reader)
     }
 }
 
@@ -967,7 +968,7 @@ fn extract_var_data<'a>(cracked: &CrackedRow<'a>, col: &ColumnDef) -> Option<&'a
 fn read_variable_value(
     cracked: &CrackedRow<'_>,
     col: &ColumnDef,
-    is_jet3: bool,
+    text: TextEncoding,
     reader: &mut PageReader,
 ) -> Value {
     let Some(var_data) = extract_var_data(cracked, col) else {
@@ -975,13 +976,13 @@ fn read_variable_value(
     };
 
     match col.col_type {
-        ColumnType::Text => match encoding::decode_text(var_data, is_jet3) {
+        ColumnType::Text => match encoding::decode_text(var_data, text) {
             Ok(s) => Value::Text(s),
             Err(_) => Value::Null,
         },
         ColumnType::Binary | ColumnType::Unknown(_) => Value::Binary(var_data.to_vec()),
         ColumnType::Memo if var_data.is_empty() => Value::Text(String::new()),
-        ColumnType::Memo => read_memo_value(var_data, is_jet3, Some(reader)),
+        ColumnType::Memo => read_memo_value(var_data, text, Some(reader)),
         ColumnType::Ole if var_data.is_empty() => Value::Binary(Vec::new()),
         ColumnType::Ole => read_ole_value(var_data, Some(reader)),
         // Fixed-size types sometimes stored as variable-length (e.g. system tables)
@@ -1113,13 +1114,13 @@ fn calculated_result_types(props: &crate::prop::ObjectProperties) -> HashMap<Str
 /// calculated field, and an expression's result scale isn't fixed anyway),
 /// so its payload is self-describing instead -- see
 /// [`crate::money::decimal_variant_to_string`]'s doc comment.
-fn read_calculated_value(var_data: &[u8], result_type: ColumnType, is_jet3: bool) -> Value {
+fn read_calculated_value(var_data: &[u8], result_type: ColumnType, text: TextEncoding) -> Value {
     let Some(payload) = extract_calculated_payload(var_data, 16) else {
         return Value::Null;
     };
 
     match result_type {
-        ColumnType::Text => match encoding::decode_text(payload, is_jet3) {
+        ColumnType::Text => match encoding::decode_text(payload, text) {
             Ok(s) => Value::Text(s),
             Err(_) => Value::Null,
         },
@@ -1314,9 +1315,9 @@ fn read_lval_data(var_data: &[u8], reader: Option<&mut PageReader>) -> Option<Ve
 }
 
 /// Read a Memo field value.
-fn read_memo_value(var_data: &[u8], is_jet3: bool, reader: Option<&mut PageReader>) -> Value {
+fn read_memo_value(var_data: &[u8], text: TextEncoding, reader: Option<&mut PageReader>) -> Value {
     match read_lval_data(var_data, reader) {
-        Some(data) => match encoding::decode_text(&data, is_jet3) {
+        Some(data) => match encoding::decode_text(&data, text) {
             Ok(s) => Value::Text(s),
             Err(_) => Value::Null,
         },
@@ -1706,7 +1707,7 @@ mod tests {
         var_data.extend_from_slice(&[0u8; 8]); // lval_dp(4B) + unknown(4B)
         var_data.extend_from_slice(&[0x48, 0x00, 0x69, 0x00]); // "Hi" UTF-16LE
 
-        let val = read_memo_value(&var_data, false, None);
+        let val = read_memo_value(&var_data, TextEncoding::Unicode, None);
         assert_eq!(val, Value::Text("Hi".to_string()));
     }
 
@@ -1720,7 +1721,7 @@ mod tests {
         var_data.extend_from_slice(&[0u8; 8]); // lval_dp(4B) + unknown(4B)
         var_data.extend_from_slice(&[0x48, 0x69]); // "Hi" Latin-1
 
-        let val = read_memo_value(&var_data, true, None);
+        let val = read_memo_value(&var_data, TextEncoding::Jet3 { code_page: 1252 }, None);
         assert_eq!(val, Value::Text("Hi".to_string()));
     }
 
@@ -1732,7 +1733,7 @@ mod tests {
         var_data.extend_from_slice(&flags.to_le_bytes());
         var_data.extend_from_slice(&[0u8; 8]); // page ref + padding
 
-        let val = read_memo_value(&var_data, false, None);
+        let val = read_memo_value(&var_data, TextEncoding::Unicode, None);
         assert_eq!(val, Value::Null);
     }
 
@@ -1744,14 +1745,14 @@ mod tests {
         var_data.extend_from_slice(&flags.to_le_bytes());
         var_data.extend_from_slice(&[0u8; 8]);
 
-        let val = read_memo_value(&var_data, false, None);
+        let val = read_memo_value(&var_data, TextEncoding::Unicode, None);
         assert_eq!(val, Value::Null);
     }
 
     #[test]
     fn memo_too_short_returns_null() {
         // Less than 4 bytes
-        let val = read_memo_value(&[0x01, 0x02], false, None);
+        let val = read_memo_value(&[0x01, 0x02], TextEncoding::Unicode, None);
         assert_eq!(val, Value::Null);
     }
 
@@ -2514,7 +2515,7 @@ mod tests {
         var_data.extend_from_slice(&flags.to_le_bytes());
         var_data.extend_from_slice(&[0u8; 8]);
 
-        let val = read_memo_value(&var_data, false, None);
+        let val = read_memo_value(&var_data, TextEncoding::Unicode, None);
         assert_eq!(val, Value::Text("".to_string()));
     }
 
@@ -3192,7 +3193,7 @@ mod tests {
         let path = skip_if_missing!("V2003/testV2003.mdb");
         let mut reader = PageReader::open(&path).unwrap();
         assert_eq!(
-            read_variable_value(&cracked, &col, false, &mut reader),
+            read_variable_value(&cracked, &col, TextEncoding::Unicode, &mut reader),
             Value::Null
         );
     }
@@ -3207,7 +3208,7 @@ mod tests {
         let mut reader = PageReader::open(&path).unwrap();
 
         assert_eq!(
-            read_variable_value(&cracked, &col, false, &mut reader),
+            read_variable_value(&cracked, &col, TextEncoding::Unicode, &mut reader),
             Value::Text(String::new())
         );
     }
@@ -3222,7 +3223,7 @@ mod tests {
         let mut reader = PageReader::open(&path).unwrap();
 
         assert_eq!(
-            read_variable_value(&cracked, &col, false, &mut reader),
+            read_variable_value(&cracked, &col, TextEncoding::Unicode, &mut reader),
             Value::Binary(Vec::new())
         );
     }
@@ -3237,7 +3238,7 @@ mod tests {
         let mut reader = PageReader::open(&path).unwrap();
 
         assert_eq!(
-            read_variable_value(&cracked, &col, false, &mut reader),
+            read_variable_value(&cracked, &col, TextEncoding::Unicode, &mut reader),
             Value::Text(String::new())
         );
     }
@@ -3252,7 +3253,7 @@ mod tests {
         let mut reader = PageReader::open(&path).unwrap();
 
         assert_eq!(
-            read_variable_value(&cracked, &col, false, &mut reader),
+            read_variable_value(&cracked, &col, TextEncoding::Unicode, &mut reader),
             Value::Binary(Vec::new())
         );
     }
@@ -3512,7 +3513,7 @@ mod tests {
         ];
         let data = calc_envelope(&payload);
         assert_eq!(
-            read_calculated_value(&data, ColumnType::Text, false),
+            read_calculated_value(&data, ColumnType::Text, TextEncoding::Unicode),
             Value::Text("Nancy Freehafer".to_string())
         );
     }
@@ -3530,7 +3531,7 @@ mod tests {
         data.extend_from_slice(&payload);
         let resolved = read_lval_data(&data, None).expect("inline long value");
         assert_eq!(
-            read_calculated_value(&resolved, ColumnType::Memo, false),
+            read_calculated_value(&resolved, ColumnType::Memo, TextEncoding::Unicode),
             Value::Text(text.to_string())
         );
     }
@@ -3542,7 +3543,7 @@ mod tests {
         // column's declared `col_type` would suggest).
         let data = calc_envelope(&(-16384i16).to_le_bytes());
         assert_eq!(
-            read_calculated_value(&data, ColumnType::Int, false),
+            read_calculated_value(&data, ColumnType::Int, TextEncoding::Unicode),
             Value::Int(-16384)
         );
     }
@@ -3553,7 +3554,7 @@ mod tests {
         // banker's-rounded to 16384 (nearest even) by Access before caching.
         let data = calc_envelope(&16384i16.to_le_bytes());
         assert_eq!(
-            read_calculated_value(&data, ColumnType::Int, false),
+            read_calculated_value(&data, ColumnType::Int, TextEncoding::Unicode),
             Value::Int(16384)
         );
     }
@@ -3563,7 +3564,7 @@ mod tests {
         // `[Number Long Integer]/2` where Number Long Integer = -2147483648.
         let data = calc_envelope(&(-1073741824i32).to_le_bytes());
         assert_eq!(
-            read_calculated_value(&data, ColumnType::Long, false),
+            read_calculated_value(&data, ColumnType::Long, TextEncoding::Unicode),
             Value::Long(-1073741824)
         );
     }
@@ -3574,7 +3575,7 @@ mod tests {
         // -4611686018427387903.5, banker's-rounded to the even neighbor.
         let data = calc_envelope(&(-4611686018427387904i64).to_le_bytes());
         assert_eq!(
-            read_calculated_value(&data, ColumnType::BigInt, false),
+            read_calculated_value(&data, ColumnType::BigInt, TextEncoding::Unicode),
             Value::BigInt(-4611686018427387904)
         );
     }
@@ -3584,7 +3585,7 @@ mod tests {
         // `[Number Double]/2`, a full 8-byte (untrimmed) f64 payload.
         let data = calc_envelope(&(-5.985e307f64).to_le_bytes());
         assert_eq!(
-            read_calculated_value(&data, ColumnType::Double, false),
+            read_calculated_value(&data, ColumnType::Double, TextEncoding::Unicode),
             Value::Double(-5.985e307)
         );
     }
@@ -3597,7 +3598,7 @@ mod tests {
         let scaled: i64 = -500000000000000000; // -50000000000000.0000 * 10000
         let data = calc_envelope(&scaled.to_le_bytes());
         assert_eq!(
-            read_calculated_value(&data, ColumnType::Money, false),
+            read_calculated_value(&data, ColumnType::Money, TextEncoding::Unicode),
             Value::Money("-50000000000000.0000".to_string())
         );
     }
@@ -3607,7 +3608,7 @@ mod tests {
         // `[Date/Time]` passthrough of 0100-01-01 (days since 1899-12-30).
         let data = calc_envelope(&(-657434.0f64).to_le_bytes());
         assert_eq!(
-            read_calculated_value(&data, ColumnType::Timestamp, false),
+            read_calculated_value(&data, ColumnType::Timestamp, TextEncoding::Unicode),
             Value::Timestamp(-657434.0)
         );
     }
@@ -3616,12 +3617,12 @@ mod tests {
     fn read_calculated_value_boolean() {
         let data_true = calc_envelope(&[0xFF]);
         assert_eq!(
-            read_calculated_value(&data_true, ColumnType::Boolean, false),
+            read_calculated_value(&data_true, ColumnType::Boolean, TextEncoding::Unicode),
             Value::Bool(true)
         );
         let data_false = calc_envelope(&[0x00]);
         assert_eq!(
-            read_calculated_value(&data_false, ColumnType::Boolean, false),
+            read_calculated_value(&data_false, ColumnType::Boolean, TextEncoding::Unicode),
             Value::Bool(false)
         );
     }
@@ -3634,7 +3635,7 @@ mod tests {
         let payload = ext_datetime_bytes(3652058, 86399, 9999999);
         let data = calc_envelope(&payload);
         assert_eq!(
-            read_calculated_value(&data, ColumnType::DateTimeExtended, false),
+            read_calculated_value(&data, ColumnType::DateTimeExtended, TextEncoding::Unicode),
             Value::DateTimeExtended("9999-12-31 23:59:59.9999999".to_string())
         );
     }
@@ -3645,7 +3646,7 @@ mod tests {
         // `Null`, never a guess.
         let data = calc_envelope(&[1, 2, 3, 4]);
         assert_eq!(
-            read_calculated_value(&data, ColumnType::Guid, false),
+            read_calculated_value(&data, ColumnType::Guid, TextEncoding::Unicode),
             Value::Null
         );
     }
@@ -3660,7 +3661,7 @@ mod tests {
         ];
         let data = calc_envelope(&payload);
         assert_eq!(
-            read_calculated_value(&data, ColumnType::Guid, false),
+            read_calculated_value(&data, ColumnType::Guid, TextEncoding::Unicode),
             Value::Guid("{123E4567-E89B-12D3-A456-426614174000}".to_string())
         );
     }
@@ -3675,7 +3676,7 @@ mod tests {
         ];
         let data = calc_envelope(&payload);
         assert_eq!(
-            read_calculated_value(&data, ColumnType::Numeric, false),
+            read_calculated_value(&data, ColumnType::Numeric, TextEncoding::Unicode),
             Value::Numeric("0.615".to_string())
         );
     }
@@ -3856,5 +3857,79 @@ mod tests {
             }
         }
         assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
+    }
+
+    /// The text values of every row of `table` in the Jet3 file `file`.
+    fn jet3_texts(file: &std::path::Path, table: &str) -> Vec<String> {
+        let mut reader = PageReader::open(file).unwrap();
+        let catalog = crate::read_catalog(&mut reader).unwrap();
+        let entry = crate::find_table(&catalog, table).unwrap();
+        let tdef = crate::read_table_def(&mut reader, &entry.name, entry.table_page).unwrap();
+        let rows = read_table_rows(&mut reader, &tdef).unwrap().rows;
+        rows.into_iter()
+            .flatten()
+            .filter_map(|v| match v {
+                Value::Text(s) => Some(s),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn japanese_access_97_text_in_its_code_page() {
+        // Made by testdata/jet3-generators/jet3-japanese-generator.vbs, in
+        // code page 932: the names, values, description and query read as
+        // Japanese, among them half-width katakana and ～, ① and 髙.
+        let path = skip_if_missing!("V1997/japaneseTestV1997.mdb");
+        let mut reader = PageReader::open(&path).unwrap();
+        assert_eq!(
+            reader.text_encoding(),
+            TextEncoding::Jet3 { code_page: 932 }
+        );
+        let catalog = crate::read_catalog(&mut reader).unwrap();
+        let entry = crate::find_table(&catalog, "顧客").unwrap();
+        let tdef = crate::read_table_def(&mut reader, &entry.name, entry.table_page).unwrap();
+        let names: Vec<&str> = tdef.columns.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["ID", "氏名", "備考"]);
+        assert!(tdef.indexes.iter().any(|i| i.name == "氏名索引"));
+        let properties = crate::entry_properties(entry, reader.text_encoding()).unwrap();
+        let description = properties
+            .maps
+            .iter()
+            .filter(|m| m.name == "氏名")
+            .flat_map(|m| &m.properties)
+            .find(|p| p.name == "Description")
+            .map(|p| p.value.clone());
+        assert!(matches!(description, Some(Value::Text(s)) if s == "顧客の氏名"));
+        let queries = crate::read_queries(&mut reader).unwrap();
+        let query = queries.iter().find(|q| q.name == "顧客一覧").unwrap();
+        assert!(crate::query_to_sql(query).contains("WHERE 氏名 LIKE '山*'"));
+
+        let texts = jet3_texts(&path, "顧客");
+        let expected = [
+            "山田太郎",
+            "東京都千代田区",
+            "ﾃｽﾄ",
+            "①～髙",
+            "Smith",
+            "ASCII only",
+        ];
+        assert_eq!(texts, expected);
+    }
+
+    #[test]
+    fn western_access_97_text_in_code_page_1252() {
+        // Bytes 0x80 to 0x9F are characters such as € and ™ in code page
+        // 1252, but for the five it leaves undefined, which stay controls.
+        let path = skip_if_missing!("V1997/testIndexCodesV1997.mdb");
+        let text: String = jet3_texts(&path, "Table14").concat();
+        for c in ['€', '‚', '…', '‰', 'Š', '™', 'Ÿ'] {
+            assert!(text.contains(c), "{c}");
+        }
+        let controls = text
+            .chars()
+            .filter(|c| ('\u{80}'..='\u{9F}').contains(c))
+            .count();
+        assert_eq!(controls, 5);
     }
 }

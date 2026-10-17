@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use crate::format::{column_flags, index_flags, index_type, ColumnType, ObjectType};
 use crate::{
     CatalogEntry, ColumnDef, FileError, IndexDef, PageReader, PropMapType, PropertyMap,
-    Relationship, RelationshipColumn, TableDef, Value,
+    Relationship, RelationshipColumn, TableDef, TextEncoding, Value,
 };
 
 /// The names of the dialects, as `jetdb schema --ddl` takes them.
@@ -51,13 +51,13 @@ pub fn schema_tables(
             .filter(|e| e.object_type == ObjectType::Table && !e.is_system_or_hidden())
             .collect(),
     };
-    let is_jet3 = reader.header().version.is_jet3();
+    let text = reader.text_encoding();
     let mut tables = Vec::with_capacity(targets.len());
     for entry in targets {
         let tdef = crate::read_table_def(reader, &entry.name, entry.table_page)?;
         let calculated = crate::calculated_column_types_in(catalog, &tdef);
         let mut tdef = with_calculated_column_types(&tdef, &calculated);
-        clear_nullable_of_required(&mut tdef, entry, is_jet3);
+        clear_nullable_of_required(&mut tdef, entry, text);
         tables.push(tdef);
     }
     Ok(tables)
@@ -65,8 +65,8 @@ pub fn schema_tables(
 
 /// Clears [`column_flags::NULLABLE`] on each column of `tdef` whose
 /// `Required` property, in the properties of `entry`, is Yes.
-fn clear_nullable_of_required(tdef: &mut TableDef, entry: &CatalogEntry, is_jet3: bool) {
-    let properties = match crate::entry_properties(entry, is_jet3) {
+fn clear_nullable_of_required(tdef: &mut TableDef, entry: &CatalogEntry, text: TextEncoding) {
+    let properties = match crate::entry_properties(entry, text) {
         Ok(properties) => properties,
         Err(e) => {
             log::warn!("{}: the properties could not be read: {e}", entry.name);
@@ -623,7 +623,7 @@ mod tests {
             columns,
             indexes,
             data_pages: vec![],
-            is_jet3: false,
+            text_encoding: TextEncoding::Unicode,
         }
     }
 
@@ -937,7 +937,11 @@ mod tests {
         for (is_jet3, access, postgres_size) in
             [(false, "TEXT(255)", 255), (true, "TEXT(510)", 510)]
         {
-            tdef.is_jet3 = is_jet3;
+            tdef.text_encoding = if is_jet3 {
+                TextEncoding::Jet3 { code_page: 1252 }
+            } else {
+                TextEncoding::Unicode
+            };
             let ddl = generate_create_table(&Access, &tdef, &[]);
             assert!(
                 ddl.contains(&format!("[A] {access} NOT NULL")),

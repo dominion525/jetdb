@@ -28,6 +28,7 @@ pub use complex::{
     read_complex_column, Attachment, ComplexColumn, ComplexKind, ComplexValues, Version,
 };
 pub use csv::{write_csv, AttachmentWriter, BinaryFormat, CsvOptions};
+pub use encoding::TextEncoding;
 pub use file::{find_row, DbHeader, FileError, PageReader};
 pub use format::{
     catalog_flags, column_flags, index_flags, index_type, ColumnType, FormatError, JetFormat,

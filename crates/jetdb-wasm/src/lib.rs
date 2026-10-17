@@ -856,7 +856,7 @@ impl Database {
         name: &str,
         object_type: Option<ObjectType>,
     ) -> Result<ObjectProperties, PropertiesError> {
-        let is_jet3 = self.reader.header().version.is_jet3();
+        let text = self.reader.text_encoding();
         let entries: Vec<&CatalogEntry> = self
             .catalog()?
             .iter()
@@ -876,7 +876,7 @@ impl Database {
             _ => return Err(PropertiesError::SeveralTypes(types)),
         };
         let read = match entry {
-            Some(entry) => entry_properties(entry, is_jet3)?,
+            Some(entry) => entry_properties(entry, text)?,
             // The catalog leaves out objects of types jetdb does not know:
             // without a type, read MSysObjects again by the name alone, as
             // `jetdb prop` does.

@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use crate::encoding;
+use crate::encoding::{self, TextEncoding};
 use crate::file::{FileError, PageReader};
 use crate::format::{ColumnType, JetFormat, PageType, MAX_INDEX_COLUMNS};
 use crate::map;
@@ -108,9 +108,9 @@ pub struct TableDef {
     pub columns: Vec<ColumnDef>,
     pub indexes: Vec<IndexDef>,
     pub data_pages: Vec<u32>,
-    /// The table is of a Jet3 (Access 97) file. The `col_size` of a Text
+    /// How the file of the table stores text. The `col_size` of a Text
     /// column is in bytes: one a character in Jet3, two in Jet4 and later.
-    pub is_jet3: bool,
+    pub text_encoding: TextEncoding,
 }
 
 impl TableDef {
@@ -118,7 +118,7 @@ impl TableDef {
     /// whose `col_size` is in bytes, two a character in Jet4 and later; in
     /// bytes, as stored, for the other types.
     pub fn shown_size(&self, col: &ColumnDef) -> u16 {
-        if col.col_type == ColumnType::Text && !self.is_jet3 {
+        if col.col_type == ColumnType::Text && !self.text_encoding.is_jet3() {
             col.col_size / 2
         } else {
             col.col_size
@@ -199,7 +199,8 @@ pub fn read_table_def(
     name: &str,
     tdef_page: u32,
 ) -> Result<TableDef, FileError> {
-    let is_jet3 = reader.header().version.is_jet3();
+    let text_encoding = reader.text_encoding();
+    let is_jet3 = text_encoding.is_jet3();
 
     // 3a. Build TDEF buffer (multi-page support)
     let tdef_buf = build_tdef_buffer(reader, tdef_page)?;
@@ -240,7 +241,7 @@ pub fn read_table_def(
     )?;
 
     // 3e. Column names (cursor is already at correct position)
-    let col_names = read_names(cursor, num_cols as usize, is_jet3)?;
+    let col_names = read_names(cursor, num_cols as usize, text_encoding)?;
     for (col, col_name) in columns.iter_mut().zip(col_names) {
         col.name = col_name;
     }
@@ -261,7 +262,7 @@ pub fn read_table_def(
     }
 
     // 3h. Index names
-    let idx_names = read_names(cursor, num_idxs as usize, is_jet3)?;
+    let idx_names = read_names(cursor, num_idxs as usize, text_encoding)?;
 
     // 3i. Build index defs
     let indexes = build_index_defs(&logical_indexes, &idx_col_defs, idx_names);
@@ -282,7 +283,7 @@ pub fn read_table_def(
         columns,
         indexes,
         data_pages,
-        is_jet3,
+        text_encoding,
     })
 }
 
@@ -443,20 +444,21 @@ impl<'a> TdefCursor<'a> {
 
 /// Read a sequence of names from the TDEF buffer via cursor.
 ///
-/// Jet3 uses `[len: u8][Latin-1 bytes]`, Jet4+ uses `[len: u16 LE][UTF-16LE bytes]`.
+/// Jet3 uses `[len: u8][bytes in the code page of the database]`, Jet4+ uses
+/// `[len: u16 LE][UTF-16LE bytes]`.
 fn read_names(
     cursor: &mut TdefCursor,
     count: usize,
-    is_jet3: bool,
+    text: TextEncoding,
 ) -> Result<Vec<String>, FileError> {
     // count may come from a broken file: grow as names are read rather
     // than reserve room for it.
     let mut names = Vec::new();
     for _ in 0..count {
-        if is_jet3 {
+        if let Some(code_page) = text.jet3_code_page() {
             let name_len = cursor.read_u8()? as usize;
             let bytes = cursor.read_bytes(name_len)?;
-            names.push(encoding::decode_latin1(bytes));
+            names.push(encoding::decode_code_page(bytes, code_page));
         } else {
             let name_len = cursor.read_u16_le()? as usize;
             let bytes = cursor.read_bytes(name_len)?;
@@ -1036,13 +1038,13 @@ mod tests {
             columns: vec![],
             indexes: vec![],
             data_pages: vec![],
-            is_jet3: false,
+            text_encoding: TextEncoding::Unicode,
         };
         // Jet4 and later store two bytes a character of Text.
         assert_eq!(tdef.shown_size(&column(ColumnType::Text, 510)), 255);
         assert_eq!(tdef.shown_size(&column(ColumnType::Binary, 510)), 510);
         // Jet3 stores one.
-        tdef.is_jet3 = true;
+        tdef.text_encoding = TextEncoding::Jet3 { code_page: 1252 };
         assert_eq!(tdef.shown_size(&column(ColumnType::Text, 255)), 255);
     }
 
@@ -1202,7 +1204,7 @@ mod tests {
         // Jet3 format: [len: u8][Latin-1 bytes]
         let buf = [3, b'F', b'o', b'o', 3, b'B', b'a', b'r'];
         let mut cursor = TdefCursor::new(&buf, 0);
-        let names = read_names(&mut cursor, 2, true).unwrap();
+        let names = read_names(&mut cursor, 2, TextEncoding::Jet3 { code_page: 1252 }).unwrap();
         assert_eq!(names, vec!["Foo", "Bar"]);
         assert_eq!(cursor.position(), 8);
     }
@@ -1218,7 +1220,7 @@ mod tests {
             b'X', 0, // "X"
         ];
         let mut cursor = TdefCursor::new(&buf, 0);
-        let names = read_names(&mut cursor, 2, false).unwrap();
+        let names = read_names(&mut cursor, 2, TextEncoding::Unicode).unwrap();
         assert_eq!(names, vec!["Ab", "X"]);
         assert_eq!(cursor.position(), 10);
     }
@@ -1228,7 +1230,7 @@ mod tests {
         // Buffer too short for the name data
         let buf = [3, b'A', b'B'];
         let mut cursor = TdefCursor::new(&buf, 0);
-        let result = read_names(&mut cursor, 1, true);
+        let result = read_names(&mut cursor, 1, TextEncoding::Jet3 { code_page: 1252 });
         assert!(result.is_err());
     }
 
@@ -1236,7 +1238,7 @@ mod tests {
     fn read_names_empty_count() {
         let buf = [];
         let mut cursor = TdefCursor::new(&buf, 0);
-        let names = read_names(&mut cursor, 0, true).unwrap();
+        let names = read_names(&mut cursor, 0, TextEncoding::Jet3 { code_page: 1252 }).unwrap();
         assert!(names.is_empty());
         assert_eq!(cursor.position(), 0);
     }
@@ -1249,7 +1251,12 @@ mod tests {
         use crate::format::JET4;
         let buf = [0u8; 64];
         let count = u32::MAX;
-        assert!(read_names(&mut TdefCursor::new(&buf, 0), count as usize, false).is_err());
+        assert!(read_names(
+            &mut TdefCursor::new(&buf, 0),
+            count as usize,
+            TextEncoding::Unicode
+        )
+        .is_err());
         assert!(parse_index_column_defs(&mut TdefCursor::new(&buf, 0), count, &JET4).is_err());
         assert!(parse_logical_indexes(&mut TdefCursor::new(&buf, 0), count, &JET4).is_err());
     }

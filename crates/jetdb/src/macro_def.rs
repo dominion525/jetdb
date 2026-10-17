@@ -32,6 +32,7 @@
 
 use crate::catalog::{read_catalog, CatalogEntry};
 use crate::data::{read_table_rows, Value};
+use crate::encoding::TextEncoding;
 use crate::file::{FileError, PageReader};
 use crate::form::{self, FormObjectType, StreamKind};
 use crate::format::{ObjectType, CATALOG_PAGE};
@@ -279,7 +280,7 @@ pub fn read_macro_in(
             .into_iter()
             .find(|(n, _)| n == name)
             .ok_or_else(not_found)?;
-        let grid = parse_macro_grid(&extra.unwrap_or_default(), true)?;
+        let grid = parse_macro_grid(&extra.unwrap_or_default(), reader.text_encoding())?;
         return Ok(MacroDef {
             source,
             statements: statements_from_grid(&grid),
@@ -295,12 +296,12 @@ pub fn read_macro_in(
             Ok(MacroDef {
                 source,
                 statements: statements_of(&root),
-                grid: parse_macro_grid(blob, false).ok(),
+                grid: parse_macro_grid(blob, TextEncoding::Unicode).ok(),
                 xml,
             })
         }
         None => {
-            let grid = parse_macro_grid(blob, false)?;
+            let grid = parse_macro_grid(blob, TextEncoding::Unicode)?;
             Ok(MacroDef {
                 source,
                 statements: statements_from_grid(&grid),
@@ -383,7 +384,7 @@ pub fn read_embedded_macros_in(
     grids
         .iter()
         .map(|bytes| {
-            let grid = parse_macro_grid(bytes, false)?;
+            let grid = parse_macro_grid(bytes, TextEncoding::Unicode)?;
             let (control, event, statements, xml) = match extract_axl_xml(bytes) {
                 Some(xml) => {
                     let root = parse_xml_tree(&xml)?;
@@ -449,7 +450,9 @@ fn embedded_macro_grids(stream: &[u8]) -> Vec<&[u8]> {
         let header_len = grid
             .get(0x20..0x22)
             .map(|s| u16::from_le_bytes([s[0], s[1]]));
-        if matches!(header_len, Some(0) | Some(4)) && parse_macro_grid(grid, false).is_ok() {
+        if matches!(header_len, Some(0) | Some(4))
+            && parse_macro_grid(grid, TextEncoding::Unicode).is_ok()
+        {
             grids.push(grid);
             search_from = start + len;
         }
@@ -592,7 +595,7 @@ fn msysobjects_rows(
 ///   offsets (u16: not interpreted, comment, condition, macro name), 10
 ///   argument offsets (u16), a 2-byte length `m`, `m` bytes of NUL-terminated
 ///   strings the offsets point into (0xFFFF for none), and 2 zero bytes
-fn parse_macro_grid(bytes: &[u8], single_byte_file: bool) -> Result<MacroGrid, FileError> {
+fn parse_macro_grid(bytes: &[u8], text: TextEncoding) -> Result<MacroGrid, FileError> {
     let invalid = |what: &str| FileError::InvalidMacroData {
         reason: format!("macro grid: {what}"),
     };
@@ -614,7 +617,7 @@ fn parse_macro_grid(bytes: &[u8], single_byte_file: bool) -> Result<MacroGrid, F
         .map(|c| u16::from_le_bytes([c[0], c[1]]))
         .collect();
     let header = String::from_utf16_lossy(&header_units);
-    let single_byte = single_byte_file || header_len == 0;
+    let single_byte = text.is_jet3() || header_len == 0;
     let mut pos = 0x22 + header_len + 2;
 
     let mut rows = Vec::new();
@@ -637,7 +640,10 @@ fn parse_macro_grid(bytes: &[u8], single_byte_file: bool) -> Result<MacroGrid, F
                 .ok_or_else(|| invalid("string offset past the row"))?;
             Ok(Some(if single_byte {
                 let end = rest.iter().position(|&b| b == 0).unwrap_or(rest.len());
-                crate::encoding::decode_latin1(&rest[..end])
+                match text.jet3_code_page() {
+                    Some(code_page) => crate::encoding::decode_code_page(&rest[..end], code_page),
+                    None => crate::encoding::decode_latin1(&rest[..end]),
+                }
             } else {
                 let units: Vec<u16> = rest
                     .chunks_exact(2)
@@ -1905,13 +1911,18 @@ mod tests {
     #[test]
     fn parse_macro_grid_string_encoding_follows_the_header() {
         // UTF-16LE row strings after the header string "33".
-        let grid = parse_macro_grid(&grid_bytes("33", b"F\0(\0)\0\0\0"), false).unwrap();
+        let grid =
+            parse_macro_grid(&grid_bytes("33", b"F\0(\0)\0\0\0"), TextEncoding::Unicode).unwrap();
         assert_eq!(grid.rows[0].arguments[0].as_deref(), Some("F()"));
         // In an Access 97 database, row strings are single-byte after any header.
-        let grid = parse_macro_grid(&grid_bytes("22", b"F()\xe9\0"), true).unwrap();
+        let grid = parse_macro_grid(
+            &grid_bytes("22", b"F()\xe9\0"),
+            TextEncoding::Jet3 { code_page: 1252 },
+        )
+        .unwrap();
         assert_eq!(grid.rows[0].arguments[0].as_deref(), Some("F()é"));
         // Single-byte row strings after an empty header string.
-        let grid = parse_macro_grid(&grid_bytes("", b"F()\xe9\0"), false).unwrap();
+        let grid = parse_macro_grid(&grid_bytes("", b"F()\xe9\0"), TextEncoding::Unicode).unwrap();
         assert_eq!(grid.rows[0].arguments[0].as_deref(), Some("F()é"));
     }
 
@@ -1921,7 +1932,7 @@ mod tests {
         bytes.extend_from_slice(&[0, 0, 0, 0]); // empty header string
         bytes.extend_from_slice(&[0x16, 0x00, 0x01, 0x00]); // action, row, then nothing
         assert!(matches!(
-            parse_macro_grid(&bytes, false),
+            parse_macro_grid(&bytes, TextEncoding::Unicode),
             Err(FileError::InvalidMacroData { .. })
         ));
     }

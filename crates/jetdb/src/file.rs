@@ -598,6 +598,18 @@ impl PageReader {
         &self.header
     }
 
+    /// How the file stores text: in the code page of its header in Jet3,
+    /// in UTF-16LE later.
+    pub fn text_encoding(&self) -> crate::encoding::TextEncoding {
+        if self.header.version.is_jet3() {
+            crate::encoding::TextEncoding::Jet3 {
+                code_page: self.header.code_page,
+            }
+        } else {
+            crate::encoding::TextEncoding::Unicode
+        }
+    }
+
     /// Return the format constants for this database version.
     pub fn format(&self) -> &'static JetFormat {
         self.header.format
