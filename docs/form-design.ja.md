@@ -247,32 +247,31 @@ prop_id(u16) + type(u32) + B(u32) + length(u32) + value[length バイト] + trai
 | 0x015A | InputMask | 入力マスク |
 | 0x0161 | Toolbar | ツールバー |
 
-整数・色・はい/いいえの値の名前は、`Sports.accdb` のその ID が出てくるすべてのフォームとレポートで、値が一致する SaveAsText のキーである。1 つのキーがすべての値に合うよう、値がいろいろに変わる ID にだけ名前を付け、値がいつも同じ ID は数値で表示する。SaveAsText はフォームの右端と下端しか書かないので、`Right` と `Bottom` はフォームで確かめた。
+整数・色・はい/いいえの値の名前は、`Sports.accdb` と、Access でプロパティを 1 つずつ設定して作った `testdata/V2007/propertyIdTestV2007.accdb` の、その ID が出てくるすべてのフォームとレポートで、値が一致する SaveAsText のキーである。名前を付けるのは、1 つのキーがすべての値に合うよう値がいろいろに変わる ID か、`propertyIdTestV2007.accdb` でそのプロパティを設定すると値が変わる ID である。名前は 0x01C4 までの ID にだけ付ける。Microsoft 365 の Access は、Anchor やレイアウトのものなど、それより大きい ID を、`Sports.accdb` を作った Access より 1 つ大きく書くため。
 
 | ID | プロパティ名 | 用途 |
 |--------|--------------|------|
 | 0x0009 | BorderStyle | 境界線のスタイル |
-| 0x000C | Bottom | フォームの下端（フォームのみ） |
+| 0x000C | Bottom | 保存されたフォームやレポートのウィンドウの下端 |
 | 0x0029 | GridX | 横方向のグリッドの間隔 |
 | 0x002A | GridY | 縦方向のグリッドの間隔 |
-| 0x0036 | Left | 左端の位置 |
-| 0x0081 | Right | フォームの右端（フォームのみ） |
-| 0x008D | Top | 上端の位置 |
+| 0x0036 | Left | 保存されたフォームやレポートのウィンドウの左端 |
+| 0x006F | TimerInterval | Timer イベントの間隔（ミリ秒） |
+| 0x0081 | Right | 保存されたフォームやレポートのウィンドウの右端 |
+| 0x008D | Top | 保存されたフォームやレポートのウィンドウの上端 |
+| 0x0092 | ViewsAllowed | 許可するビュー |
+| 0x0093 | DefaultView | 既定のビュー |
 | 0x0096 | Width | 幅 |
 | 0x0098 | ScrollBars | 表示するスクロールバー |
 | 0x009E | ItemSuffix | 次のコントロール名に使う番号 |
 | 0x00A1 | DatasheetFontHeight | データシートのフォントサイズ |
 | 0x00DB | HelpContextId | ヘルプのコンテキスト ID |
 | 0x0105 | TabIndex | タブの順番 |
+| 0x0135 | PictureAlignment | ピクチャの配置 |
+| 0x013E | DatasheetGridlinesBehavior | データシートの枠線の表示 |
 | 0x013F | DatasheetGridlinesColor | データシートの枠線の色 |
+| 0x01A6 | AllowDatasheetView | データシート ビューを許可する（はい/いいえ） |
 | 0x01C4 | FilterOnLoad | 読み込み時にフィルターを適用する（はい/いいえ） |
-| 0x01DD | VerticalAnchor | 縦方向のアンカー |
-| 0x01DE | HorizontalAnchor | 横方向のアンカー |
-| 0x0246 | DatasheetGridlinesColor12 | データシートの枠線の色（Access 2007 以降） |
-| 0x024A | LayoutCachedLeft | レイアウトでの左端の位置（キャッシュ） |
-| 0x024B | LayoutCachedTop | レイアウトでの上端の位置（キャッシュ） |
-| 0x024C | LayoutCachedWidth | レイアウトでの幅（キャッシュ） |
-| 0x024D | LayoutCachedHeight | レイアウトでの高さ（キャッシュ） |
 
 頻出する未知 ID:
 

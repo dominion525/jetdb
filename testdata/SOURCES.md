@@ -200,6 +200,16 @@ These files were created by the jetdb project using Microsoft Access for Microso
 
 They were made with the VBA module `form-generators/same-name-generator.bas` (`CreateSameNameFormAndReport`), imported into a new, empty `.accdb` and run once from the Immediate window. The `.mdb` file is a copy saved afterwards. The form and the report have an empty `TypeInfo` stream, as objects made with `CreateForm` and `CreateReport` do.
 
+## Created independently: property IDs of forms and reports
+
+This file was created by the jetdb project using Microsoft Access for Microsoft 365 MSO (Version 2609 Build 16.0.20430.20092, 64-bit).
+
+| File | Purpose |
+|------|---------|
+| V2007/propertyIdTestV2007.accdb | A base form and a base report, and 104 copies of them with one property set to a value of their own, named `<Target>_<Property>_<n>`. `tblGenLog` records what was created and the properties Access did not take, and `tblGenExport` holds Access's SaveAsText output of each form and report |
+
+It was made with the VBA module `form-generators/property-id-generator.bas` (`CreatePropertyIdForms`), imported into a new, empty `.accdb` and run once from the Immediate window. Access did not take `DatasheetGridlinesColor12`, the four `WebImagePadding` properties and `Overlaps` from VBA, and `DoCmd.MoveSize` left the position of the design windows as it was.
+
 ## Created independently
 
 These files were created by the jetdb project using Microsoft Access for Microsoft 365 MSO (Version 2602 Build 16.0.19725.20014, 64-bit).

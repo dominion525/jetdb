@@ -343,7 +343,12 @@ pub fn prop_id_name(prop_id: u16) -> Option<&'static str> {
 ///
 /// Each name is the SaveAsText key whose values agree with every value of the
 /// ID in the forms and reports of Sports.accdb (ruddj/SportsAdmin), where the
-/// values vary, so that one key fits them all.
+/// values vary, so that one key fits them all, or that changes the value of
+/// the ID when it is set in testdata/V2007/propertyIdTestV2007.accdb, and
+/// agrees with its values there and in Sports.accdb. Only IDs up to 0x01C4 are
+/// named: Access for Microsoft 365 writes the IDs above, such as those of
+/// the anchors and the layout, one higher than the Access that made
+/// Sports.accdb.
 pub fn number_prop_id_name(prop_id: u16) -> Option<&'static str> {
     match prop_id {
         0x0009 => Some("BorderStyle"),
@@ -351,23 +356,22 @@ pub fn number_prop_id_name(prop_id: u16) -> Option<&'static str> {
         0x0029 => Some("GridX"),
         0x002A => Some("GridY"),
         0x0036 => Some("Left"),
+        0x006F => Some("TimerInterval"),
         0x0081 => Some("Right"),
         0x008D => Some("Top"),
+        0x0092 => Some("ViewsAllowed"),
+        0x0093 => Some("DefaultView"),
         0x0096 => Some("Width"),
         0x0098 => Some("ScrollBars"),
         0x009E => Some("ItemSuffix"),
         0x00A1 => Some("DatasheetFontHeight"),
         0x00DB => Some("HelpContextId"),
         0x0105 => Some("TabIndex"),
+        0x0135 => Some("PictureAlignment"),
+        0x013E => Some("DatasheetGridlinesBehavior"),
         0x013F => Some("DatasheetGridlinesColor"),
+        0x01A6 => Some("AllowDatasheetView"),
         0x01C4 => Some("FilterOnLoad"),
-        0x01DD => Some("VerticalAnchor"),
-        0x01DE => Some("HorizontalAnchor"),
-        0x0246 => Some("DatasheetGridlinesColor12"),
-        0x024A => Some("LayoutCachedLeft"),
-        0x024B => Some("LayoutCachedTop"),
-        0x024C => Some("LayoutCachedWidth"),
-        0x024D => Some("LayoutCachedHeight"),
         _ => None,
     }
 }
@@ -2141,6 +2145,77 @@ mod tests {
             read_form_properties_of_type(&mut reader, "F_Buttons", FormObjectType::Report),
             Err(FileError::FormNotFound { .. })
         ));
+    }
+
+    /// Forms and reports of propertyIdTestV2007.accdb, made by
+    /// testdata/form-generators/property-id-generator.bas, with a property set to
+    /// a value of their own, and the value SaveAsText writes for it: a copy named
+    /// Report_* of the base report, the others of the base form.
+    const SET_VALUES: &[(&str, &str, &str)] = &[
+        ("Form_BorderStyle_2", "BorderStyle", "3"),
+        ("Form_GridX_2", "GridX", "30"),
+        ("Form_GridY_2", "GridY", "40"),
+        ("Form_Width_1", "Width", "5000"),
+        ("Form_ScrollBars_2", "ScrollBars", "1"),
+        ("Form_ItemSuffix_2", "ItemSuffix", "11"),
+        ("Form_DatasheetFontHeight_2", "DatasheetFontHeight", "18"),
+        ("Form_HelpContextId_2", "HelpContextId", "4321"),
+        (
+            "Form_DatasheetGridlinesColor_1",
+            "DatasheetGridlinesColor",
+            "255",
+        ),
+        ("Form_FilterOnLoad_1", "FilterOnLoad", "-1"),
+        ("Form_TimerInterval_2", "TimerInterval", "4321"),
+        ("Form_ViewsAllowed_2", "ViewsAllowed", "2"),
+        ("Form_DefaultView_2", "DefaultView", "2"),
+        ("Form_PictureAlignment_2", "PictureAlignment", "4"),
+        (
+            "Form_DatasheetGridlinesBehavior_2",
+            "DatasheetGridlinesBehavior",
+            "1",
+        ),
+        ("Form_AllowDatasheetView_1", "AllowDatasheetView", "0"),
+        ("base_Form", "Right", "14730"),
+        ("base_Form", "Bottom", "6608"),
+        ("Report_GridX_2", "GridX", "30"),
+        ("Report_Width_2", "Width", "7000"),
+        ("Report_ItemSuffix_2", "ItemSuffix", "9"),
+        ("Report_FilterOnLoad_1", "FilterOnLoad", "-1"),
+    ];
+
+    #[test]
+    fn named_properties_hold_the_values_access_set() {
+        // Each named property holds the value it was set to (see SET_VALUES).
+        let path = skip_if_missing!("V2007/propertyIdTestV2007.accdb");
+        let mut reader = PageReader::open(&path).unwrap();
+        let form = FormObjectType::Form;
+        for &(object, name, value) in SET_VALUES {
+            let object_type = if object.starts_with("Report_") {
+                FormObjectType::Report
+            } else {
+                form
+            };
+            let read = read_form_properties_of_type(&mut reader, object, object_type).unwrap();
+            let found = read.properties.iter().find(|p| p.name() == Some(name));
+            assert!(
+                found.is_some_and(|p| saved_forms(&p.value).iter().any(|v| v == value)),
+                "{object}: {name}: {:?}",
+                found.map(|p| &p.value)
+            );
+        }
+
+        // The IDs above 0x01C4 are one higher than in Sports.accdb, and are
+        // not named: 0x024B is the left of the text box in a layout here.
+        let read = read_form_properties_of_type(&mut reader, "TextBox_Left_1", form).unwrap();
+        let text_box = read.controls.iter().find(|c| c.name == "txtA").unwrap();
+        let left = text_box
+            .properties
+            .iter()
+            .find(|p| p.prop_id == 0x024B)
+            .unwrap();
+        assert_eq!(left.value.to_string(), "1700");
+        assert_eq!(left.name(), None);
     }
 
     #[test]
