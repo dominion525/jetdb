@@ -83,8 +83,10 @@ pub enum BlobValue {
     /// without a value; `Application.SaveAsText` writes it as `NotDefault`.
     NotDefault,
     Short(i16),
+    /// A 32-bit integer: of type 0x03, or of type 0x04, which holds colors
+    /// (`0x00BBGGRR`, or negative for a system color) and other numbers, such
+    /// as `HelpContextId`. SaveAsText writes both as this signed number.
     Long(i32),
-    Color(u32),
     Double(f64),
     Guid(String),
     Text(String),
@@ -422,7 +424,7 @@ impl BlobProperty {
     pub fn name(&self) -> Option<&'static str> {
         match self.value {
             BlobValue::Text(_) => prop_id_name(self.prop_id),
-            BlobValue::Bool(_) | BlobValue::Short(_) | BlobValue::Long(_) | BlobValue::Color(_) => {
+            BlobValue::Bool(_) | BlobValue::Short(_) | BlobValue::Long(_) => {
                 number_prop_id_name(self.prop_id)
             }
             _ => None,
@@ -445,7 +447,6 @@ impl std::fmt::Display for BlobValue {
             Self::NotDefault => write!(f, "NotDefault"),
             Self::Short(v) => write!(f, "{v}"),
             Self::Long(v) => write!(f, "{v}"),
-            Self::Color(v) => write!(f, "#{:06X}", v & 0x00FF_FFFF),
             Self::Double(v) => write!(f, "{v}"),
             Self::Guid(v) => write!(f, "{v}"),
             Self::Text(v) => write!(f, "{v}"),
@@ -807,8 +808,9 @@ fn parse_entry(data: &[u8], pos: usize, end: usize) -> Option<(BlobProperty, usi
 ///
 /// - 0x01 Yes/No: no bytes for [`BlobValue::NotDefault`], one byte for a
 ///   value (0 for No), and 2 or 4 bytes for an integer, such as `Overlaps`.
-/// - 0x02, 0x03 integers and 0x04 a 32-bit value (often a color): a
-///   little-endian integer of 1, 2 or 4 bytes, signed for 2 and 4 bytes.
+/// - 0x02, 0x03 integers and 0x04 a 32-bit value (often a color, given as
+///   [`BlobValue::Long`]): a little-endian integer of 1, 2 or 4 bytes, signed
+///   for 2 and 4 bytes.
 /// - 0x06 a single of 4 bytes, such as `AlternateBackShade`, given as a
 ///   double.
 /// - 0x08 a double of 8 bytes, 0x09 a GUID of 16 bytes.
@@ -823,8 +825,7 @@ fn entry_value(type_code: u32, bytes: &[u8]) -> BlobValue {
         0x02 => integer_value(bytes)
             .and_then(|v| i16::try_from(v).ok())
             .map_or_else(binary, BlobValue::Short),
-        0x03 => integer_value(bytes).map_or_else(binary, BlobValue::Long),
-        0x04 => integer_value(bytes).map_or_else(binary, |v| BlobValue::Color(v as u32)),
+        0x03 | 0x04 => integer_value(bytes).map_or_else(binary, BlobValue::Long),
         0x06 => <[u8; 4]>::try_from(bytes).map_or_else(
             |_| binary(),
             |b| BlobValue::Double(f64::from(f32::from_le_bytes(b))),
@@ -1193,7 +1194,6 @@ mod tests {
         let values: &[i64] = match *value {
             BlobValue::Short(v) => &[i64::from(v)],
             BlobValue::Long(v) => &[i64::from(v)],
-            BlobValue::Color(v) => &[i64::from(v as i32)],
             BlobValue::Bool(false) => &[0],
             BlobValue::Bool(true) => &[-1, 1, 255],
             _ => return None,
@@ -1527,7 +1527,7 @@ mod tests {
         let property = |prop_id, value| BlobProperty { prop_id, value };
         let event = property(0x0068, BlobValue::Text("[Event Procedure]".to_string()));
         assert_eq!(event.name(), Some("OnKeyDown"));
-        let color = property(0x0068, BlobValue::Color(0));
+        let color = property(0x0068, BlobValue::Long(0));
         assert_eq!(color.name(), None);
         assert_eq!(color.display_name(), "0x0068");
         // 0x0036 is Left, an integer.
@@ -1573,7 +1573,6 @@ mod tests {
         assert_eq!(format!("{}", BlobValue::Bool(false)), "no");
         assert_eq!(format!("{}", BlobValue::Short(42)), "42");
         assert_eq!(format!("{}", BlobValue::Long(-1)), "-1");
-        assert_eq!(format!("{}", BlobValue::Color(0x00FF0000)), "#FF0000");
         assert_eq!(format!("{}", BlobValue::Text("hello".into())), "hello");
         assert_eq!(format!("{}", BlobValue::Binary(vec![0; 10])), "(10 bytes)");
     }
@@ -1957,12 +1956,14 @@ mod tests {
     }
     #[test]
     fn parse_section_props_type_04_color() {
-        // Type 0x04: a 32-bit value of four bytes, often a color.
-        let data = entry(0x00BB, 0x04, &0x00FF0000u32.to_le_bytes());
+        // Type 0x04: a 32-bit value of four bytes, often a color, given as the
+        // signed number SaveAsText writes: 0x8000000F is a system color.
+        let data = entry(0x00BB, 0x04, &0x8000_000Fu32.to_le_bytes());
         let props = parse_section_props(&data, 0, data.len());
         assert_eq!(props.len(), 1);
         assert_eq!(props[0].prop_id, 0x00BB);
-        assert!(matches!(props[0].value, BlobValue::Color(0x00FF0000)));
+        assert!(matches!(props[0].value, BlobValue::Long(-2_147_483_633)));
+        assert_eq!(props[0].value.to_string(), "-2147483633");
     }
     /// An object with a name in the SaveAsText output of Access: the type of
     /// its `Begin` block and its string properties.
@@ -2056,13 +2057,11 @@ mod tests {
         saved
     }
 
-    /// The ways SaveAsText writes `value`: a Yes value is -1, 1 or 255, and a
-    /// color a signed integer.
+    /// The ways SaveAsText writes `value`: a Yes value is -1, 1 or 255.
     fn saved_forms(value: &BlobValue) -> Vec<String> {
         match *value {
             BlobValue::Bool(true) => vec!["-1".into(), "1".into(), "255".into()],
             BlobValue::Bool(false) => vec!["0".into()],
-            BlobValue::Color(v) => vec![(v as i32).to_string()],
             ref other => vec![other.to_string()],
         }
     }

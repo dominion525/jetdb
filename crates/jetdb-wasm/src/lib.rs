@@ -287,10 +287,9 @@ pub enum Cell {
 }
 
 impl From<BlobValue> for Cell {
-    /// A GUID becomes its string. A 32-bit value (`BlobValue::Color`) becomes
-    /// the signed number Access writes in SaveAsText: the type holds colors,
-    /// as `0x00BBGGRR` or negative for a system color, but also other
-    /// numbers, such as `HelpContextId`.
+    /// A GUID becomes its string, and a number a JavaScript number: a 32-bit
+    /// value of type 0x04, often a color, is the signed number Access writes
+    /// in SaveAsText (see `BlobValue::Long`).
     fn from(value: BlobValue) -> Self {
         match value {
             BlobValue::Bool(v) => Cell::Bool(v),
@@ -298,7 +297,6 @@ impl From<BlobValue> for Cell {
             BlobValue::Short(v) => Cell::Number(v.into()),
             BlobValue::Long(v) => Cell::Number(v.into()),
             BlobValue::Double(v) => Cell::Number(v),
-            BlobValue::Color(v) => Cell::Number(f64::from(v as i32)),
             BlobValue::Guid(s) | BlobValue::Text(s) => Cell::String(s),
             BlobValue::Binary(bytes) => Cell::Bytes(bytes),
         }
