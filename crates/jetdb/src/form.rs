@@ -2140,6 +2140,66 @@ mod tests {
     }
 
     #[test]
+    fn named_properties_hold_the_values_access_set() {
+        // Made by testdata/form-generators/property-id-generator.bas: a base
+        // form and report, and copies with one property set to a value of
+        // their own. Each named property holds the value it was set to, as
+        // SaveAsText writes it.
+        let path = skip_if_missing!("V2007/propertyIdTestV2007.accdb");
+        let mut reader = PageReader::open(&path).unwrap();
+        let form = FormObjectType::Form;
+        let report = FormObjectType::Report;
+        for (object, object_type, name, value) in [
+            ("Form_BorderStyle_2", form, "BorderStyle", "3"),
+            ("Form_GridX_2", form, "GridX", "30"),
+            ("Form_GridY_2", form, "GridY", "40"),
+            ("Form_Width_1", form, "Width", "5000"),
+            ("Form_ScrollBars_2", form, "ScrollBars", "1"),
+            ("Form_ItemSuffix_2", form, "ItemSuffix", "11"),
+            (
+                "Form_DatasheetFontHeight_2",
+                form,
+                "DatasheetFontHeight",
+                "18",
+            ),
+            ("Form_HelpContextId_2", form, "HelpContextId", "4321"),
+            (
+                "Form_DatasheetGridlinesColor_1",
+                form,
+                "DatasheetGridlinesColor",
+                "255",
+            ),
+            ("Form_FilterOnLoad_1", form, "FilterOnLoad", "-1"),
+            ("base_Form", form, "Right", "14730"),
+            ("base_Form", form, "Bottom", "6608"),
+            ("Report_GridX_2", report, "GridX", "30"),
+            ("Report_Width_2", report, "Width", "7000"),
+            ("Report_ItemSuffix_2", report, "ItemSuffix", "9"),
+            ("Report_FilterOnLoad_1", report, "FilterOnLoad", "-1"),
+        ] {
+            let read = read_form_properties_of_type(&mut reader, object, object_type).unwrap();
+            let found = read.properties.iter().find(|p| p.name() == Some(name));
+            assert!(
+                found.is_some_and(|p| saved_forms(&p.value).iter().any(|v| v == value)),
+                "{object}: {name}: {:?}",
+                found.map(|p| &p.value)
+            );
+        }
+
+        // The IDs above 0x01C4 are one higher than in Sports.accdb, and are
+        // not named: 0x024B is the left of the text box in a layout here.
+        let read = read_form_properties_of_type(&mut reader, "TextBox_Left_1", form).unwrap();
+        let text_box = read.controls.iter().find(|c| c.name == "txtA").unwrap();
+        let left = text_box
+            .properties
+            .iter()
+            .find(|p| p.prop_id == 0x024B)
+            .unwrap();
+        assert_eq!(left.value.to_string(), "1700");
+        assert_eq!(left.name(), None);
+    }
+
+    #[test]
     fn form_and_report_match_saveastext_of_access() {
         // Fetched by scripts/fetch-testdata.sh: a form and a report with many
         // controls, and the SaveAsText output of each from Access.
