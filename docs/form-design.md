@@ -247,24 +247,30 @@ Known prop_id values are displayed by name; unknown ones are shown in `0xXXXX` n
 | 0x015A | InputMask | Input mask |
 | 0x0161 | Toolbar | Toolbar |
 
-Names of integer, color and Yes/No values: each is the SaveAsText key that the values of the ID agree with in every form and report of `Sports.accdb` where it appears. Only IDs whose values vary there are named, so that one key fits them all; an ID whose value is always the same is shown by number. SaveAsText writes the right and bottom of a form only, so `Right` and `Bottom` were checked on forms. Only IDs up to 0x01C4 are named: Access for Microsoft 365 writes the IDs above, such as those of the anchors and the layout, one higher than the Access that made `Sports.accdb`.
+Names of integer, color and Yes/No values: each is the SaveAsText key that the values of the ID agree with in every form and report where it appears, in `Sports.accdb` and in `testdata/V2007/propertyIdTestV2007.accdb`, which was made in Access with one property set at a time. An ID is named where its values vary, so that one key fits them all, or where setting the property in `propertyIdTestV2007.accdb` changes the value of the ID. Only IDs up to 0x01C4 are named: Access for Microsoft 365 writes the IDs above, such as those of the anchors and the layout, one higher than the Access that made `Sports.accdb`.
 
 | ID | Property Name | Purpose |
 |--------|--------------|------|
 | 0x0009 | BorderStyle | Border style |
-| 0x000C | Bottom | Bottom of the form (forms only) |
+| 0x000C | Bottom | Bottom of the saved window of the form or report |
 | 0x0029 | GridX | Horizontal grid spacing |
 | 0x002A | GridY | Vertical grid spacing |
-| 0x0036 | Left | Left position |
-| 0x0081 | Right | Right of the form (forms only) |
-| 0x008D | Top | Top position |
+| 0x0036 | Left | Left of the saved window of the form or report |
+| 0x006F | TimerInterval | Interval of the Timer event (milliseconds) |
+| 0x0081 | Right | Right of the saved window of the form or report |
+| 0x008D | Top | Top of the saved window of the form or report |
+| 0x0092 | ViewsAllowed | Views allowed |
+| 0x0093 | DefaultView | Default view |
 | 0x0096 | Width | Width |
 | 0x0098 | ScrollBars | Scroll bars shown |
 | 0x009E | ItemSuffix | Number used for the next control name |
 | 0x00A1 | DatasheetFontHeight | Datasheet font size |
 | 0x00DB | HelpContextId | Help context ID |
 | 0x0105 | TabIndex | Tab order |
+| 0x0135 | PictureAlignment | Alignment of the picture |
+| 0x013E | DatasheetGridlinesBehavior | Datasheet gridlines shown |
 | 0x013F | DatasheetGridlinesColor | Datasheet gridline color |
+| 0x01A6 | AllowDatasheetView | Allow Datasheet view (Yes/No) |
 | 0x01C4 | FilterOnLoad | Apply the filter on load (Yes/No) |
 
 Frequently occurring unknown IDs:
