@@ -341,6 +341,8 @@ fn list_tables(bytes: Vec<u8>) -> Result<Vec<String>, jetdb::FileError> {
 | ACE16 | Access 2016 | .accdb |
 | ACE17 | Access 2019 | .accdb |
 
+Jet3 (Access 97) のファイルは、文字列をデータベースのコードページで持ちます。西欧の言語なら 1252、日本語なら 932 などです。jetdb は、ファイルのヘッダーにあるコードページで読みます ([`PageReader::text_encoding`])。知らないコードページのときは、Latin-1 として読みます。
+
 # 制限事項
 
 - 読み取り専用です（書き込みには対応していません）

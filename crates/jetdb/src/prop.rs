@@ -2,7 +2,7 @@
 
 use crate::catalog::CatalogEntry;
 use crate::data::{self, format_guid, Value};
-use crate::encoding;
+use crate::encoding::{self, TextEncoding};
 use crate::file::{FileError, PageReader};
 use crate::format::{ObjectType, CATALOG_PAGE};
 use crate::money;
@@ -52,14 +52,14 @@ pub struct ObjectProperties {
 // ---------------------------------------------------------------------------
 
 /// The properties of `entry`, from the LvProp [`crate::read_catalog`] keeps,
-/// without reading MSysObjects again. `is_jet3` tells the version of the file
-/// the catalog was read from.
+/// without reading MSysObjects again. `text` tells how the file the catalog
+/// was read from stores text ([`crate::PageReader::text_encoding`]).
 pub fn entry_properties(
     entry: &CatalogEntry,
-    is_jet3: bool,
+    text: TextEncoding,
 ) -> Result<ObjectProperties, FileError> {
     let maps = match &entry.lv_prop {
-        Some(data) => parse_lvprop(data, is_jet3)?,
+        Some(data) => parse_lvprop(data, text)?,
         None => Vec::new(),
     };
     Ok(ObjectProperties {
@@ -97,7 +97,7 @@ fn read_properties(
     object_name: &str,
     object_type: Option<ObjectType>,
 ) -> Result<ObjectProperties, FileError> {
-    let is_jet3 = reader.header().version.is_jet3();
+    let text = reader.text_encoding();
     let tdef = table::read_table_def(reader, "MSysObjects", CATALOG_PAGE)?;
     let result = data::read_table_rows(reader, &tdef)?;
     result.warn_skipped("MSysObjects");
@@ -139,7 +139,7 @@ fn read_properties(
             _ => None,
         });
     let maps = match data {
-        Some(data) => parse_lvprop(data, is_jet3)?,
+        Some(data) => parse_lvprop(data, text)?,
         None => Vec::new(),
     };
     Ok(ObjectProperties {
@@ -193,7 +193,7 @@ fn validate_header(data: &[u8]) -> Result<(), FileError> {
 }
 
 /// Parse the entire LvProp binary blob.
-pub(crate) fn parse_lvprop(data: &[u8], is_jet3: bool) -> Result<Vec<PropertyMap>, FileError> {
+pub(crate) fn parse_lvprop(data: &[u8], text: TextEncoding) -> Result<Vec<PropertyMap>, FileError> {
     validate_header(data)?;
 
     let mut offset = 4; // skip header
@@ -232,10 +232,10 @@ pub(crate) fn parse_lvprop(data: &[u8], is_jet3: bool) -> Result<Vec<PropertyMap
 
         match chunk_type {
             CHUNK_NAME_LIST => {
-                names = parse_name_list(chunk_data, is_jet3)?;
+                names = parse_name_list(chunk_data, text)?;
             }
             0x0000..=0x0002 => {
-                let map = parse_value_chunk(chunk_data, chunk_type, &names, is_jet3)?;
+                let map = parse_value_chunk(chunk_data, chunk_type, &names, text)?;
                 maps.push(map);
             }
             _ => {
@@ -250,7 +250,7 @@ pub(crate) fn parse_lvprop(data: &[u8], is_jet3: bool) -> Result<Vec<PropertyMap
 }
 
 /// Parse a name-list chunk (type 0x0080).
-fn parse_name_list(chunk_data: &[u8], is_jet3: bool) -> Result<Vec<String>, FileError> {
+fn parse_name_list(chunk_data: &[u8], text: TextEncoding) -> Result<Vec<String>, FileError> {
     let mut names = Vec::new();
     let mut pos = 0;
 
@@ -265,8 +265,8 @@ fn parse_name_list(chunk_data: &[u8], is_jet3: bool) -> Result<Vec<String>, File
             break;
         }
         let name_bytes = &chunk_data[pos..pos + name_len];
-        let name = if is_jet3 {
-            encoding::decode_latin1(name_bytes)
+        let name = if let Some(code_page) = text.jet3_code_page() {
+            encoding::decode_code_page(name_bytes, code_page)
         } else {
             encoding::decode_utf16le(name_bytes).map_err(FileError::Format)?
         };
@@ -282,7 +282,7 @@ fn parse_value_chunk(
     chunk_data: &[u8],
     chunk_type: u16,
     names: &[String],
-    is_jet3: bool,
+    text: TextEncoding,
 ) -> Result<PropertyMap, FileError> {
     let map_type = match chunk_type {
         0x0000 => PropMapType::Default,
@@ -318,8 +318,8 @@ fn parse_value_chunk(
         })?) as usize;
         let name_end = (6 + block_name_len).min(chunk_data.len());
         let name_bytes = &chunk_data[6..name_end];
-        if is_jet3 {
-            encoding::decode_latin1(name_bytes)
+        if let Some(code_page) = text.jet3_code_page() {
+            encoding::decode_code_page(name_bytes, code_page)
         } else {
             encoding::decode_utf16le(name_bytes).unwrap_or_default()
         }
@@ -362,7 +362,7 @@ fn parse_value_chunk(
         let value_end = (pos + 8 + data_size).min(chunk_data.len());
         let raw = &chunk_data[pos + 8..value_end];
 
-        let value = decode_prop_value(data_type, raw, &prop_name, is_jet3);
+        let value = decode_prop_value(data_type, raw, &prop_name, text);
 
         properties.push(Property {
             name: prop_name,
@@ -382,7 +382,7 @@ fn parse_value_chunk(
 }
 
 /// Decode a property value based on its data type byte.
-fn decode_prop_value(data_type: u8, raw: &[u8], prop_name: &str, is_jet3: bool) -> Value {
+fn decode_prop_value(data_type: u8, raw: &[u8], prop_name: &str, text: TextEncoding) -> Value {
     match data_type {
         // Bool (0x01): 1 byte, 0 = false, non-zero = true
         0x01 => {
@@ -473,8 +473,8 @@ fn decode_prop_value(data_type: u8, raw: &[u8], prop_name: &str, is_jet3: bool) 
         }
         // Text (0x0A): non-compressed decode
         0x0A => {
-            if is_jet3 {
-                Value::Text(encoding::decode_latin1(raw))
+            if let Some(code_page) = text.jet3_code_page() {
+                Value::Text(encoding::decode_code_page(raw, code_page))
             } else {
                 match encoding::decode_utf16le(raw) {
                     Ok(s) => Value::Text(s),
@@ -486,8 +486,8 @@ fn decode_prop_value(data_type: u8, raw: &[u8], prop_name: &str, is_jet3: bool) 
         0x0B => Value::Binary(raw.to_vec()),
         // Memo (0x0C): decode as text
         0x0C => {
-            if is_jet3 {
-                Value::Text(encoding::decode_latin1(raw))
+            if let Some(code_page) = text.jet3_code_page() {
+                Value::Text(encoding::decode_code_page(raw, code_page))
             } else {
                 match encoding::decode_utf16le(raw) {
                     Ok(s) => Value::Text(s),
@@ -553,7 +553,7 @@ mod tests {
         data.extend_from_slice(&3u16.to_le_bytes());
         data.extend_from_slice(b"Bar");
 
-        let names = parse_name_list(&data, true).unwrap();
+        let names = parse_name_list(&data, TextEncoding::Jet3 { code_page: 1252 }).unwrap();
         assert_eq!(names, vec!["Foo", "Bar"]);
     }
 
@@ -568,13 +568,13 @@ mod tests {
         data.extend_from_slice(&4u16.to_le_bytes());
         data.extend_from_slice(&[0x47, 0x00, 0x6F, 0x00]);
 
-        let names = parse_name_list(&data, false).unwrap();
+        let names = parse_name_list(&data, TextEncoding::Unicode).unwrap();
         assert_eq!(names, vec!["Hi", "Go"]);
     }
 
     #[test]
     fn parse_name_list_empty() {
-        let names = parse_name_list(&[], true).unwrap();
+        let names = parse_name_list(&[], TextEncoding::Jet3 { code_page: 1252 }).unwrap();
         assert!(names.is_empty());
     }
 
@@ -582,13 +582,13 @@ mod tests {
 
     #[test]
     fn decode_prop_value_bool_true() {
-        let val = decode_prop_value(0x01, &[0x01], "x", false);
+        let val = decode_prop_value(0x01, &[0x01], "x", TextEncoding::Unicode);
         assert_eq!(val, Value::Bool(true));
     }
 
     #[test]
     fn decode_prop_value_bool_false() {
-        let val = decode_prop_value(0x01, &[0x00], "x", false);
+        let val = decode_prop_value(0x01, &[0x00], "x", TextEncoding::Unicode);
         assert_eq!(val, Value::Bool(false));
     }
 
@@ -596,28 +596,28 @@ mod tests {
     fn decode_prop_value_text_jet4() {
         // "Ab" in UTF-16LE
         let raw = [0x41, 0x00, 0x62, 0x00];
-        let val = decode_prop_value(0x0A, &raw, "x", false);
+        let val = decode_prop_value(0x0A, &raw, "x", TextEncoding::Unicode);
         assert_eq!(val, Value::Text("Ab".to_string()));
     }
 
     #[test]
     fn decode_prop_value_text_jet3() {
         let raw = b"Hello";
-        let val = decode_prop_value(0x0A, raw, "x", true);
+        let val = decode_prop_value(0x0A, raw, "x", TextEncoding::Jet3 { code_page: 1252 });
         assert_eq!(val, Value::Text("Hello".to_string()));
     }
 
     #[test]
     fn decode_prop_value_long() {
         let raw = 42i32.to_le_bytes();
-        let val = decode_prop_value(0x04, &raw, "x", false);
+        let val = decode_prop_value(0x04, &raw, "x", TextEncoding::Unicode);
         assert_eq!(val, Value::Long(42));
     }
 
     #[test]
     fn decode_prop_value_int() {
         let raw = (-7i16).to_le_bytes();
-        let val = decode_prop_value(0x03, &raw, "x", false);
+        let val = decode_prop_value(0x03, &raw, "x", TextEncoding::Unicode);
         assert_eq!(val, Value::Int(-7));
     }
 
@@ -627,7 +627,7 @@ mod tests {
             0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E,
             0x0F, 0x10,
         ];
-        let val = decode_prop_value(0x09, &guid_bytes, "GUID", false);
+        let val = decode_prop_value(0x09, &guid_bytes, "GUID", TextEncoding::Unicode);
         assert_eq!(
             val,
             Value::Guid("{04030201-0605-0807-090A-0B0C0D0E0F10}".to_string())
@@ -637,7 +637,7 @@ mod tests {
     #[test]
     fn decode_prop_value_binary_non_guid() {
         let raw = [0x01, 0x02, 0x03];
-        let val = decode_prop_value(0x09, &raw, "SomeField", false);
+        let val = decode_prop_value(0x09, &raw, "SomeField", TextEncoding::Unicode);
         assert_eq!(val, Value::Binary(vec![0x01, 0x02, 0x03]));
     }
 
@@ -645,7 +645,7 @@ mod tests {
     fn decode_prop_value_memo_as_text() {
         // Memo (0x0C) in UTF-16LE: "Ok"
         let raw = [0x4F, 0x00, 0x6B, 0x00];
-        let val = decode_prop_value(0x0C, &raw, "x", false);
+        let val = decode_prop_value(0x0C, &raw, "x", TextEncoding::Unicode);
         assert_eq!(val, Value::Text("Ok".to_string()));
     }
 
@@ -677,7 +677,7 @@ mod tests {
         chunk.extend_from_slice(&1u16.to_le_bytes()); // data_size = 1
         chunk.push(0x01); // value = true
 
-        let map = parse_value_chunk(&chunk, 0x0001, &names, false).unwrap();
+        let map = parse_value_chunk(&chunk, 0x0001, &names, TextEncoding::Unicode).unwrap();
         assert_eq!(map.map_type, PropMapType::Column);
         assert_eq!(map.name, "Col");
         assert_eq!(map.properties.len(), 1);
@@ -705,7 +705,7 @@ mod tests {
         chunk.extend_from_slice(&(text_bytes.len() as u16).to_le_bytes());
         chunk.extend_from_slice(&text_bytes);
 
-        let map = parse_value_chunk(&chunk, 0x0000, &names, false).unwrap();
+        let map = parse_value_chunk(&chunk, 0x0000, &names, TextEncoding::Unicode).unwrap();
         assert_eq!(map.map_type, PropMapType::Default);
         assert_eq!(map.name, "");
         assert_eq!(map.properties.len(), 1);
@@ -757,7 +757,7 @@ mod tests {
         blob.extend_from_slice(&0x0000u16.to_le_bytes());
         blob.extend_from_slice(&value_payload);
 
-        let maps = parse_lvprop(&blob, false).unwrap();
+        let maps = parse_lvprop(&blob, TextEncoding::Unicode).unwrap();
         assert_eq!(maps.len(), 1);
         assert_eq!(maps[0].map_type, PropMapType::Default);
         assert_eq!(maps[0].name, "");
@@ -783,7 +783,7 @@ mod tests {
         blob.extend_from_slice(&name_chunk_len.to_le_bytes());
         blob.extend_from_slice(&0x0080u16.to_le_bytes());
 
-        let maps = parse_lvprop(&blob, false).unwrap();
+        let maps = parse_lvprop(&blob, TextEncoding::Unicode).unwrap();
         assert!(maps.is_empty());
     }
 
@@ -800,7 +800,7 @@ mod tests {
         blob.extend_from_slice(&0x0000u16.to_le_bytes());
         blob.extend_from_slice(&[0; 8]);
 
-        let maps = parse_lvprop(&blob, false).unwrap();
+        let maps = parse_lvprop(&blob, TextEncoding::Unicode).unwrap();
         assert!(maps.is_empty());
     }
 
@@ -907,7 +907,10 @@ mod tests {
                 .unwrap();
             assert!(!read.maps.is_empty(), "{:?}", entry.object_type);
             assert_eq!(
-                format!("{:?}", entry_properties(entry, true).unwrap()),
+                format!(
+                    "{:?}",
+                    entry_properties(entry, TextEncoding::Jet3 { code_page: 1252 }).unwrap()
+                ),
                 format!("{read:?}"),
                 "{:?}",
                 entry.object_type
@@ -977,59 +980,64 @@ mod tests {
     #[test]
     fn decode_prop_value_money() {
         let raw = 10_000i64.to_le_bytes();
-        let val = decode_prop_value(0x05, &raw, "test", false);
+        let val = decode_prop_value(0x05, &raw, "test", TextEncoding::Unicode);
         assert_eq!(val, Value::Money("1.0000".to_string()));
     }
 
     #[test]
     fn decode_prop_value_money_short() {
-        let val = decode_prop_value(0x05, &[0x01, 0x02, 0x03], "test", false);
+        let val = decode_prop_value(0x05, &[0x01, 0x02, 0x03], "test", TextEncoding::Unicode);
         assert_eq!(val, Value::Null);
     }
 
     #[test]
     fn decode_prop_value_float() {
         let raw = 1.5f32.to_le_bytes();
-        let val = decode_prop_value(0x06, &raw, "test", false);
+        let val = decode_prop_value(0x06, &raw, "test", TextEncoding::Unicode);
         assert!(matches!(val, Value::Float(v) if (v - 1.5).abs() < f32::EPSILON));
     }
 
     #[test]
     fn decode_prop_value_float_short() {
-        let val = decode_prop_value(0x06, &[0x01, 0x02], "test", false);
+        let val = decode_prop_value(0x06, &[0x01, 0x02], "test", TextEncoding::Unicode);
         assert_eq!(val, Value::Null);
     }
 
     #[test]
     fn decode_prop_value_double() {
         let raw = 3.125f64.to_le_bytes();
-        let val = decode_prop_value(0x07, &raw, "test", false);
+        let val = decode_prop_value(0x07, &raw, "test", TextEncoding::Unicode);
         assert!(matches!(val, Value::Double(v) if (v - 3.125).abs() < f64::EPSILON));
     }
 
     #[test]
     fn decode_prop_value_double_short() {
-        let val = decode_prop_value(0x07, &[0x01, 0x02, 0x03, 0x04], "test", false);
+        let val = decode_prop_value(
+            0x07,
+            &[0x01, 0x02, 0x03, 0x04],
+            "test",
+            TextEncoding::Unicode,
+        );
         assert_eq!(val, Value::Null);
     }
 
     #[test]
     fn decode_prop_value_timestamp() {
         let raw = 37623.0f64.to_le_bytes();
-        let val = decode_prop_value(0x08, &raw, "test", false);
+        let val = decode_prop_value(0x08, &raw, "test", TextEncoding::Unicode);
         assert!(matches!(val, Value::Timestamp(v) if (v - 37623.0).abs() < f64::EPSILON));
     }
 
     #[test]
     fn decode_prop_value_timestamp_short() {
-        let val = decode_prop_value(0x08, &[0x01], "test", false);
+        let val = decode_prop_value(0x08, &[0x01], "test", TextEncoding::Unicode);
         assert_eq!(val, Value::Null);
     }
 
     #[test]
     fn decode_prop_value_ole_binary() {
         let raw = vec![0xDE, 0xAD, 0xBE, 0xEF];
-        let val = decode_prop_value(0x0B, &raw, "test", false);
+        let val = decode_prop_value(0x0B, &raw, "test", TextEncoding::Unicode);
         assert_eq!(val, Value::Binary(raw));
     }
 
@@ -1039,7 +1047,7 @@ mod tests {
             0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E,
             0x0F, 0x10,
         ];
-        let val = decode_prop_value(0x0F, &guid_bytes, "test", false);
+        let val = decode_prop_value(0x0F, &guid_bytes, "test", TextEncoding::Unicode);
         assert_eq!(
             val,
             Value::Guid("{04030201-0605-0807-090A-0B0C0D0E0F10}".to_string())
@@ -1049,51 +1057,51 @@ mod tests {
     #[test]
     fn decode_prop_value_guid_non16bytes() {
         let raw = vec![0x01, 0x02, 0x03];
-        let val = decode_prop_value(0x0F, &raw, "test", false);
+        let val = decode_prop_value(0x0F, &raw, "test", TextEncoding::Unicode);
         assert_eq!(val, Value::Binary(raw));
     }
 
     #[test]
     fn decode_prop_value_byte_empty() {
-        let val = decode_prop_value(0x02, &[], "test", false);
+        let val = decode_prop_value(0x02, &[], "test", TextEncoding::Unicode);
         assert_eq!(val, Value::Null);
     }
 
     #[test]
     fn decode_prop_value_byte_valid() {
-        let val = decode_prop_value(0x02, &[42], "test", false);
+        let val = decode_prop_value(0x02, &[42], "test", TextEncoding::Unicode);
         assert_eq!(val, Value::Byte(42));
     }
 
     #[test]
     fn decode_prop_value_int_short() {
-        let val = decode_prop_value(0x03, &[0x01], "test", false);
+        let val = decode_prop_value(0x03, &[0x01], "test", TextEncoding::Unicode);
         assert_eq!(val, Value::Null);
     }
 
     #[test]
     fn decode_prop_value_long_short() {
-        let val = decode_prop_value(0x04, &[0x01, 0x02], "test", false);
+        let val = decode_prop_value(0x04, &[0x01, 0x02], "test", TextEncoding::Unicode);
         assert_eq!(val, Value::Null);
     }
 
     #[test]
     fn decode_prop_value_unknown_type() {
         let raw = vec![0xFF, 0xFE];
-        let val = decode_prop_value(0xFF, &raw, "test", false);
+        let val = decode_prop_value(0xFF, &raw, "test", TextEncoding::Unicode);
         assert_eq!(val, Value::Binary(raw));
     }
 
     #[test]
     fn decode_prop_value_bool_empty() {
-        let val = decode_prop_value(0x01, &[], "test", false);
+        let val = decode_prop_value(0x01, &[], "test", TextEncoding::Unicode);
         assert_eq!(val, Value::Bool(false));
     }
 
     #[test]
     fn decode_prop_value_memo_jet3() {
         let raw = b"Hello Jet3";
-        let val = decode_prop_value(0x0C, raw, "test", true);
+        let val = decode_prop_value(0x0C, raw, "test", TextEncoding::Jet3 { code_page: 1252 });
         assert_eq!(val, Value::Text("Hello Jet3".to_string()));
     }
 
@@ -1101,14 +1109,14 @@ mod tests {
     fn decode_prop_value_text_invalid_utf16() {
         // Odd number of bytes cannot be valid UTF-16LE
         let raw = vec![0x41, 0x00, 0x42];
-        let val = decode_prop_value(0x0A, &raw, "test", false);
+        let val = decode_prop_value(0x0A, &raw, "test", TextEncoding::Unicode);
         assert_eq!(val, Value::Binary(raw));
     }
 
     #[test]
     fn decode_prop_value_memo_invalid_utf16() {
         let raw = vec![0xFF];
-        let val = decode_prop_value(0x0C, &raw, "test", false);
+        let val = decode_prop_value(0x0C, &raw, "test", TextEncoding::Unicode);
         assert_eq!(val, Value::Binary(raw));
     }
 
@@ -1130,7 +1138,7 @@ mod tests {
         chunk.extend_from_slice(&(raw.len() as u16).to_le_bytes());
         chunk.extend_from_slice(&raw);
 
-        let map = parse_value_chunk(&chunk, 0x0002, &names, false).unwrap();
+        let map = parse_value_chunk(&chunk, 0x0002, &names, TextEncoding::Unicode).unwrap();
         assert_eq!(map.map_type, PropMapType::Additional);
         assert_eq!(map.properties[0].value, Value::Long(99));
     }
@@ -1160,7 +1168,7 @@ mod tests {
     fn parse_value_chunk_too_short() {
         let names: Vec<String> = vec![];
         let chunk = vec![0x01, 0x02]; // chunk_data < 4 bytes
-        let map = parse_value_chunk(&chunk, 0x0000, &names, false).unwrap();
+        let map = parse_value_chunk(&chunk, 0x0000, &names, TextEncoding::Unicode).unwrap();
         assert!(map.properties.is_empty());
     }
 }

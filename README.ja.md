@@ -118,7 +118,7 @@ fn main() -> Result<(), jetdb::FileError> {
 - VBA モジュールのソースコード抽出
 - オブジェクトプロパティ（LvProp）の読み取り
 - RC4 暗号化データベースの復号、およびパスワード保護された .accdb ファイルの復号 (Agile, RC4 CryptoAPI, Standard/NonStandard AES)
-- Jet3 (Latin-1) / Jet4 以降 (UTF-16LE、圧縮テキスト) のエンコーディング処理
+- Jet3 (データベースのコードページ。1252 や 932 など) / Jet4 以降 (UTF-16LE、圧縮テキスト) のエンコーディング処理
 - WebAssembly 上での動作（ブラウザ用の `wasm32-unknown-unknown` を含む。`PageReader::open_reader` でメモリ上のバイト列から開く）
 
 ## 制限事項

@@ -1,14 +1,48 @@
-//! Text decoding: Latin-1 (Jet3), UTF-16LE (Jet4+), and Unicode compression.
+//! Text decoding: the code page of the database (Jet3), UTF-16LE (Jet4+),
+//! and Unicode compression.
 
 use crate::format::FormatError;
 
 /// Compressed-text header: `0xFF 0xFE`.
 const COMPRESSED_HEADER: [u8; 2] = [0xFF, 0xFE];
 
-/// Decode a Latin-1 (ISO 8859-1) byte slice into a `String`.
-///
-/// Used for Jet3 column names where each byte maps directly to a Unicode
-/// code point in the U+0000..U+00FF range.
+/// How a file stores text, as [`crate::PageReader::text_encoding`] tells
+/// it from the header of the database.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextEncoding {
+    /// Jet3 (Access 97): bytes in the code page of the database, such as
+    /// 1252 for Western European languages or 932 for Japanese.
+    Jet3 { code_page: u16 },
+    /// Jet4 and later: UTF-16LE, which may be compressed.
+    Unicode,
+}
+
+impl TextEncoding {
+    /// `true` for a Jet3 (Access 97) file.
+    pub fn is_jet3(self) -> bool {
+        matches!(self, Self::Jet3 { .. })
+    }
+
+    /// The code page of a Jet3 file, `None` for a later one.
+    pub fn jet3_code_page(self) -> Option<u16> {
+        match self {
+            Self::Jet3 { code_page } => Some(code_page),
+            Self::Unicode => None,
+        }
+    }
+}
+
+/// Decode `bytes` in the code page `code_page`, or as Latin-1 when jetdb
+/// does not know the code page.
+pub fn decode_code_page(bytes: &[u8], code_page: u16) -> String {
+    match codepage::to_encoding(code_page) {
+        Some(encoding) => encoding.decode_without_bom_handling(bytes).0.into_owned(),
+        None => decode_latin1(bytes),
+    }
+}
+
+/// Decode a Latin-1 (ISO 8859-1) byte slice into a `String`: each byte is
+/// the code point of the same value, in U+0000..U+00FF.
 pub fn decode_latin1(bytes: &[u8]) -> String {
     bytes.iter().map(|&b| b as char).collect()
 }
@@ -28,14 +62,13 @@ pub fn decode_utf16le(bytes: &[u8]) -> Result<String, FormatError> {
     String::from_utf16(&u16s).map_err(|_| FormatError::InvalidEncoding)
 }
 
-/// Decode a Jet4/ACE text column value.
+/// Decode a text column value of a file that stores text as `text` tells.
 ///
-/// Handles both compressed text (prefixed with `0xFF 0xFE`) and raw UTF-16LE.
-/// For Jet3 databases, delegates to `decode_latin1` since Jet3 does not use
-/// text compression.
-pub fn decode_text(data: &[u8], is_jet3: bool) -> Result<String, FormatError> {
-    if is_jet3 {
-        return Ok(decode_latin1(data));
+/// Jet3 text is in the code page of the database (see [`decode_code_page`]).
+/// Later text is compressed (prefixed with `0xFF 0xFE`) or raw UTF-16LE.
+pub fn decode_text(data: &[u8], text: TextEncoding) -> Result<String, FormatError> {
+    if let TextEncoding::Jet3 { code_page } = text {
+        return Ok(decode_code_page(data, code_page));
     }
     if data.is_empty() {
         return Ok(String::new());
@@ -181,18 +214,35 @@ mod tests {
 
     // -- decode_text tests ----------------------------------------------------
 
+    /// A Jet3 file of code page 1252, as Access 97 makes in Western Europe.
+    const WESTERN: TextEncoding = TextEncoding::Jet3 { code_page: 1252 };
+
+    #[test]
+    fn decode_text_jet3_in_its_code_page() {
+        // 0x80 is the euro sign in code page 1252, a control in Latin-1.
+        assert_eq!(decode_text(&[0x80, 0x41], WESTERN).unwrap(), "\u{20AC}A");
+        // Code page 932 (Japanese): 顧客, half-width katakana テ, and ～,
+        // which Windows reads as U+FF5E.
+        let japanese = TextEncoding::Jet3 { code_page: 932 };
+        let bytes = [0x8C, 0xDA, 0x8B, 0x71, 0xC3, 0x81, 0x60];
+        assert_eq!(decode_text(&bytes, japanese).unwrap(), "顧客ﾃ～");
+        // A code page jetdb does not know is read as Latin-1.
+        let unknown = TextEncoding::Jet3 { code_page: 1 };
+        assert_eq!(decode_text(&[0x80, 0xE9], unknown).unwrap(), "\u{80}é");
+    }
+
     #[test]
     fn decode_text_compressed_hello() {
         // 0xFF 0xFE header + compressed "Hello"
         let data = [0xFF, 0xFE, 0x48, 0x65, 0x6C, 0x6C, 0x6F];
-        assert_eq!(decode_text(&data, false).unwrap(), "Hello");
+        assert_eq!(decode_text(&data, TextEncoding::Unicode).unwrap(), "Hello");
     }
 
     #[test]
     fn decode_text_raw_utf16le() {
         // No compression header: raw "Hi" in UTF-16LE
         let data = [0x48, 0x00, 0x69, 0x00];
-        assert_eq!(decode_text(&data, false).unwrap(), "Hi");
+        assert_eq!(decode_text(&data, TextEncoding::Unicode).unwrap(), "Hi");
     }
 
     #[test]
@@ -204,31 +254,31 @@ mod tests {
         data.extend_from_slice(&[0xE5, 0x65]); // 日 in UTF-16LE
         data.push(0x00); // switch to compressed
         data.push(0x42); // compressed 'B'
-        assert_eq!(decode_text(&data, false).unwrap(), "A日B");
+        assert_eq!(decode_text(&data, TextEncoding::Unicode).unwrap(), "A日B");
     }
 
     #[test]
     fn decode_text_empty() {
-        assert_eq!(decode_text(&[], false).unwrap(), "");
+        assert_eq!(decode_text(&[], TextEncoding::Unicode).unwrap(), "");
     }
 
     #[test]
     fn decode_text_header_only() {
         let data = [0xFF, 0xFE];
-        assert_eq!(decode_text(&data, false).unwrap(), "");
+        assert_eq!(decode_text(&data, TextEncoding::Unicode).unwrap(), "");
     }
 
     #[test]
     fn decode_text_jet3_latin1() {
         // Jet3: direct Latin-1 decode, no compression
         let data = [0x48, 0x65, 0x6C, 0x6C, 0x6F];
-        assert_eq!(decode_text(&data, true).unwrap(), "Hello");
+        assert_eq!(decode_text(&data, WESTERN).unwrap(), "Hello");
     }
 
     #[test]
     fn decode_text_jet3_special_chars() {
         // Jet3: Latin-1 with accented characters
         let data = [0xC0, 0xE9]; // À, é
-        assert_eq!(decode_text(&data, true).unwrap(), "Àé");
+        assert_eq!(decode_text(&data, WESTERN).unwrap(), "Àé");
     }
 }
