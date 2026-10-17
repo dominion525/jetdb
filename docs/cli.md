@@ -203,6 +203,10 @@ ALTER TABLE "Table1" ADD CONSTRAINT "Table3Table1"
 | mysql | MySQL |
 | access | Access SQL |
 
+#### Required columns
+
+A column whose Required property is Yes ("Required" in the table design of Access) is `NOT NULL`, in the DDL and in the `NOT NULL` of the column list. So is an AutoNumber column.
+
 #### GUID AutoNumber columns
 
 A GUID AutoNumber column (Replication ID) gets a default that makes a new GUID, in the form jetdb exports GUIDs (`{7B4C91E0-774D-4889-B11A-0B9D2CF3D167}`) where the column holds text:
