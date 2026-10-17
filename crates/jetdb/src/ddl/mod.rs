@@ -15,8 +15,8 @@ use std::collections::HashMap;
 
 use crate::format::{column_flags, index_flags, index_type, ColumnType, ObjectType};
 use crate::{
-    CatalogEntry, ColumnDef, FileError, IndexDef, PageReader, PropMapType, Relationship,
-    RelationshipColumn, TableDef, Value,
+    CatalogEntry, ColumnDef, FileError, IndexDef, PageReader, PropMapType, PropertyMap,
+    Relationship, RelationshipColumn, TableDef, Value,
 };
 
 /// The names of the dialects, as `jetdb schema --ddl` takes them.
@@ -73,23 +73,29 @@ fn clear_nullable_of_required(tdef: &mut TableDef, entry: &CatalogEntry, is_jet3
             return;
         }
     };
-    for map in properties
+    let required: Vec<&str> = properties
         .maps
         .iter()
-        .filter(|m| m.map_type == PropMapType::Column)
+        .filter(|m| is_required(m))
+        .map(|m| m.name.as_str())
+        .collect();
+    for column in tdef
+        .columns
+        .iter_mut()
+        .filter(|c| required.contains(&c.name.as_str()))
     {
-        let required = map
+        column.flags &= !column_flags::NULLABLE;
+    }
+}
+
+/// Whether `map` holds the properties of a column whose `Required` property
+/// is Yes.
+fn is_required(map: &PropertyMap) -> bool {
+    map.map_type == PropMapType::Column
+        && map
             .properties
             .iter()
-            .any(|p| p.name == "Required" && matches!(p.value, Value::Bool(true)));
-        if let Some(column) = tdef
-            .columns
-            .iter_mut()
-            .find(|c| required && c.name == map.name)
-        {
-            column.flags &= !column_flags::NULLABLE;
-        }
-    }
+            .any(|p| p.name == "Required" && matches!(p.value, Value::Bool(true)))
 }
 
 // ---------------------------------------------------------------------------
