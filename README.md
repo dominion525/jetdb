@@ -118,7 +118,7 @@ For detailed API documentation and more examples, run `cargo doc --open` or see 
 - Extract VBA module source code
 - Read object properties (LvProp)
 - Decrypt RC4-encrypted databases and password-protected .accdb files (Agile, RC4 CryptoAPI, Standard/NonStandard AES)
-- Handle Jet3 (Latin-1) and Jet4+ (UTF-16LE, compressed text) encodings
+- Handle Jet3 (the code page of the database, such as 1252 or 932) and Jet4+ (UTF-16LE, compressed text) encodings
 - Run on WebAssembly, including the browser target (`wasm32-unknown-unknown`), by opening a database from bytes in memory with `PageReader::open_reader`
 
 ## Limitations
