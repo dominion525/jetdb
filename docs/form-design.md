@@ -202,7 +202,7 @@ type values of text:
 
 ### prop_id Mapping
 
-Known prop_id values are displayed by name; unknown ones are shown in `0xXXXX` numeric format. A name is given to values of one kind: text values by the first table below, and integer, color and Yes/No values by the second. An ID whose value is of another kind belongs to another property in that place and is shown by number. For example, 0x0068 is OnKeyDown on a form, but holds a color on a label, which has no key events. Where the data has them, the names were checked against the SaveAsText output of Access for the 116 forms and reports of `Sports.accdb` (ruddj/SportsAdmin): each value matched the property of that name, except that 12 forms and reports have a FontName of their own that their SaveAsText output does not have.
+Known prop_id values are displayed by name; unknown ones are shown in `0xXXXX` numeric format. A name is given to values of one kind: text values by the first table below, and integer and Yes/No values by the second. An ID whose value is of another kind belongs to another property in that place and is shown by number. For example, 0x0068 is OnKeyDown on a form, but holds a color on a label, which has no key events. Where the data has them, the names were checked against the SaveAsText output of Access for the 116 forms and reports of `Sports.accdb` (ruddj/SportsAdmin): each value matched the property of that name, except that 12 forms and reports have a FontName of their own that their SaveAsText output does not have.
 
 | ID | Property Name | Purpose |
 |--------|--------------|------|
@@ -247,7 +247,7 @@ Known prop_id values are displayed by name; unknown ones are shown in `0xXXXX` n
 | 0x015A | InputMask | Input mask |
 | 0x0161 | Toolbar | Toolbar |
 
-Names of integer, color and Yes/No values: each is the SaveAsText key that the values of the ID agree with in every form and report where it appears, in `Sports.accdb` and in `testdata/V2007/propertyIdTestV2007.accdb`, which was made in Access with one property set at a time. An ID is named where its values vary, so that one key fits them all, or where setting the property in `propertyIdTestV2007.accdb` changes the value of the ID. Only IDs up to 0x01C4 are named: Access for Microsoft 365 writes the IDs above, such as those of the anchors and the layout, one higher than the Access that made `Sports.accdb`.
+Names of integer and Yes/No values: each is the SaveAsText key that the values of the ID agree with in every form and report where it appears, in `Sports.accdb` and in `testdata/V2007/propertyIdTestV2007.accdb`, which was made in Access with one property set at a time. An ID is named where its values vary, so that one key fits them all, or where setting the property in `propertyIdTestV2007.accdb` changes the value of the ID. Only IDs up to 0x01C4 are named: Access for Microsoft 365 writes the IDs above, such as those of the anchors and the layout, one higher than the Access that made `Sports.accdb`.
 
 | ID | Property Name | Purpose |
 |--------|--------------|------|
@@ -292,7 +292,7 @@ Frequently occurring unknown IDs:
 | 0x01 | Yes/No: no bytes for a property set to the value that is not its default (SaveAsText writes `NotDefault`), 1 byte for a value (0 is No), 2 or 4 bytes for an integer such as `Overlaps` | Supported |
 | 0x02 | Integer of 1 byte, unsigned | Supported |
 | 0x03 | Integer of 2 or 4 bytes, signed | Supported |
-| 0x04 | 32-bit value of 4 bytes, often a color | Supported |
+| 0x04 | 32-bit value of 4 bytes, often a color, given as the signed number SaveAsText writes: a color is `0x00BBGGRR`, a system color negative | Supported |
 | 0x06 | Single of 4 bytes, such as `AlternateBackShade` | Supported |
 | 0x08 | Double of 8 bytes | Supported |
 | 0x09 | GUID of 16 bytes | Supported |
