@@ -2147,55 +2147,55 @@ mod tests {
         ));
     }
 
+    /// Forms and reports of propertyIdTestV2007.accdb, made by
+    /// testdata/form-generators/property-id-generator.bas, with a property set to
+    /// a value of their own, and the value SaveAsText writes for it: a copy named
+    /// Report_* of the base report, the others of the base form.
+    const SET_VALUES: &[(&str, &str, &str)] = &[
+        ("Form_BorderStyle_2", "BorderStyle", "3"),
+        ("Form_GridX_2", "GridX", "30"),
+        ("Form_GridY_2", "GridY", "40"),
+        ("Form_Width_1", "Width", "5000"),
+        ("Form_ScrollBars_2", "ScrollBars", "1"),
+        ("Form_ItemSuffix_2", "ItemSuffix", "11"),
+        ("Form_DatasheetFontHeight_2", "DatasheetFontHeight", "18"),
+        ("Form_HelpContextId_2", "HelpContextId", "4321"),
+        (
+            "Form_DatasheetGridlinesColor_1",
+            "DatasheetGridlinesColor",
+            "255",
+        ),
+        ("Form_FilterOnLoad_1", "FilterOnLoad", "-1"),
+        ("Form_TimerInterval_2", "TimerInterval", "4321"),
+        ("Form_ViewsAllowed_2", "ViewsAllowed", "2"),
+        ("Form_DefaultView_2", "DefaultView", "2"),
+        ("Form_PictureAlignment_2", "PictureAlignment", "4"),
+        (
+            "Form_DatasheetGridlinesBehavior_2",
+            "DatasheetGridlinesBehavior",
+            "1",
+        ),
+        ("Form_AllowDatasheetView_1", "AllowDatasheetView", "0"),
+        ("base_Form", "Right", "14730"),
+        ("base_Form", "Bottom", "6608"),
+        ("Report_GridX_2", "GridX", "30"),
+        ("Report_Width_2", "Width", "7000"),
+        ("Report_ItemSuffix_2", "ItemSuffix", "9"),
+        ("Report_FilterOnLoad_1", "FilterOnLoad", "-1"),
+    ];
+
     #[test]
     fn named_properties_hold_the_values_access_set() {
-        // Made by testdata/form-generators/property-id-generator.bas: a base
-        // form and report, and copies with one property set to a value of
-        // their own. Each named property holds the value it was set to, as
-        // SaveAsText writes it.
+        // Each named property holds the value it was set to (see SET_VALUES).
         let path = skip_if_missing!("V2007/propertyIdTestV2007.accdb");
         let mut reader = PageReader::open(&path).unwrap();
         let form = FormObjectType::Form;
-        let report = FormObjectType::Report;
-        for (object, object_type, name, value) in [
-            ("Form_BorderStyle_2", form, "BorderStyle", "3"),
-            ("Form_GridX_2", form, "GridX", "30"),
-            ("Form_GridY_2", form, "GridY", "40"),
-            ("Form_Width_1", form, "Width", "5000"),
-            ("Form_ScrollBars_2", form, "ScrollBars", "1"),
-            ("Form_ItemSuffix_2", form, "ItemSuffix", "11"),
-            (
-                "Form_DatasheetFontHeight_2",
-                form,
-                "DatasheetFontHeight",
-                "18",
-            ),
-            ("Form_HelpContextId_2", form, "HelpContextId", "4321"),
-            (
-                "Form_DatasheetGridlinesColor_1",
-                form,
-                "DatasheetGridlinesColor",
-                "255",
-            ),
-            ("Form_FilterOnLoad_1", form, "FilterOnLoad", "-1"),
-            ("Form_TimerInterval_2", form, "TimerInterval", "4321"),
-            ("Form_ViewsAllowed_2", form, "ViewsAllowed", "2"),
-            ("Form_DefaultView_2", form, "DefaultView", "2"),
-            ("Form_PictureAlignment_2", form, "PictureAlignment", "4"),
-            (
-                "Form_DatasheetGridlinesBehavior_2",
-                form,
-                "DatasheetGridlinesBehavior",
-                "1",
-            ),
-            ("Form_AllowDatasheetView_1", form, "AllowDatasheetView", "0"),
-            ("base_Form", form, "Right", "14730"),
-            ("base_Form", form, "Bottom", "6608"),
-            ("Report_GridX_2", report, "GridX", "30"),
-            ("Report_Width_2", report, "Width", "7000"),
-            ("Report_ItemSuffix_2", report, "ItemSuffix", "9"),
-            ("Report_FilterOnLoad_1", report, "FilterOnLoad", "-1"),
-        ] {
+        for &(object, name, value) in SET_VALUES {
+            let object_type = if object.starts_with("Report_") {
+                FormObjectType::Report
+            } else {
+                form
+            };
             let read = read_form_properties_of_type(&mut reader, object, object_type).unwrap();
             let found = read.properties.iter().find(|p| p.name() == Some(name));
             assert!(
