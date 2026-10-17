@@ -580,13 +580,23 @@ fn msysobjects_rows(
 // Internal: macro grid
 // ---------------------------------------------------------------------------
 
+/// The string of single bytes at the start of `bytes`, up to the first 0: in
+/// the code page of a Jet3 file, and as Latin-1 otherwise.
+fn single_byte_string(bytes: &[u8], text: TextEncoding) -> String {
+    let end = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
+    match text.jet3_code_page() {
+        Some(code_page) => crate::encoding::decode_code_page(&bytes[..end], code_page),
+        None => crate::encoding::decode_latin1(&bytes[..end]),
+    }
+}
+
 /// Parses a macro grid.
 ///
 /// Layout, as observed in files from Access 97 through Microsoft 365:
 /// - bytes 0..4: [`MacroGrid::columns_shown`]; bytes 4..0x20: not interpreted
 /// - at 0x20: a 2-byte length `n`, `n` bytes of a UTF-16LE header string, and
 ///   2 zero bytes
-/// - row strings: single-byte in Access 97 databases (`single_byte_file`),
+/// - row strings: single-byte in Access 97 databases (`text` is Jet3),
 ///   whatever the header string (`22` or empty there). In later formats they
 ///   are UTF-16LE after the header string `33` (or `23` in the designer's
 ///   clipboard macro), and single-byte after an empty header string, which
@@ -639,11 +649,7 @@ fn parse_macro_grid(bytes: &[u8], text: TextEncoding) -> Result<MacroGrid, FileE
                 .get(offset as usize..)
                 .ok_or_else(|| invalid("string offset past the row"))?;
             Ok(Some(if single_byte {
-                let end = rest.iter().position(|&b| b == 0).unwrap_or(rest.len());
-                match text.jet3_code_page() {
-                    Some(code_page) => crate::encoding::decode_code_page(&rest[..end], code_page),
-                    None => crate::encoding::decode_latin1(&rest[..end]),
-                }
+                single_byte_string(rest, text)
             } else {
                 let units: Vec<u16> = rest
                     .chunks_exact(2)
