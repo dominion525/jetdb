@@ -343,7 +343,9 @@ pub fn prop_id_name(prop_id: u16) -> Option<&'static str> {
 ///
 /// Each name is the SaveAsText key whose values agree with every value of the
 /// ID in the forms and reports of Sports.accdb (ruddj/SportsAdmin), where the
-/// values vary, so that one key fits them all. Only IDs up to 0x01C4 are
+/// values vary, so that one key fits them all, or that changes the value of
+/// the ID when it is set in testdata/V2007/propertyIdTestV2007.accdb, and
+/// agrees with its values there and in Sports.accdb. Only IDs up to 0x01C4 are
 /// named: Access for Microsoft 365 writes the IDs above, such as those of
 /// the anchors and the layout, one higher than the Access that made
 /// Sports.accdb.
@@ -354,15 +356,21 @@ pub fn number_prop_id_name(prop_id: u16) -> Option<&'static str> {
         0x0029 => Some("GridX"),
         0x002A => Some("GridY"),
         0x0036 => Some("Left"),
+        0x006F => Some("TimerInterval"),
         0x0081 => Some("Right"),
         0x008D => Some("Top"),
+        0x0092 => Some("ViewsAllowed"),
+        0x0093 => Some("DefaultView"),
         0x0096 => Some("Width"),
         0x0098 => Some("ScrollBars"),
         0x009E => Some("ItemSuffix"),
         0x00A1 => Some("DatasheetFontHeight"),
         0x00DB => Some("HelpContextId"),
         0x0105 => Some("TabIndex"),
+        0x0135 => Some("PictureAlignment"),
+        0x013E => Some("DatasheetGridlinesBehavior"),
         0x013F => Some("DatasheetGridlinesColor"),
+        0x01A6 => Some("AllowDatasheetView"),
         0x01C4 => Some("FilterOnLoad"),
         _ => None,
     }
@@ -2170,6 +2178,17 @@ mod tests {
                 "255",
             ),
             ("Form_FilterOnLoad_1", form, "FilterOnLoad", "-1"),
+            ("Form_TimerInterval_2", form, "TimerInterval", "4321"),
+            ("Form_ViewsAllowed_2", form, "ViewsAllowed", "2"),
+            ("Form_DefaultView_2", form, "DefaultView", "2"),
+            ("Form_PictureAlignment_2", form, "PictureAlignment", "4"),
+            (
+                "Form_DatasheetGridlinesBehavior_2",
+                form,
+                "DatasheetGridlinesBehavior",
+                "1",
+            ),
+            ("Form_AllowDatasheetView_1", form, "AllowDatasheetView", "0"),
             ("base_Form", form, "Right", "14730"),
             ("base_Form", form, "Bottom", "6608"),
             ("Report_GridX_2", report, "GridX", "30"),

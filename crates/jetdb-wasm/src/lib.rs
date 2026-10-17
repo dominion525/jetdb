@@ -2086,9 +2086,12 @@ mod tests {
         assert_eq!(*value("RecordSource"), Cell::String("jp_クエリ_02".into()));
         // A Yes/No property stored without a value, as SaveAsText writes NotDefault.
         assert_eq!(*value("0x013A"), Cell::String("NotDefault".into()));
-        assert_eq!(*value("0x0093"), Cell::Number(5.0));
+        assert_eq!(*value("DefaultView"), Cell::Number(5.0));
         // A color as the number Access writes.
-        assert_eq!(*value("DatasheetGridlinesColor"), Cell::Number(f64::from(0x00E8_E8E8)));
+        assert_eq!(
+            *value("DatasheetGridlinesColor"),
+            Cell::Number(f64::from(0x00E8_E8E8))
+        );
         assert!(matches!(value("0x0178"), Cell::String(s) if s.starts_with('{')));
         assert!(matches!(value("0x0179"), Cell::Bytes(b) if b.len() == 384));
         assert!(matches!(
