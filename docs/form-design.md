@@ -191,6 +191,23 @@ type values of text:
 - Each control block starts with the Name(0x14) property
 - The number of controls in TypeInfo = the number of control blocks in the Blob
 
+## Blob of the Access 2000 Format
+
+A form or report saved in the Access 2000 format keeps its design in the Blob too, but as a tree rather than property entries. Its Blob starts with the byte `0x13`, the `Version =19` of its SaveAsText output; the Blob of Access 2002 and later starts with `0x14` or `0x15`.
+
+```
+Blob     12 bytes of header, the properties of the form or report itself, then a list
+List     FF + count (u16) + entries, or FE + one entry
+Entry    type (u16) + properties + (FD, or a list of the entries in it)
+Property ID (1 byte) + value
+```
+
+- The entries at the top of the tree are the default controls of the form or report and its sections; the entries in a section are its controls, and the entries in a tab control its pages. jetdb gives the sections and controls, as for later formats, and not the default controls.
+- The type of an entry is the `acControlType` of Access, the low byte of the type codes of TypeInfo: 100 a label, 109 a text box, 123 a tab control, 124 a page, 152 the detail section, 155 and 156 the page header and footer, and so on.
+- The ID of a property is numbered in each type: `0xDC` is the name of a control and the record source of a form. The ID tells the size of the value: none for `0x00`–`0x2F` (a Yes/No set to the value that is not its default, given as `NotDefault`), 1 byte for `0x30`–`0x5F`, 2 bytes for `0x60`–`0x7F`, 4 bytes for `0x80`–`0xBC`, and a length byte and that many bytes for `0xBD`–`0xFC`, the length byte `0xFF` being followed by a length of 2 bytes. Of `0x80`–`0xBC`, only `0x9C`–`0xA0` have been seen, so where the 4-byte values end in `0xA1`–`0xBC` is not known.
+
+jetdb gives a property the ID of Access 2002 and later from a table of each type (409 pairs), and the value as that ID holds it, so that the names of [prop_id Mapping](#prop_id-mapping) apply. The pairs were tied by the forms and reports of `testdata/V2000/controlPropertyTestV2000.mdb` and `propertyIdTestV2000.mdb` against the same objects in `testdata/V2007/controlPropertyTestV2007.accdb` and `propertyIdTestV2007.accdb`, made in Access for Microsoft 365: the values of an ID across the objects are those of one ID of the later format and of no other. Of the pairs whose names are known in both formats, all 307 agree. The IDs of the later format are those of Access for Microsoft 365, one higher above `0x01C4` than in files of earlier Access. A property without a pair keeps the ID of the 2000 format plus `0x8000`, such as `0x80DD`; most of them are properties a control keeps before its name in later formats, which jetdb does not read.
+
 ## Known Limitations
 
 ### Parser Limitations
