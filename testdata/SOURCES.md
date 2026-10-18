@@ -212,13 +212,25 @@ They were made with the VBA module `form-generators/same-name-generator.bas` (`C
 
 ## Created independently: property IDs of forms and reports
 
-This file was created by the jetdb project using Microsoft Access for Microsoft 365 MSO (Version 2609 Build 16.0.20430.20092, 64-bit).
+These files were created by the jetdb project using Microsoft Access for Microsoft 365 MSO (Version 2609 Build 16.0.20430.20092, 64-bit).
 
 | File | Purpose |
 |------|---------|
 | V2007/propertyIdTestV2007.accdb | A base form and a base report, and 104 copies of them with one property set to a value of their own, named `<Target>_<Property>_<n>`. `tblGenLog` records what was created and the properties Access did not take, and `tblGenExport` holds Access's SaveAsText output of each form and report |
+| V2000/propertyIdTestV2000.mdb | A copy saved in the Access 2000 format, whose forms and reports keep their design in another form |
 
 It was made with the VBA module `form-generators/property-id-generator.bas` (`CreatePropertyIdForms`), imported into a new, empty `.accdb` and run once from the Immediate window. Access did not take `DatasheetGridlinesColor12`, the four `WebImagePadding` properties and `Overlaps` from VBA, and `DoCmd.MoveSize` left the position of the design windows as it was.
+
+## Created independently: properties of each control type
+
+These files were created by the jetdb project using Microsoft Access for Microsoft 365 MSO (Version 2609 Build 16.0.20430.20092, 64-bit).
+
+| File | Purpose |
+|------|---------|
+| V2007/controlPropertyTestV2007.accdb | For each of 16 control types, three forms and three reports named `F_<Type>_<n>` and `R_<Type>_<n>`, each with one control of that type named `ctl`. Every property of the control, of the detail section and of the form or report itself that Access takes is set to a value of its own: a string unique in its object, a number, or a Yes/No turned over in some of the three. `tblGenSet` records each value set, `tblGenLog` what was made and the properties Access did not take, and `tblGenExport` holds Access's SaveAsText output of each form and report |
+| V2000/controlPropertyTestV2000.mdb | A copy saved in the Access 2000 format |
+
+They were made with the VBA module `form-generators/control-property-generator.bas` (`CreateControlPropertyForms`), imported into a new, empty `.accdb` and run from the Immediate window until it was done. Access stopped on setting `ConditionalFormat14` of a text box and `OnKeyUp` of a form, which the module then left out of every object, as `tblGenLog` records. The unbound object frame is not among the types, as Access asks for the object to insert when one is made. Saving in the Access 2000 format, Access warned that the values `z1_5`, `z2_5` and `z3_5` set to the subforms and subreports name no form or report.
 
 ## Created independently
 
