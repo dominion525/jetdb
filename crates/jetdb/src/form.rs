@@ -910,7 +910,7 @@ fn parse_section_props(data: &[u8], start: usize, end: usize) -> Vec<BlobPropert
 }
 
 /// Format 16 bytes as a GUID string `{xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}`.
-fn format_guid(bytes: &[u8]) -> String {
+pub(crate) fn format_guid(bytes: &[u8]) -> String {
     if bytes.len() < 16 {
         return format!("({} bytes)", bytes.len());
     }
