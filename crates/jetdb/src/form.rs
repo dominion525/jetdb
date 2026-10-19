@@ -396,6 +396,26 @@ pub fn control_type_name(type_code: u16) -> Option<&'static str> {
         0x1899 => Some("FormHeader"),
         0x189A => Some("FormFooter"),
         0x247F => Some("EmptyCell"),
+        // The types of the Access 2000 format: the acControlType of Access
+        0x0064 => Some("Label"),
+        0x0065 => Some("Rectangle"),
+        0x0066 => Some("Line"),
+        0x0067 => Some("Image"),
+        0x0068 => Some("CommandButton"),
+        0x0069 => Some("OptionButton"),
+        0x006A => Some("CheckBox"),
+        0x006B => Some("OptionGroup"),
+        0x006C => Some("BoundObjectFrame"),
+        0x006D => Some("TextBox"),
+        0x006E => Some("ListBox"),
+        0x006F => Some("ComboBox"),
+        0x0070 => Some("SubForm"),
+        0x0072 => Some("ObjectFrame"),
+        0x0076 => Some("PageBreak"),
+        0x007A => Some("ToggleButton"),
+        0x007B => Some("TabControl"),
+        0x007C => Some("Page"),
+        0x0098 => Some("Detail"),
         // Report controls
         0x1B64 => Some("Label"),
         0x1B65 => Some("Rectangle"),
@@ -494,6 +514,17 @@ pub fn read_form_properties_in(
 ) -> Result<FormProperties, FileError> {
     let entries = &storage.entries;
     let (object_type, blob_data) = find_stream(entries, name, object_type, StreamKind::Blob)?;
+
+    // The Access 2000 format keeps the type of each control in the Blob.
+    if blob_data.first() == Some(&crate::form2000::VERSION) {
+        let (properties, controls) = crate::form2000::read(&blob_data).unwrap_or_default();
+        return Ok(FormProperties {
+            form_name: name.to_string(),
+            object_type,
+            properties,
+            controls,
+        });
+    }
 
     // Try to get TypeInfo for control name/type mapping; not fatal if missing.
     // It is that of the object the Blob is of, even when a report shares the
@@ -879,7 +910,7 @@ fn parse_section_props(data: &[u8], start: usize, end: usize) -> Vec<BlobPropert
 }
 
 /// Format 16 bytes as a GUID string `{xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}`.
-fn format_guid(bytes: &[u8]) -> String {
+pub(crate) fn format_guid(bytes: &[u8]) -> String {
     if bytes.len() < 16 {
         return format!("({} bytes)", bytes.len());
     }
