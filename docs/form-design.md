@@ -71,7 +71,7 @@ Examples:
 
 ## TypeInfo Format
 
-TypeInfo is a list of names and type codes for all controls within a form.
+TypeInfo is a list of names and type codes for all controls within a form. It can be empty, as in forms and reports made by VBA, and can keep an old spelling of a name that differs in case from that of the Blob and of SaveAsText, such as `H_Code` for `H_code`. jetdb lists the controls from the Blob, and gives a control the type code of TypeInfo for the control of the same name, ignoring case.
 
 ```
 Header (32 bytes):
@@ -85,13 +85,15 @@ Each entry:
   Type code: 2 bytes (Little-Endian)
   Padding: 2 bytes
   Index: 4 bytes (Little-Endian)
-  EventProcPrefix: Shift-JIS (cp932), NUL-terminated
+  EventProcPrefix: bytes in a code page, NUL-terminated
     No parentheses → same as control name
     With parentheses → parentheses replaced with underscores (for VBA)
-  RealName: Shift-JIS (cp932), NUL-terminated
+  RealName: bytes in a code page, NUL-terminated
     No parentheses → empty (NUL only)
     With parentheses → actual control name
 ```
+
+The names are in the code page of the Access that saved the form, which the file does not keep. jetdb reads them in the code page in the header of the database: the Russian names of `Strings.mdb` are in 1251, while its header has 1252, so they are garbled.
 
 Example controls included:
 - Buttons: `Btn_クライアント一覧`
@@ -159,16 +161,14 @@ The main binary body of the form design. Contains structural information includi
 
 ### Blob Overall Layout
 
+The Blob keeps the design as a tree, as the Blob of the Access 2000 format does (see [Blob of the Access 2000 Format](#blob-of-the-access-2000-format)), with property entries:
+
 ```
-[Header 8B]
-  version(u16) = 0x0015, flags(u16) = 0x0014, reserved(u32) = 0
-[Form-level fixed-length properties]
-  Properties related to the form as a whole: RecordSource, Filter, FontName, etc.
-[Form-level variable-length properties]
-[Binary data (layout information, printer settings, font definitions, etc.)]
-[Per-control property blocks x N]
-  Each control has its own independent property block
-  Starts with the Name(0x14) property
+Blob     8 bytes of header + 6 bytes + the group of the form or report itself + nodes
+Header   version(u16) = 0x0015, flags(u16) = 0x0014, reserved(u32) = 0
+Group    property entries, through the one whose trailer is 253, 254 or 255
+Nodes    none after a trailer of 253, one after 254, and a count (u16) and that many after 255
+Node     type (u16) + 4 bytes + a group + the nodes in it
 ```
 
 ### Property Entry Format
@@ -179,24 +179,25 @@ Property names are not stored as strings; they are identified by numeric IDs (u1
 prop_id(u16) + type(u32) + B(u32) + length(u32) + value[length bytes] + trailer(u32)
 ```
 
-`length` is the number of bytes of the value. The 4-byte trailer after the value is a number that grows from one entry to the next, except for the last entry of a group, whose trailer is 253, 254 or 255: the properties of the form or report itself end with 255, and those of a control with 253. The type tells how to read the value (see "type Support Status"); B is not used.
+`length` is the number of bytes of the value. The 4-byte trailer after the value is a number that grows from one entry to the next, except for the last entry of a group, whose trailer is 253, 254 or 255 and tells the nodes after the group. The type tells how to read the value (see "type Support Status"); B is not used.
 
 type values of text:
 - 0x0A -- Name/font types (Name, FontName, Format, RowSourceType, ColumnWidths)
 - 0x0C -- Text/data types (RecordSource, ControlSource, RowSource, Filter, Event, Caption)
 
-### Section Boundaries
+### Nodes
 
-- The boundary between form-level properties and per-control properties is separated by binary data (layout information, etc.)
-- Each control block starts with the Name(0x14) property
-- The number of controls in TypeInfo = the number of control blocks in the Blob
+- The nodes at the top of the tree are the default controls of the form or report and its sections; the nodes in a section are its controls, and the nodes in a tab control its pages. jetdb gives the sections and controls, each section followed by its controls, and not the default controls.
+- The type of a node is the `acControlType` of Access, the low byte of the type codes of TypeInfo. In the test data, the type of each node agrees with that of TypeInfo for the control of the same name, except for the entries TypeInfo has after an ActiveX control, which jetdb does not read in step.
+- A control keeps its properties before and after its Name (0x14), such as `Left`, `Top`, `Width` and `Height` before it.
 
 ## Blob of the Access 2000 Format
 
 A form or report saved in the Access 2000 format keeps its design in the Blob too, but as a tree rather than property entries. Its Blob starts with the byte `0x13`, the `Version =19` of its SaveAsText output; the Blob of Access 2002 and later starts with `0x14` or `0x15`.
 
 ```
-Blob     12 bytes of header, the properties of the form or report itself, then a list
+Blob     8 bytes of header + the form or report itself + a list
+Object   type (u16, 0x96 a form, 0x97 a report) + properties
 List     FF + count (u16) + entries, or FE + one entry
 Entry    type (u16) + properties + (FD, or a list of the entries in it)
 Property ID (1 byte) + value
@@ -206,20 +207,19 @@ Property ID (1 byte) + value
 - The type of an entry is the `acControlType` of Access, the low byte of the type codes of TypeInfo: 100 a label, 109 a text box, 123 a tab control, 124 a page, 152 the detail section, 155 and 156 the page header and footer, and so on.
 - The ID of a property is numbered in each type: `0xDC` is the name of a control and the record source of a form. The ID tells the size of the value: none for `0x00`–`0x2F` (a Yes/No set to the value that is not its default, given as `NotDefault`), 1 byte for `0x30`–`0x5F`, 2 bytes for `0x60`–`0x7F`, 4 bytes for `0x80`–`0xBC`, and a length byte and that many bytes for `0xBD`–`0xFC`, the length byte `0xFF` being followed by a length of 2 bytes. Of `0x80`–`0xBC`, only `0x9C`–`0xA0` have been seen, so where the 4-byte values end in `0xA1`–`0xBC` is not known.
 
-jetdb gives a property the ID of Access 2002 and later from a table of each type (409 pairs), and the value as that ID holds it, so that the names of [prop_id Mapping](#prop_id-mapping) apply. The pairs were tied by the forms and reports of `testdata/V2000/controlPropertyTestV2000.mdb` and `propertyIdTestV2000.mdb` against the same objects in `testdata/V2007/controlPropertyTestV2007.accdb` and `propertyIdTestV2007.accdb`, made in Access for Microsoft 365: the values of an ID across the objects are those of one ID of the later format and of no other. Of the pairs whose names are known in both formats, all 307 agree. The IDs of the later format are those of Access for Microsoft 365, one higher above `0x01C4` than in files of earlier Access. A property without a pair keeps the ID of the 2000 format plus `0x8000`, such as `0x80DD`; most of them are properties a control keeps before its name in later formats, which jetdb does not read.
+jetdb gives a property the ID of Access 2002 and later from a table of each type (409 pairs), and the value as that ID holds it, so that the names of [prop_id Mapping](#prop_id-mapping) apply. The pairs were tied by the forms and reports of `testdata/V2000/controlPropertyTestV2000.mdb` and `propertyIdTestV2000.mdb` against the same objects in `testdata/V2007/controlPropertyTestV2007.accdb` and `propertyIdTestV2007.accdb`, made in Access for Microsoft 365: the values of an ID across the objects are those of one ID of the later format and of no other. Of the pairs whose names are known in both formats, all 307 agree. Each pair was then checked against the SaveAsText output of the files of the 2000 format themselves (`testdata/V2000/saveastext`, written by Access for Microsoft 365 from those files with `Version =19`): of the 409 pairs, 381 of the 386 the data has are under the key of the same name in both formats, and the other four under keys that always hold the same values in both, which the data cannot tell apart. Where the names and the values point to different IDs, the pair follows the names: ten pairs, such as the BorderColor of a rectangle, whose values in those files are always those of GridlineColor (`0x01CF`). Saving in the 2000 format, Access writes the value of DatasheetGridlinesColor12 (`0x0247`) as DatasheetGridlinesColor (`0x013F`), the one that format has. The IDs of the later format are those of Access for Microsoft 365, one higher above `0x01C4` than in files of earlier Access. A property without a pair keeps the ID of the 2000 format plus `0x8000`, such as `0x80DD`; most of them are properties a control keeps before its name in later formats, which were not compared when the pairs were tied.
 
 ## Known Limitations
 
 ### Parser Limitations
 
-- **Form level**: Sequential parsing from the beginning of the Blob, through the entry whose trailer ends the group. An entry of an unknown type is read by its length, and its value is given as bytes.
-- **Control level**: Separate from form-level parsing, a byte scan detects the Name property pattern `[14 00 0A 00 00 00]` to locate each control section, which is then parsed individually. Each section is read as a group, as at the form level. The properties a control keeps before its Name (in the forms and reports compared with SaveAsText, such as `Left`, `Top`, `Width`, `Height` and most `NotDefault` values) are not read.
+- **Tree**: The Blob is read as a tree from its beginning. An entry of an unknown type is read by its length, and its value is given as bytes. When the bytes do not read to the end as a tree, a byte scan finds each control by the Name property pattern `[14 00 0A 00 00 00]`, and only the properties from its Name on are read. All the Blobs of the test data read to the end as a tree.
 - **Layout coordinates & printer settings**: Stored in non-property regions within the Blob and are not extraction targets.
 - **Jet3 (Access 97)**: Not supported because it uses a different format stored in MSysAccessObjects rather than MSysAccessStorage.
 
 ### prop_id Mapping
 
-Known prop_id values are displayed by name; unknown ones are shown in `0xXXXX` numeric format. A name is given to values of one kind: text values by the first table below, and integer and Yes/No values by the second. An ID whose value is of another kind belongs to another property in that place and is shown by number. For example, 0x0068 is OnKeyDown on a form, but holds a color on a label, which has no key events. Where the data has them, the names were checked against the SaveAsText output of Access for the 116 forms and reports of `Sports.accdb` (ruddj/SportsAdmin): each value matched the property of that name, except that 12 forms and reports have a FontName of their own that their SaveAsText output does not have.
+Known prop_id values are displayed by name; unknown ones are shown in `0xXXXX` numeric format. A name is given to values of one kind: text values by the first table below, and integer and Yes/No values by the second. An ID whose value is of another kind belongs to another property in that place and is shown by number. For example, 0x0068 is OnKeyDown on a form, but holds a color on a label, which has no key events. Where the data has them, the names were checked against the SaveAsText output of Access for the 116 forms and reports of `Sports.accdb` (ruddj/SportsAdmin), and for the forms and reports of `testdata/V2007/controlPropertyTestV2007.accdb` and `propertyIdTestV2007.accdb` and of their Access 2000 versions in `testdata/V2000/`, which keep it in their table `tblGenExport`: each value matched the property of that name.
 
 | ID | Property Name | Purpose |
 |--------|--------------|------|
@@ -251,17 +251,17 @@ Known prop_id values are displayed by name; unknown ones are shown in `0xXXXX` n
 | 0x0084 | SourceObject | Form or report shown in a subform |
 | 0x0087 | StatusBarText | Status bar text |
 | 0x009C | RecordSource | Form/report data source |
-| 0x00A0 | FontName | Form-level font name |
+| 0x00A0 | DatasheetFontName | Font name of the datasheet view |
 | 0x00DA | HelpFile | Help file |
 | 0x00DE | OnEnter | Enter (focus received) event |
 | 0x00DF | OnExit | Exit (focus lost) event |
 | 0x00E0 | OnDblClick | Double-click event |
 | 0x00F5 | Filter | Filter condition |
-| 0x010A | LabelType | Label type |
+| 0x010A | Tag | Tag |
 | 0x0112 | Class | Class of an object frame |
 | 0x0130 | ShortcutMenuBar | Shortcut menu |
 | 0x013D | ControlTipText | Control tip text |
-| 0x015A | InputMask | Input mask |
+| 0x015A | ColumnInfo | Column information of a combo box or list box |
 | 0x0161 | Toolbar | Toolbar |
 
 Names of integer and Yes/No values: each is the SaveAsText key that the values of the ID agree with in every form and report where it appears, in `Sports.accdb` and in `testdata/V2007/propertyIdTestV2007.accdb`, which was made in Access with one property set at a time. An ID is named where its values vary, so that one key fits them all, or where setting the property in `propertyIdTestV2007.accdb` changes the value of the ID. Only IDs up to 0x01C4 are named: Access for Microsoft 365 writes the IDs above, such as those of the anchors and the layout, one higher than the Access that made `Sports.accdb`.

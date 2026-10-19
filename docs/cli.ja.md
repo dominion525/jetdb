@@ -446,13 +446,13 @@ $ xxd form_blob.bin | head
 $ jetdb form dump -s typeinfo database.accdb F_メニュー > typeinfo.bin
 ```
 
-#### form controls — TypeInfo からコントロール名一覧を表示
+#### form controls — セクションとコントロールの一覧を表示
 
 ```
 jetdb form controls [OPTIONS] <FILE> <NAME>
 ```
 
-TypeInfo ストリームをパースして、フォーム/レポート内の全コントロールを一覧表示する。出力はタブ区切り: 名前、型コード（16進数）、インデックス。
+フォーム/レポートのセクションとコントロールを、Blob から一覧表示する。並びは `form props` と同じく、セクションごとにそのコントロールが続く。出力はタブ区切り: 名前、種類（jetdb の知らない種類は 16 進数の型コード）、一覧の中の順番（0 から）。
 
 ##### オプション
 
@@ -463,11 +463,11 @@ TypeInfo ストリームをパースして、フォーム/レポート内の全�
 ```
 $ jetdb form controls database.accdb F_クライアント一覧
 フォームヘッダー    FormHeader      0
-詳細                Detail          1
-フォームフッター    FormFooter      2
-Btn_検索            CommandButton   3
-Txt_名前            TextBox         4
-Cmb_ステータス      ComboBox        5
+Btn_検索            CommandButton   1
+詳細                Detail          2
+Txt_名前            TextBox         3
+Cmb_ステータス      ComboBox        4
+フォームフッター    FormFooter      5
 ```
 
 #### form props — フォーム/レポートとコントロールのプロパティ表示

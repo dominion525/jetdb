@@ -277,7 +277,7 @@ pub fn read_form_type_info_in(
 ) -> Result<FormTypeInfo, FileError> {
     let (object_type, stream_data) =
         find_stream(&storage.entries, name, object_type, StreamKind::TypeInfo)?;
-    let controls = parse_type_info(&stream_data)?;
+    let controls = parse_type_info(&stream_data, storage.code_page)?;
 
     Ok(FormTypeInfo {
         form_name: name.to_string(),
@@ -324,17 +324,17 @@ pub fn prop_id_name(prop_id: u16) -> Option<&'static str> {
         0x0084 => Some("SourceObject"),
         0x0087 => Some("StatusBarText"),
         0x009C => Some("RecordSource"),
-        0x00A0 => Some("FontName"),
+        0x00A0 => Some("DatasheetFontName"),
         0x00DA => Some("HelpFile"),
         0x00DE => Some("OnEnter"),
         0x00DF => Some("OnExit"),
         0x00E0 => Some("OnDblClick"),
         0x00F5 => Some("Filter"),
-        0x010A => Some("LabelType"),
+        0x010A => Some("Tag"),
         0x0112 => Some("Class"),
         0x0130 => Some("ShortcutMenuBar"),
         0x013D => Some("ControlTipText"),
-        0x015A => Some("InputMask"),
+        0x015A => Some("ColumnInfo"),
         0x0161 => Some("Toolbar"),
         _ => None,
     }
@@ -396,7 +396,9 @@ pub fn control_type_name(type_code: u16) -> Option<&'static str> {
         0x1899 => Some("FormHeader"),
         0x189A => Some("FormFooter"),
         0x247F => Some("EmptyCell"),
-        // The types of the Access 2000 format: the acControlType of Access
+        // The types in the Blob, of the Access 2000 format and of the tree of
+        // later formats: the acControlType of Access. 0x0099 and 0x009A are
+        // the header and footer of a form or of a report, so not named here.
         0x0064 => Some("Label"),
         0x0065 => Some("Rectangle"),
         0x0066 => Some("Line"),
@@ -412,10 +414,15 @@ pub fn control_type_name(type_code: u16) -> Option<&'static str> {
         0x0070 => Some("SubForm"),
         0x0072 => Some("ObjectFrame"),
         0x0076 => Some("PageBreak"),
+        0x0077 => Some("CustomControl"),
         0x007A => Some("ToggleButton"),
         0x007B => Some("TabControl"),
         0x007C => Some("Page"),
         0x0098 => Some("Detail"),
+        0x009B => Some("PageHeader"),
+        0x009C => Some("PageFooter"),
+        0x009D => Some("GroupHeader"),
+        0x009E => Some("GroupFooter"),
         // Report controls
         0x1B64 => Some("Label"),
         0x1B65 => Some("Rectangle"),
@@ -531,7 +538,7 @@ pub fn read_form_properties_in(
     // name of a form.
     let type_info_controls =
         match find_stream(entries, name, Some(object_type), StreamKind::TypeInfo) {
-            Ok((_, ti_data)) => parse_type_info(&ti_data).unwrap_or_default(),
+            Ok((_, ti_data)) => parse_type_info(&ti_data, storage.code_page).unwrap_or_default(),
             Err(_) => Vec::new(),
         };
 
@@ -541,7 +548,7 @@ pub fn read_form_properties_in(
     let controls = control_prop_groups
         .into_iter()
         .enumerate()
-        .map(|(i, props)| {
+        .map(|(i, (blob_type, props))| {
             // Find control name from Blob's Name property (0x14).
             let blob_name = props
                 .iter()
@@ -552,13 +559,10 @@ pub fn read_form_properties_in(
                 })
                 .unwrap_or_else(|| format!("Control_{i}"));
 
-            // Match with TypeInfo by name, fallback to index.
-            let type_code = type_info_controls
-                .iter()
-                .find(|c| c.name == blob_name)
-                .or_else(|| type_info_controls.get(i))
-                .map(|c| c.type_code)
-                .unwrap_or(0);
+            // Match with TypeInfo by name, else the type in the Blob. Not by
+            // index: TypeInfo can list the controls in another order.
+            let type_code = type_info_by_name(&type_info_controls, &blob_name)
+                .map_or(blob_type, |c| c.type_code);
 
             ControlProperties {
                 name: blob_name,
@@ -574,6 +578,14 @@ pub fn read_form_properties_in(
         properties: form_props,
         controls,
     })
+}
+
+/// The control of TypeInfo named `name`. Access does not tell names apart by
+/// case, and TypeInfo can keep an old spelling of a name, such as `H_Code`
+/// for the control the Blob and SaveAsText name `H_code`.
+fn type_info_by_name<'a>(controls: &'a [ControlInfo], name: &str) -> Option<&'a ControlInfo> {
+    let name = name.to_lowercase();
+    controls.iter().find(|c| c.name.to_lowercase() == name)
 }
 
 // ---------------------------------------------------------------------------
@@ -639,12 +651,46 @@ fn find_stream(
 /// TypeInfo magic number.
 const TYPEINFO_MAGIC: u32 = 0xACCD_EAF7;
 
+/// The type of an ActiveX control (`acCustomControl`), in the low byte of
+/// its type code.
+const ACTIVEX: u16 = 0x77;
+
+/// The bytes the entry of an ActiveX control has after its names: the class
+/// ID and the ID of the type library of the control (16 bytes each), and 4
+/// bytes. The test data has the spin button of Microsoft Forms 2.0 only.
+const ACTIVEX_TAIL: usize = 36;
+
 /// Parse TypeInfo binary into a list of control entries.
 ///
 /// Format:
 /// - Header (32 bytes): magic(u32) + field1(u32) + field2(i32) + count(u32) + GUID(16)
-/// - Entries: ctrl_type(u16) + padding(u16) + index(u32) + name(Shift-JIS, NUL) + align(0x00)
-fn parse_type_info(data: &[u8]) -> Result<Vec<ControlInfo>, FileError> {
+/// - Entries: ctrl_type(u16) + padding(u16) + index(u32) + name(NUL) + align(0x00)
+///   (see [`ACTIVEX_TAIL`] for the bytes an ActiveX control has after them)
+///
+/// The names are bytes in a code page, read in `code_page`, that of the
+/// header of the database. The code page they are written in is that of
+/// the Access that saved the form, which the file does not tell: the
+/// Russian names of Strings.mdb are in 1251, while its header has 1252.
+fn parse_type_info(data: &[u8], code_page: u16) -> Result<Vec<ControlInfo>, FileError> {
+    let entry_count = type_info_count(data)?;
+    let mut controls = Vec::with_capacity(entry_count);
+    let mut pos = 32; // skip header
+    for _ in 0..entry_count {
+        let Some((entry, next)) = type_info_entry(data, pos, code_page) else {
+            break;
+        };
+        pos = next;
+        // 0x1EFF: internal metadata entries, not real controls
+        if entry.type_code != 0x1EFF {
+            controls.push(entry);
+        }
+    }
+    Ok(controls)
+}
+
+/// The number of entries the header of the TypeInfo `data` gives, after
+/// checking its size and magic number.
+fn type_info_count(data: &[u8]) -> Result<usize, FileError> {
     if data.len() < 32 {
         return Err(FileError::InvalidFormData {
             reason: "TypeInfo too short for header",
@@ -668,95 +714,156 @@ fn parse_type_info(data: &[u8]) -> Result<Vec<ControlInfo>, FileError> {
             reason: "TypeInfo entry count exceeds data size",
         });
     }
-
-    let mut controls = Vec::with_capacity(entry_count);
-    let mut pos = 32; // skip header
-
-    for _ in 0..entry_count {
-        if pos + 8 > data.len() {
-            break;
-        }
-
-        let ctrl_type = u16::from_le_bytes([data[pos], data[pos + 1]]);
-        // skip padding u16 at pos+2..pos+4
-        let index =
-            u32::from_le_bytes([data[pos + 4], data[pos + 5], data[pos + 6], data[pos + 7]]);
-        pos += 8;
-
-        // Each entry has two NUL-terminated Shift-JIS strings:
-        //   1. EventProcPrefix (or Name if no special characters)
-        //   2. RealName (actual name when it contains parentheses, else empty)
-        let epp_start = pos;
-        while pos < data.len() && data[pos] != 0x00 {
-            pos += 1;
-        }
-        let epp_bytes = &data[epp_start..pos];
-        if pos < data.len() {
-            pos += 1; // skip NUL terminator
-        }
-
-        let real_start = pos;
-        while pos < data.len() && data[pos] != 0x00 {
-            pos += 1;
-        }
-        let real_bytes = &data[real_start..pos];
-        if pos < data.len() {
-            pos += 1; // skip NUL terminator
-        }
-
-        // Use RealName if present, otherwise EventProcPrefix
-        let name = if real_bytes.is_empty() {
-            decode_shift_jis(epp_bytes)
-        } else {
-            decode_shift_jis(real_bytes)
-        };
-
-        // 0x1EFF: internal metadata entries, not real controls
-        if ctrl_type == 0x1EFF {
-            continue;
-        }
-
-        controls.push(ControlInfo {
-            name,
-            type_code: ctrl_type,
-            index,
-        });
-    }
-
-    Ok(controls)
+    Ok(entry_count)
 }
 
-/// Decode Shift-JIS (cp932) bytes to a String.
-fn decode_shift_jis(bytes: &[u8]) -> String {
-    let (result, _, _) = encoding_rs::SHIFT_JIS.decode(bytes);
-    result.into_owned()
+/// The entry of TypeInfo at `pos`, and where the next one starts; `None`
+/// when the data has no room for one.
+fn type_info_entry(data: &[u8], pos: usize, code_page: u16) -> Option<(ControlInfo, usize)> {
+    let head = data.get(pos..pos.checked_add(8)?)?;
+    let type_code = u16::from_le_bytes([head[0], head[1]]);
+    // skip padding u16 at 2..4
+    let index = u32::from_le_bytes([head[4], head[5], head[6], head[7]]);
+
+    // Each entry has two NUL-terminated strings:
+    //   1. EventProcPrefix (or Name if no special characters)
+    //   2. RealName (actual name when it contains parentheses, else empty)
+    let (epp_bytes, next) = nul_terminated(data, pos + 8);
+    let (real_bytes, mut next) = nul_terminated(data, next);
+    if type_code & 0xFF == ACTIVEX {
+        next = (next + ACTIVEX_TAIL).min(data.len());
+    }
+
+    // Use RealName if present, otherwise EventProcPrefix
+    let name_bytes = if real_bytes.is_empty() {
+        epp_bytes
+    } else {
+        real_bytes
+    };
+    let name = encoding::decode_code_page(name_bytes, code_page);
+    let entry = ControlInfo {
+        name,
+        type_code,
+        index,
+    };
+    Some((entry, next))
+}
+
+/// The bytes of `data` from `start` up to a NUL, or to its end, and where
+/// the reading goes on after the NUL.
+fn nul_terminated(data: &[u8], start: usize) -> (&[u8], usize) {
+    let rest = &data[start..];
+    let len = rest.iter().position(|&b| b == 0x00).unwrap_or(rest.len());
+    (&rest[..len], (start + len + 1).min(data.len()))
 }
 
 // ---------------------------------------------------------------------------
 // Internal: Blob parser
 // ---------------------------------------------------------------------------
 
-/// Parse the Blob binary into form-level and per-control property groups.
+/// The properties of a section or control: its type (0 when it is not
+/// known), and its properties.
+type BlobControl = (u16, Vec<BlobProperty>);
+
+/// Parse the Blob binary into the properties of the form or report itself
+/// and of its sections and controls.
 ///
-/// Returns (form_properties, vec_of_control_properties).
-/// Each control section starts with a Name (0x14) property.
-/// Parsing stops gracefully on unknown types or malformed data.
-///
-/// Entry format (reverse-engineered): see [`parse_entry`].
-fn parse_blob(data: &[u8]) -> Result<(Vec<BlobProperty>, Vec<Vec<BlobProperty>>), FileError> {
+/// The Blob keeps the design as a tree (see [`parse_nodes`]): the group of
+/// entries of the form or report itself (see [`parse_entry`]), then its
+/// default controls and its sections, each holding its controls. When the
+/// bytes do not read to the end as such a tree, each control is found by its
+/// Name entry instead, and only its properties from the name on are read.
+fn parse_blob(data: &[u8]) -> Result<(Vec<BlobProperty>, Vec<BlobControl>), FileError> {
     if data.len() < 14 {
         return Ok((Vec::new(), Vec::new()));
     }
 
     // Skip 8-byte blob header + 6-byte section preamble.
-    let (all_props, pos) = parse_group(data, 14, data.len());
+    let (all_props, pos, end) = parse_group(data, 14, data.len());
 
-    // The sequential parse above covers form-level properties but stops at binary
-    // layout data in the middle. Control sections come later, each starting with a
-    // Name (prop_id=0x14, type=0x0A) property. Scan the remaining blob for these.
-    let control_groups = scan_control_sections(data, pos);
+    if let Some(controls) = end.and_then(|end| controls_of_tree(data, pos, end)) {
+        return Ok((all_props, controls));
+    }
+    let controls = scan_control_sections(data, pos)
+        .into_iter()
+        .map(|props| (0, props))
+        .collect();
+    Ok((all_props, controls))
+}
 
-    Ok((all_props, control_groups))
+/// The types of sections: the detail section, and the headers and footers
+/// of the form or report, of its pages and of its groups.
+const SECTIONS: std::ops::RangeInclusive<u16> = 0x98..=0x9E;
+
+/// A node of the tree a Blob keeps: a default control, a section or a
+/// control, with the nodes in it.
+struct BlobNode {
+    /// The `acControlType` of Access, such as 109 for a text box.
+    type_code: u16,
+    properties: Vec<BlobProperty>,
+    children: Vec<BlobNode>,
+}
+
+/// The sections and controls of the tree from `pos`, which follows a group
+/// that ended with `end`, in the order of the Blob: each section followed by
+/// its controls. `None` when the bytes do not read to the end as a tree.
+fn controls_of_tree(data: &[u8], mut pos: usize, end: u32) -> Option<Vec<BlobControl>> {
+    let nodes = parse_nodes(data, &mut pos, end)?;
+    if pos != data.len() {
+        return None;
+    }
+    let mut controls = Vec::new();
+    // The nodes at the top are the default controls and the sections.
+    for section in nodes
+        .into_iter()
+        .filter(|n| SECTIONS.contains(&n.type_code) || !n.children.is_empty())
+    {
+        push_with_children(section, &mut controls);
+    }
+    Some(controls)
+}
+
+/// Adds `node`, and the nodes in it, to `out`.
+fn push_with_children(node: BlobNode, out: &mut Vec<BlobControl>) {
+    out.push((node.type_code, node.properties));
+    for child in node.children {
+        push_with_children(child, out);
+    }
+}
+
+/// The nodes that follow a group that ended with `end`, read from `pos`: none
+/// for 253, one for 254, and a count (u16) of them for 255. Each node is its
+/// type (u16), 4 bytes jetdb does not use, a group of entries, and the nodes
+/// that follow it: the controls of a section, the pages of a tab control.
+fn parse_nodes(data: &[u8], pos: &mut usize, end: u32) -> Option<Vec<BlobNode>> {
+    let count = match end {
+        253 => 0,
+        254 => 1,
+        _ => {
+            let b = data.get(*pos..*pos + 2)?;
+            *pos += 2;
+            u16::from_le_bytes([b[0], b[1]])
+        }
+    };
+    // The count comes from the file: grow as nodes are read.
+    let mut nodes = Vec::new();
+    for _ in 0..count {
+        nodes.push(parse_node(data, pos)?);
+    }
+    Some(nodes)
+}
+
+fn parse_node(data: &[u8], pos: &mut usize) -> Option<BlobNode> {
+    let b = data.get(*pos..*pos + 6)?;
+    let type_code = u16::from_le_bytes([b[0], b[1]]);
+    let (properties, next, end) = parse_group(data, *pos + 6, data.len());
+    *pos = next;
+    let children = parse_nodes(data, pos, end?)?;
+    Some(BlobNode {
+        type_code,
+        properties,
+        children,
+    })
 }
 
 /// Scan the blob for control property sections starting with Name (0x14) entries.
@@ -792,36 +899,37 @@ fn scan_control_sections(data: &[u8], start: usize) -> Vec<Vec<BlobProperty>> {
     control_groups
 }
 
-/// The trailers that end a group of entries: the properties of the form or
-/// report itself end with 255, those of a control with 253.
+/// The trailers that end a group of entries, which tell the nodes that
+/// follow it (see [`parse_nodes`]): 253 none, 254 one, 255 a count of them.
 const GROUP_END: std::ops::RangeInclusive<u32> = 253..=255;
 
 /// The entries of the group from `start`, which ends by `end`: through the
 /// entry whose trailer ends the group (see [`GROUP_END`]), or up to the
-/// bytes that are not an entry. Returns them and where the reading stopped.
-fn parse_group(data: &[u8], start: usize, end: usize) -> (Vec<BlobProperty>, usize) {
+/// bytes that are not an entry. Returns them, where the reading stopped, and
+/// the trailer that ended the group, `None` when it did not end.
+fn parse_group(data: &[u8], start: usize, end: usize) -> (Vec<BlobProperty>, usize, Option<u32>) {
     let mut props = Vec::new();
     let mut pos = start;
     while let Some((property, next, last)) = parse_entry(data, pos, end) {
         props.push(property);
         pos = next;
-        if last {
-            break;
+        if last.is_some() {
+            return (props, pos, last);
         }
     }
-    (props, pos)
+    (props, pos, None)
 }
 
 /// The property entry at `pos`, which ends by `end`, where the next entry
-/// starts, and whether it ends its group; `None` when there is no entry
-/// there.
+/// starts, and its trailer when it ends its group; `None` when there is no
+/// entry there.
 ///
 /// An entry is reverse-engineered as `prop_id(u16) + type(u32) + B(u32) +
 /// C(u32)`, then C bytes of value and a 4-byte trailer. The type tells how
 /// to read the value (see [`entry_value`]); B is not used. The trailer grows
 /// from one entry to the next, and is one of [`GROUP_END`] for the last entry
 /// of a group.
-fn parse_entry(data: &[u8], pos: usize, end: usize) -> Option<(BlobProperty, usize, bool)> {
+fn parse_entry(data: &[u8], pos: usize, end: usize) -> Option<(BlobProperty, usize, Option<u32>)> {
     let header = data.get(pos..pos.checked_add(14)?)?;
     let prop_id = u16::from_le_bytes([header[0], header[1]]);
     let type_code = u32::from_le_bytes([header[2], header[3], header[4], header[5]]);
@@ -832,7 +940,8 @@ fn parse_entry(data: &[u8], pos: usize, end: usize) -> Option<(BlobProperty, usi
     let t = &data[data_end..data_end + 4];
     let trailer = u32::from_le_bytes([t[0], t[1], t[2], t[3]]);
     let property = BlobProperty { prop_id, value };
-    Some((property, data_end + 4, GROUP_END.contains(&trailer)))
+    let last = GROUP_END.contains(&trailer).then_some(trailer);
+    Some((property, data_end + 4, last))
 }
 
 /// The value of an entry of type `type_code` whose value bytes are `bytes`.
@@ -940,7 +1049,8 @@ pub(crate) fn format_guid(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::{HashMap, HashSet};
+    use crate::save_as_text;
+    use std::collections::HashMap;
 
     fn test_data_path(relative: &str) -> Option<std::path::PathBuf> {
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
@@ -1004,9 +1114,61 @@ mod tests {
     // -- TypeInfo parser unit tests ------------------------------------------
 
     #[test]
+    fn type_info_is_found_by_name_of_any_case() {
+        let control = |name: &str, type_code| ControlInfo {
+            name: name.to_string(),
+            type_code,
+            index: 0,
+        };
+        let controls = [control("Label7", 0x0C64), control("H_Code", 0x136F)];
+        let found = |name| type_info_by_name(&controls, name).map(|c| c.type_code);
+        assert_eq!(found("H_code"), Some(0x136F));
+        assert_eq!(found("h_code"), Some(0x136F));
+        assert_eq!(found("Sex"), None);
+    }
+
+    #[test]
+    fn type_info_reads_on_past_an_activex_control() {
+        // The form Hyphenate of Strings.mdb has spin buttons of Microsoft
+        // Forms 2.0, whose entries have 36 bytes after their names: each
+        // entry after them has the type of the control of its name in the
+        // tree of the Blob.
+        let path = skip_if_missing!("saveastext/Strings/Strings.mdb");
+        let mut reader = PageReader::open(&path).unwrap();
+        let info =
+            read_form_type_info_of_type(&mut reader, "Hyphenate", FormObjectType::Form).unwrap();
+        let read =
+            read_form_properties_of_type(&mut reader, "Hyphenate", FormObjectType::Form).unwrap();
+        let tree: HashMap<&str, u16> = read
+            .controls
+            .iter()
+            .map(|c| (c.name.as_str(), c.type_code))
+            .collect();
+        let ascii: Vec<&ControlInfo> = info.controls.iter().filter(|c| c.name.is_ascii()).collect();
+        assert!(ascii.len() >= 20, "{}", ascii.len());
+        for c in ascii {
+            assert_eq!(tree.get(c.name.as_str()), Some(&c.type_code), "{}", c.name);
+        }
+        // As many ActiveX controls as the tree has, past which it reads.
+        let activex = |code: u16| code & 0xFF == ACTIVEX;
+        let in_tree = read
+            .controls
+            .iter()
+            .filter(|c| activex(c.type_code))
+            .count();
+        assert!(in_tree > 0);
+        let listed = info
+            .controls
+            .iter()
+            .filter(|c| activex(c.type_code))
+            .count();
+        assert_eq!(listed, in_tree);
+    }
+
+    #[test]
     fn parse_type_info_too_short() {
         let data = [0u8; 16];
-        let result = parse_type_info(&data);
+        let result = parse_type_info(&data, 932);
         assert!(result.is_err());
     }
 
@@ -1014,7 +1176,7 @@ mod tests {
     fn parse_type_info_bad_magic() {
         let mut data = [0u8; 32];
         data[0] = 0xFF; // wrong magic
-        let result = parse_type_info(&data);
+        let result = parse_type_info(&data, 932);
         assert!(result.is_err());
     }
 
@@ -1026,7 +1188,7 @@ mod tests {
         // entry_count = 0 (at offset 12)
         data[12..16].copy_from_slice(&0u32.to_le_bytes());
 
-        let result = parse_type_info(&data).unwrap();
+        let result = parse_type_info(&data, 932).unwrap();
         assert!(result.is_empty());
     }
 
@@ -1042,15 +1204,36 @@ mod tests {
         data.extend_from_slice(&[0x68, 0x0B]); // ctrl_type
         data.extend_from_slice(&[0x00, 0x00]); // padding
         data.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]); // index
-        data.extend_from_slice(b"Btn1"); // ASCII name (valid Shift-JIS)
+        data.extend_from_slice(b"Btn1"); // ASCII name
         data.push(0x00); // NUL terminator
         data.push(0x00); // alignment
 
-        let result = parse_type_info(&data).unwrap();
+        let result = parse_type_info(&data, 932).unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].name, "Btn1");
         assert_eq!(result[0].type_code, 0x0B68);
         assert_eq!(result[0].index, 0);
+    }
+
+    #[test]
+    fn type_info_names_are_read_in_the_code_page() {
+        // One entry named `name`, in bytes of a code page.
+        let type_info = |name: &[u8]| {
+            let mut data = vec![0u8; 32];
+            data[0..4].copy_from_slice(&TYPEINFO_MAGIC.to_le_bytes());
+            data[12..16].copy_from_slice(&1u32.to_le_bytes());
+            data.extend_from_slice(&[0x64, 0x0D, 0, 0, 0, 0, 0, 0]);
+            data.extend_from_slice(name);
+            data.extend_from_slice(&[0, 0]);
+            data
+        };
+        let name =
+            |data: &[u8], code_page| parse_type_info(data, code_page).unwrap()[0].name.clone();
+        // 詳細 in 932, Café in 1252, Заголовок in 1251.
+        assert_eq!(name(&type_info(&[0x8F, 0xDA, 0x8D, 0xD7]), 932), "詳細");
+        assert_eq!(name(&type_info(b"Caf\xE9"), 1252), "Café");
+        let russian = [0xC7, 0xE0, 0xE3, 0xEE, 0xEB, 0xEE, 0xE2, 0xEE, 0xEA];
+        assert_eq!(name(&type_info(&russian), 1251), "Заголовок");
     }
 
     // -- Integration tests with real files -----------------------------------
@@ -1149,185 +1332,240 @@ mod tests {
         make_entry(prop_id, type_code, 1, value.len() as u32, &payload)
     }
 
-    /// The integer properties of a control in a SaveAsText file, by key.
-    type SavedIntegers = Vec<(String, i64)>;
-
-    /// A block of a SaveAsText file being read: its depth, the control name,
-    /// its integer properties and its `NotDefault` lines.
-    type SaveAsTextBlock = (usize, Option<String>, SavedIntegers, usize);
-
-    /// The integer properties a SaveAsText file of a form or report writes
-    /// for each control, by its name ("" for the form or report itself), and
-    /// the number of its `NotDefault` lines.
-    fn save_as_text_integers(path: &std::path::Path) -> HashMap<String, (SavedIntegers, usize)> {
-        let text = std::fs::read_to_string(path).unwrap();
-        let mut found: HashMap<String, (SavedIntegers, usize)> = HashMap::new();
-        let mut blocks: Vec<SaveAsTextBlock> = Vec::new();
-        // The depth of the binary data (`= Begin` ... `End`) being passed over.
-        let mut binary = 0;
-        for line in text.trim_start_matches('\u{feff}').lines() {
-            let trimmed = line.trim();
-            if binary > 0 {
-                binary += usize::from(trimmed.ends_with("= Begin"));
-                binary -= usize::from(trimmed == "End");
-            } else if trimmed.ends_with("= Begin") || trimmed.ends_with("=Begin") {
-                binary = 1;
-            } else if trimmed == "Begin" || trimmed.starts_with("Begin ") {
-                blocks.push((blocks.len(), None, Vec::new(), 0));
-            } else if trimmed == "End" {
-                if let Some(block) = blocks.pop() {
-                    close_save_as_text_block(&mut found, block);
-                }
-            } else if let Some(block) = blocks.last_mut() {
-                save_as_text_property(block, trimmed);
-            }
-        }
-        found
-    }
-
-    /// Adds what `block` holds to `found`, under its control name ("" for
-    /// the form or report itself); a block without a name is left out.
-    fn close_save_as_text_block(
-        found: &mut HashMap<String, (SavedIntegers, usize)>,
-        (depth, name, ints, not_default): SaveAsTextBlock,
-    ) {
-        let Some(name) = (if depth == 0 {
-            Some(String::new())
-        } else {
-            name
-        }) else {
-            return;
-        };
-        let entry = found.entry(name).or_default();
-        entry.0.extend(ints);
-        entry.1 += not_default;
-    }
-
-    /// Adds the property line `line` of a SaveAsText file to `block`.
-    fn save_as_text_property(block: &mut SaveAsTextBlock, line: &str) {
-        let Some((key, value)) = line.split_once('=') else {
-            return;
-        };
-        let (key, value) = (key.trim(), value.trim());
-        if key == "Name" && block.1.is_none() {
-            block.1 = Some(value.trim_matches('"').to_string());
-        } else if value == "NotDefault" {
-            block.3 += 1;
-        } else if let Ok(v) = value.parse::<i64>() {
-            block.2.push((key.to_string(), v));
-        }
-    }
-
-    /// The keys of `saved` whose value is `value` as SaveAsText writes it:
-    /// `None` for a value it does not write as an integer. A Yes value is -1,
-    /// 1 or 255.
-    fn keys_of(value: &BlobValue, saved: &SavedIntegers) -> Option<HashSet<String>> {
-        let values: &[i64] = match *value {
-            BlobValue::Short(v) => &[i64::from(v)],
-            BlobValue::Long(v) => &[i64::from(v)],
-            BlobValue::Bool(false) => &[0],
-            BlobValue::Bool(true) => &[-1, 1, 255],
-            _ => return None,
-        };
-        Some(
-            saved
-                .iter()
-                .filter(|(_, v)| values.contains(v))
-                .map(|(k, _)| k.clone())
-                .collect(),
-        )
-    }
-
-    /// Checks the values of the form or report `name` against its SaveAsText
-    /// file `file`: narrows the keys each property may be in `keys`, and
-    /// returns how many values were checked.
-    fn check_against_save_as_text(
-        path: &std::path::Path,
-        file: &std::path::Path,
-        object_type: FormObjectType,
-        name: &str,
-        keys: &mut HashMap<u16, HashSet<String>>,
-    ) -> usize {
-        let written = save_as_text_integers(file);
-        let mut reader = PageReader::open(path).unwrap();
-        let read = read_form_properties_of_type(&mut reader, name, object_type).unwrap();
-        let groups = std::iter::once((String::new(), read.properties))
-            .chain(read.controls.into_iter().map(|c| (c.name, c.properties)));
-        let mut checked = 0;
-        for (control, properties) in groups {
-            let (saved, not_default) = written.get(&control).cloned().unwrap_or_default();
-            // SaveAsText writes the right and bottom of a form only.
-            let report_side = object_type == FormObjectType::Report && control.is_empty();
-            let compared = properties.iter().filter(|p| {
-                p.prop_id != 0x0000 && !(report_side && matches!(p.prop_id, 0x0081 | 0x000C))
-            });
-            for p in compared {
-                let Some(found) = keys_of(&p.value, &saved) else {
+    #[test]
+    fn every_blob_of_access_2002_and_later_reads_to_the_end_as_a_tree() {
+        for (file, count) in [
+            ("vbaV2003.mdb", 1),
+            ("formPropTest.accdb", 4),
+            ("jetdb-sample.accdb", 1),
+            ("V2003/macroGeneratedTestV2003.mdb", 2),
+            ("V2007/sameNameTestV2007.accdb", 2),
+            ("V2007/propertyIdTestV2007.accdb", 106),
+            ("V2007/controlPropertyTestV2007.accdb", 96),
+            ("V2010/macroGeneratedTestV2010.accdb", 2),
+            ("saveastext/SportsAdmin/Sports.accdb", 116),
+            ("saveastext/Strings/Strings.mdb", 13),
+        ] {
+            let path = skip_if_missing!(file);
+            let mut reader = PageReader::open(&path).unwrap();
+            let mut found = 0;
+            for entry in list_forms(&mut reader).unwrap() {
+                let data = read_form_stream_of_type(
+                    &mut reader,
+                    &entry.name,
+                    entry.object_type,
+                    StreamKind::Blob,
+                )
+                .unwrap()
+                .data;
+                if data.first() == Some(&crate::form2000::VERSION) {
                     continue;
-                };
-                assert!(
-                    !found.is_empty(),
-                    "{name} {control:?} {:#06x} {:?}",
-                    p.prop_id,
-                    p.value
-                );
-                let narrowed = keys.entry(p.prop_id).or_insert_with(|| found.clone());
-                narrowed.retain(|k| found.contains(k));
-                checked += 1;
+                }
+                found += 1;
+                let (_, pos, end) = parse_group(&data, 14, data.len());
+                let tree = end.and_then(|end| controls_of_tree(&data, pos, end));
+                assert!(tree.is_some(), "{file}: {}", entry.name);
             }
-            if control.is_empty() {
-                let read_not_default = properties
-                    .iter()
-                    .filter(|p| matches!(p.value, BlobValue::NotDefault))
-                    .count();
-                assert_eq!(read_not_default, not_default, "{name}");
+            assert_eq!(found, count, "{file}");
+        }
+    }
+
+    /// The combo boxes of Sports.accdb whose block in its SaveAsText output
+    /// also holds the lines of the control after them: in the files of
+    /// ruddj/SportsAdmin, the `End` of the combo box and the `Begin` of the
+    /// control are missing. Neither control has a block of its own to be
+    /// checked against.
+    const SPORTS_BROKEN: [(&str, &str, &str); 3] = [
+        ("EnterCompetitors", "FinalStatus", "HeatComplete"),
+        ("EventRecordsSF", "Field4", "Date"),
+        ("House Summary", "HT_Code", "Text15"),
+    ];
+
+    /// The properties the SaveAsText output of Sports.accdb does not write,
+    /// with the keys Access for Microsoft 365 writes them under: the right
+    /// and bottom of a report, the GUIDs, and the printer settings. The IDs
+    /// above 0x01C4 are those of the Access that made Sports.accdb, one
+    /// lower than those of Access for Microsoft 365.
+    const SPORTS_UNWRITTEN: [(u16, &str); 7] = [
+        (0x0081, "Right"),
+        (0x000C, "Bottom"),
+        (0x0178, "GUID"),
+        (0x00BE, "PrtDevMode"),
+        (0x00BF, "PrtDevNames"),
+        (0x02A6, "PrtDevModeW"),
+        (0x02A7, "PrtDevNamesW"),
+    ];
+
+    /// SaveAsText outputs by whether they are of a report, and by name.
+    type SaveAsTextFiles = HashMap<(bool, String), String>;
+
+    /// The SaveAsText output of the forms and reports read by `reader`, in
+    /// the files `forms/<name>.<extension>` and `reports/<name>.<extension>`
+    /// of `dir`, read by `decode`.
+    fn save_as_text_files(
+        reader: &mut PageReader,
+        dir: &std::path::Path,
+        extension: &str,
+        decode: fn(Vec<u8>) -> String,
+    ) -> SaveAsTextFiles {
+        let mut texts = HashMap::new();
+        for entry in list_forms(reader).unwrap() {
+            let report = entry.object_type == FormObjectType::Report;
+            let file = dir
+                .join(if report { "reports" } else { "forms" })
+                .join(format!("{}.{extension}", entry.name));
+            let bytes = std::fs::read(&file).unwrap_or_else(|e| panic!("{file:?}: {e}"));
+            texts.insert((report, entry.name), decode(bytes));
+        }
+        texts
+    }
+
+    /// The SaveAsText output a database made by a generator of
+    /// testdata/form-generators keeps in its table tblGenExport.
+    fn generated_save_as_text(reader: &mut PageReader) -> SaveAsTextFiles {
+        let catalog = crate::catalog::read_catalog(reader).unwrap();
+        let entry = crate::catalog::find_table(&catalog, "tblGenExport").unwrap();
+        let tdef = crate::table::read_table_def(reader, &entry.name, entry.table_page).unwrap();
+        let column = |name: &str| tdef.columns.iter().position(|c| c.name == name).unwrap();
+        let (kind, name, content) = (column("Kind"), column("ObjName"), column("Content"));
+        let text = |v: &crate::data::Value| match v {
+            crate::data::Value::Text(t) => t.clone(),
+            other => panic!("{other:?}"),
+        };
+        let rows = crate::data::read_table_rows(reader, &tdef).unwrap().rows;
+        rows.iter()
+            .map(|row| {
+                (
+                    (text(&row[kind]) == "report", text(&row[name])),
+                    text(&row[content]),
+                )
+            })
+            .collect()
+    }
+
+    /// Checks the forms and reports read by `reader` against `texts`, their
+    /// SaveAsText output, leaving out the controls of `broken`, after
+    /// checking that each pair of them has one block.
+    fn check_save_as_text(
+        reader: &mut PageReader,
+        texts: &SaveAsTextFiles,
+        broken: &[(&str, &str, &str)],
+        unwritten: &'static [(u16, &'static str)],
+    ) -> save_as_text::Checked {
+        let mut checked = save_as_text::Checked {
+            unwritten,
+            ..Default::default()
+        };
+        for entry in list_forms(reader).unwrap() {
+            let report = entry.object_type == FormObjectType::Report;
+            let saved = save_as_text::read(&texts[&(report, entry.name.clone())]);
+            let mut skipped = Vec::new();
+            for (_, combo, next) in broken.iter().filter(|(o, ..)| *o == entry.name) {
+                assert!(!saved.contains_key(*next), "{next}");
+                assert_eq!(saved[*combo]["Name"].len(), 2, "{combo}");
+                skipped.extend([*combo, *next]);
             }
+            let read =
+                read_form_properties_of_type(reader, &entry.name, entry.object_type).unwrap();
+            checked.object(&saved, &read, &skipped);
         }
         checked
     }
 
     #[test]
-    fn values_are_those_save_as_text_writes() {
-        // Every integer and Yes/No value of a form and a report of
-        // Sports.accdb is one SaveAsText writes for the same control under a
-        // key that is the same for every value of the property, and the form
-        // or report itself has as many NotDefault values as SaveAsText has
-        // lines, and a named property is under its name. Left out: property 0x0000, which SaveAsText does not write,
-        // and the right and bottom (0x0081, 0x000C) of a report. Few
-        // properties of the controls of the report come after their names,
-        // where jetdb reads them, so fewer values are checked there.
-        let path = skip_if_missing!("saveastext/SportsAdmin/Sports.accdb");
-        let dir = path.parent().unwrap().to_path_buf();
-        let mut keys: HashMap<u16, HashSet<String>> = HashMap::new();
-        for (file, object_type, name, at_least) in [
+    fn every_value_is_one_save_as_text_writes() {
+        // Each value jetdb reads of each form and report, of its sections and
+        // of its controls is one Access's SaveAsText output writes in the
+        // block of the same object, section or control; the blocks and the
+        // controls are the same, each control given once, with as many
+        // NotDefault values; an ID given twice in a block has the same value;
+        // and over the files, every value of a property is under one key,
+        // which no other ID holds alone, and a named property is under its
+        // name and under no other key. The ID of a property is the same in
+        // each file through 0x01C4, and above it in the files of one version
+        // of Access: Sports.accdb, and the four made by Access for Microsoft
+        // 365. The values SaveAsText does not write are left out (see
+        // save_as_text).
+        //
+        // What this does not show: which property an ID without a name is,
+        // where its values fit several keys, as NotDefault values do; jetdb
+        // gives such an ID by its number.
+        let files = [
+            ("saveastext/SportsAdmin/Sports.accdb", 28328),
+            ("V2007/controlPropertyTestV2007.accdb", 22074),
+            ("V2007/propertyIdTestV2007.accdb", 9217),
+            ("V2000/controlPropertyTestV2000.mdb", 13322),
+            ("V2000/propertyIdTestV2000.mdb", 5200),
+        ];
+        let mut all = Vec::new();
+        for (file, at_least) in files {
+            let path = skip_if_missing!(file);
+            let observations = checked_values(file, &path);
+            assert!(observations.len() >= at_least, "{file}");
+            all.push(observations);
+        }
+        check_agreement(&all);
+    }
+
+    /// The values of the forms and reports of `file`, at `path`, after
+    /// checking each against its SaveAsText output: the files of
+    /// Sports.accdb, testdata/V2000/saveastext for the databases of the Access
+    /// 2000 format, which Access writes in Shift_JIS, and the table
+    /// tblGenExport for the others.
+    fn checked_values(file: &str, path: &std::path::Path) -> Vec<save_as_text::Observation> {
+        let mut reader = PageReader::open(path).unwrap();
+        let dir = path.parent().unwrap();
+        let (texts, broken, unwritten): (_, &[_], &'static [_]) = if file.starts_with("saveastext/")
+        {
+            let utf8 = |bytes| String::from_utf8(bytes).unwrap();
+            let texts = save_as_text_files(&mut reader, dir, "bas", utf8);
+            (texts, &SPORTS_BROKEN, &SPORTS_UNWRITTEN)
+        } else if file.starts_with("V2000/") {
+            let dir = dir.join("saveastext").join(path.file_stem().unwrap());
+            let shift_jis = |bytes: Vec<u8>| crate::encoding::decode_code_page(&bytes, 932);
             (
-                "forms/Statistical Reports.bas",
-                FormObjectType::Form,
-                "Statistical Reports",
-                50,
-            ),
-            (
-                "reports/Field (High Jump).bas",
-                FormObjectType::Report,
-                "Field (High Jump)",
-                5,
-            ),
-        ] {
-            let checked =
-                check_against_save_as_text(&path, &dir.join(file), object_type, name, &mut keys);
-            assert!(checked >= at_least, "{name}: only {checked} values");
+                save_as_text_files(&mut reader, &dir, "txt", shift_jis),
+                &[],
+                &[],
+            )
+        } else {
+            (generated_save_as_text(&mut reader), &[], &[])
+        };
+        let checked = check_save_as_text(&mut reader, &texts, broken, unwritten);
+        assert_eq!(checked.unmatched, Vec::<String>::new(), "{file}");
+        assert_eq!(checked.problems, Vec::<String>::new(), "{file}");
+        checked.observations
+    }
+
+    /// Checks the values of the files, those of Sports.accdb first in
+    /// `all`, against each other: in each version of Access, and through
+    /// 0x01C4 over them all.
+    fn check_agreement(all: &[Vec<save_as_text::Observation>]) {
+        let (sports, later) = all.split_first().unwrap();
+        let mut by_version = [
+            save_as_text::Agreement::default(),
+            save_as_text::Agreement::default(),
+        ];
+        by_version[0].add(sports);
+        by_version[1].add(later.iter().flatten());
+        let mut low = save_as_text::Agreement::default();
+        low.add(
+            all.iter()
+                .flatten()
+                .filter(|o| o.key.0 <= 0x01C4 && o.key.2 == 0),
+        );
+        for agreement in by_version.iter().chain([&low]) {
+            assert_eq!(agreement.disagreements(), Vec::<String>::new());
+            assert_eq!(agreement.shared(), Vec::<String>::new());
         }
-        for (id, found) in &keys {
-            assert!(!found.is_empty(), "{id:#06x}: no key fits every value");
+        assert_eq!(low.misnamed(), Vec::<String>::new());
+        // Access for Microsoft 365 writes what the SaveAsText output of
+        // Sports.accdb does not, under the keys left out for it.
+        for (id, key) in SPORTS_UNWRITTEN {
+            let id = if id > 0x01C4 { id + 1 } else { id };
+            assert!(by_version[1].holds(id, key), "{id:#06x} {key}");
         }
-        let mut named = 0;
-        for (id, found) in &keys {
-            if let Some(key) = number_prop_id_name(*id) {
-                assert!(found.contains(key), "{id:#06x} {key}: {found:?}");
-                named += 1;
-            }
-        }
-        assert!(named >= 10, "only {named} named properties checked");
+        assert!(low.named() >= 60, "{}", low.named());
     }
 
     #[test]
@@ -1495,6 +1733,30 @@ mod tests {
             let section = parse_section_props(&entries, 0, entries.len());
             assert_eq!(section.len(), 2, "{end}");
         }
+    }
+
+    #[test]
+    fn controls_of_an_empty_type_info_have_the_types_of_the_tree() {
+        // Made by VBA, the report Shared has an empty TypeInfo; its sections
+        // and controls have the types in the tree of its Blob.
+        let path = skip_if_missing!("V2007/sameNameTestV2007.accdb");
+        let mut reader = PageReader::open(&path).unwrap();
+        let read =
+            read_form_properties_of_type(&mut reader, "Shared", FormObjectType::Report).unwrap();
+        let controls: Vec<(&str, u16)> = read
+            .controls
+            .iter()
+            .map(|c| (c.name.as_str(), c.type_code))
+            .collect();
+        assert_eq!(
+            controls,
+            [
+                ("ページヘッダーセクション", 0x9B),
+                ("詳細", 0x98),
+                ("lblReportOnly", 0x64),
+                ("ページフッターセクション", 0x9C),
+            ]
+        );
     }
 
     #[test]
@@ -1935,6 +2197,24 @@ mod tests {
                 code,
                 expected
             );
+        }
+    }
+
+    #[test]
+    fn control_type_name_types_in_the_blob() {
+        // The low byte of the type in TypeInfo: an ActiveX control
+        // (Forms.SpinButton.1 in Strings.mdb), and the sections of pages and
+        // groups. The header and footer of a form or report are not named.
+        for (code, expected) in [
+            (0x0077, Some("CustomControl")),
+            (0x009B, Some("PageHeader")),
+            (0x009C, Some("PageFooter")),
+            (0x009D, Some("GroupHeader")),
+            (0x009E, Some("GroupFooter")),
+            (0x0099, None),
+            (0x009A, None),
+        ] {
+            assert_eq!(control_type_name(code), expected, "0x{code:04X}");
         }
     }
 

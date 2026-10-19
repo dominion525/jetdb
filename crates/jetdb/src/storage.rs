@@ -31,12 +31,16 @@ pub(crate) struct StorageEntry {
 #[derive(Debug, Clone)]
 pub struct AccessStorage {
     pub(crate) entries: Vec<StorageEntry>,
+    /// The code page in the header of the database, in which jetdb reads the
+    /// names in the TypeInfo of forms and reports.
+    pub(crate) code_page: u16,
 }
 
 /// Read the storage of forms, reports, macros and VBA (see [`AccessStorage`]).
 pub fn read_access_storage(reader: &mut PageReader) -> Result<AccessStorage, FileError> {
     Ok(AccessStorage {
         entries: read_storage_entries(reader)?,
+        code_page: reader.header().code_page,
     })
 }
 

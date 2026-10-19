@@ -232,6 +232,17 @@ These files were created by the jetdb project using Microsoft Access for Microso
 
 They were made with the VBA module `form-generators/control-property-generator.bas` (`CreateControlPropertyForms`), imported into a new, empty `.accdb` and run from the Immediate window until it was done. Access stopped on setting `ConditionalFormat14` of a text box and `OnKeyUp` of a form, which the module then left out of every object, as `tblGenLog` records. The unbound object frame is not among the types, as Access asks for the object to insert when one is made. Saving in the Access 2000 format, Access warned that the values `z1_5`, `z2_5` and `z3_5` set to the subforms and subreports name no form or report.
 
+## Created independently: SaveAsText output of the Access 2000 format
+
+These files were written by Microsoft Access for Microsoft 365 MSO (Version 2609 Build 16.0.20430.20092, 64-bit) from the databases in the Access 2000 format, opened without converting them.
+
+| File | Purpose |
+|------|---------|
+| V2000/saveastext/controlPropertyTestV2000/{forms,reports}/*.txt | SaveAsText output of the 96 forms and reports of `V2000/controlPropertyTestV2000.mdb`, in Shift_JIS with `Version =19`, as Access writes it for this format |
+| V2000/saveastext/propertyIdTestV2000/{forms,reports}/*.txt | SaveAsText output of the 106 forms and reports of `V2000/propertyIdTestV2000.mdb` |
+
+They were written with the VBA module `form-generators/save-as-text-exporter.bas` (`ExportSaveAsText`), imported into a copy of each database and run once from the Immediate window. The `tblGenExport` tables of these databases hold the output of the `.accdb` they were saved from, before they were saved in this format.
+
 ## Created independently
 
 These files were created by the jetdb project using Microsoft Access for Microsoft 365 MSO (Version 2602 Build 16.0.19725.20014, 64-bit).
@@ -278,13 +289,13 @@ Each entry is pinned to an immutable commit hash and verified against a SHA-256 
 |------|--------|---------|
 | V1997/nwind.mdb | https://github.com/mdbtools/mdbtestdata `data/nwind.mdb` @ `156fc65` | Jet3 table with only fixed-length columns (`Order Details`), where rows carry no variable-column trailer |
 
-The files under `saveastext/` are published under the MIT License. They are fetched rather than copied so that each stays with its copyright and license notice in its upstream repository (`License.txt` of ruddj/SportsAdmin, `LICENSE` of iKaRus-VLZ/Strings). Each database comes with the text files its project exported from it in the `Application.SaveAsText` format, and tests compare the macro text jetdb writes, and the controls and properties of a form and a report it reads, with those files.
+The files under `saveastext/` are published under the MIT License. They are fetched rather than copied so that each stays with its copyright and license notice in its upstream repository (`License.txt` of ruddj/SportsAdmin, `LICENSE` of iKaRus-VLZ/Strings). Each database comes with the text files its project exported from it in the `Application.SaveAsText` format, and tests compare the macro text jetdb writes, and the controls and properties of the forms and reports it reads, with those files.
 
 | File | Source | Purpose |
 |------|--------|---------|
 | saveastext/SportsAdmin/Sports.accdb | https://github.com/ruddj/SportsAdmin `Sports.accdb` @ `a5b9086` | Macros with macro names, conditions, escaped quotes, and macros converted from Access 97 |
 | saveastext/SportsAdmin/macros/*.bas | https://github.com/ruddj/SportsAdmin `Source/macros/` @ `a5b9086` | SaveAsText output of the 24 macros of Sports.accdb |
-| saveastext/SportsAdmin/forms/Statistical Reports.bas | https://github.com/ruddj/SportsAdmin `Source/forms/` @ `a5b9086` | SaveAsText output of a form of Sports.accdb with 69 controls |
-| saveastext/SportsAdmin/reports/Field (High Jump).bas | https://github.com/ruddj/SportsAdmin `Source/reports/` @ `a5b9086` | SaveAsText output of a report of Sports.accdb with 78 controls |
+| saveastext/SportsAdmin/forms/*.bas | https://github.com/ruddj/SportsAdmin `Source/forms/` @ `a5b9086` | SaveAsText output of the 74 forms of Sports.accdb |
+| saveastext/SportsAdmin/reports/*.bas | https://github.com/ruddj/SportsAdmin `Source/reports/` @ `a5b9086` | SaveAsText output of the 42 reports of Sports.accdb |
 | saveastext/Strings/Strings.mdb | https://github.com/iKaRus-VLZ/Strings `Strings.mdb` @ `9bf2b11` | Macros with Russian comments in a Jet4 `.mdb` |
 | saveastext/Strings/macros/*.accmac | https://github.com/iKaRus-VLZ/Strings `Macro/` @ `9bf2b11` | SaveAsText output of the 10 macros of Strings.mdb, in Windows-1251 |

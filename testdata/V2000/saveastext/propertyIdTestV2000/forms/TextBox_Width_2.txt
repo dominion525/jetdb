@@ -1,0 +1,113 @@
+Version =19
+VersionRequired =19
+Checksum =-99939182
+Begin Form
+    DividingLines = NotDefault
+    AllowDesignChanges = NotDefault
+    DefaultView =0
+    TabularCharSet =128
+    PictureAlignment =2
+    DatasheetGridlinesBehavior =3
+    GridY =10
+    Width =6994
+    DatasheetFontHeight =11
+    ItemSuffix =4
+    Right =20378
+    Bottom =6608
+    DatasheetGridlinesColor =0
+    RecSrcDt = Begin
+        0xc6c24b22019de640
+    End
+    GUID = Begin
+        0x5bfc59228b86374fbbce3c683d61ddfe
+    End
+    DatasheetFontName ="ÇlÇr ÇoÉSÉVÉbÉN"
+    NoSaveCTIWhenDisabled =1
+    Begin
+        Begin Label
+            BackStyle =0
+            TextFontCharSet =128
+            FontSize =11
+            BorderColor =8355711
+            ForeColor =6710886
+            FontName ="ÇlÇr ÇoÉSÉVÉbÉN"
+        End
+        Begin CommandButton
+            TextFontCharSet =128
+            Width =1701
+            Height =330
+            FontSize =11
+            FontWeight =400
+            ForeColor =4210752
+            FontName ="ÇlÇr ÇoÉSÉVÉbÉN"
+        End
+        Begin TextBox
+            AddColon = NotDefault
+            FELineBreak = NotDefault
+            TextFontCharSet =128
+            BorderLineStyle =0
+            Width =1701
+            LabelX =-1701
+            FontSize =11
+            BorderColor =10921638
+            ForeColor =4210752
+            FontName ="ÇlÇr ÇoÉSÉVÉbÉN"
+        End
+        Begin Section
+            Height =5952
+            Name ="è⁄ç◊"
+            GUID = Begin
+                0x6e570d88d88d4b478c9b311c7a661d9c
+            End
+            Begin
+                Begin Label
+                    OverlapFlags =85
+                    Left =200
+                    Top =300
+                    Width =1200
+                    Height =300
+                    Name ="lblA"
+                    Caption ="Label"
+                    GUID = Begin
+                        0xb3feff62c08f5a448fb50032653b6f80
+                    End
+                End
+                Begin TextBox
+                    OverlapFlags =85
+                    Left =1500
+                    Top =300
+                    Width =2700
+                    Height =300
+                    Name ="txtA"
+                    GUID = Begin
+                        0xf97ff214f2897a498ec55323bf0cd47e
+                    End
+                End
+                Begin TextBox
+                    OverlapFlags =85
+                    Left =1500
+                    Top =800
+                    Width =2000
+                    Height =300
+                    TabIndex =1
+                    Name ="txtB"
+                    GUID = Begin
+                        0x5c282bf5d0d7494fb618d46c0972c891
+                    End
+                End
+                Begin CommandButton
+                    OverlapFlags =85
+                    Left =200
+                    Top =1300
+                    Width =1500
+                    Height =400
+                    TabIndex =2
+                    Name ="btnA"
+                    GUID = Begin
+                        0x1f0fe251e0251944a89b22d12b035641
+                    End
+                End
+            End
+        End
+    End
+End

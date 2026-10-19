@@ -3,8 +3,9 @@
 //! Its Blob starts with the version byte [`VERSION`] and holds the design as
 //! a tree, unlike the property entries of Access 2002 and later:
 //!
-//! - 12 bytes of header, then the properties of the form or report itself,
-//!   then a list.
+//! - 8 bytes of header, then the form or report itself as an entry
+//!   without its end: its type (u16, 0x96 for a form, 0x97 for a report)
+//!   and its properties, then a list.
 //! - A list is `FF` and a count (u16) of entries, or `FE` and one entry.
 //! - An entry is a type (u16, the `acControlType` of Access, such as 109 for
 //!   a text box or 152 for the detail section), its properties, and `FD`, or a
@@ -161,7 +162,8 @@ impl Reader<'_> {
 /// controls, from a Blob of the Access 2000 format; `None` when the bytes do
 /// not fit the format.
 pub(crate) fn read(data: &[u8]) -> Option<(Vec<BlobProperty>, Vec<ControlProperties>)> {
-    let mut reader = Reader { data, pos: 12 };
+    // The properties of the object follow its type, at 8.
+    let mut reader = Reader { data, pos: 10 };
     let object = reader.props()?;
     let entries = reader.list()?;
     if reader.pos != data.len() {
@@ -247,8 +249,6 @@ fn stored_value(id: u8, raw: &Raw) -> BlobValue {
 enum Kind {
     /// A number, of the size stored.
     Number,
-    /// A Yes/No, 0 for No.
-    YesNo,
     /// UTF-16LE text.
     Text,
     /// A GUID of 16 bytes.
@@ -308,7 +308,6 @@ const ENTRY_TABLES: &[(u16, Table)] = &[
 /// The value of `raw` given as `kind`; `None` to give it as stored.
 fn value_as(raw: &Raw, kind: Kind) -> Option<BlobValue> {
     match (raw, kind) {
-        (Raw::Int(v), Kind::YesNo) => Some(BlobValue::Bool(*v != 0)),
         (Raw::Bytes(b), Kind::Text) => encoding::decode_utf16le(b).ok().map(BlobValue::Text),
         (Raw::Bytes(b), Kind::Guid) if b.len() == 16 => Some(BlobValue::Guid(format_guid(b))),
         _ => None,
@@ -320,8 +319,11 @@ fn value_as(raw: &Raw, kind: Kind) -> Option<BlobValue> {
 // against the same objects in V2007/controlPropertyTestV2007.accdb and
 // propertyIdTestV2007.accdb (Access for Microsoft 365): the values of an ID
 // across the objects are those of one ID of the later format, and of no
-// other. The IDs of the later format are those of Access for Microsoft 365,
-// one higher above 0x01C4 than in files of earlier Access (see form.rs).
+// other. Where the SaveAsText output of the files of the 2000 format
+// themselves (testdata/V2000/saveastext) names a property another ID holds in
+// the later format, the pair follows the name. The IDs of the later format
+// are those of Access for Microsoft 365, one higher above 0x01C4 than in
+// files of earlier Access (see form.rs).
 
 const FORM: Table = &[
     (0x31, 0x002D, Kind::Number),
@@ -339,7 +341,7 @@ const FORM: Table = &[
     (0x67, 0x009E, Kind::Number),
     (0x9C, 0x00DB, Kind::Number),
     (0x9D, 0x006F, Kind::Number),
-    (0xA0, 0x0247, Kind::Number),
+    (0xA0, 0x013F, Kind::Number),
     (0xBD, 0x0080, Kind::Text),
     (0xBE, 0x007B, Kind::Text),
     (0xBF, 0x007C, Kind::Text),
@@ -444,7 +446,7 @@ const TYPE_100: Table = &[
 ];
 
 const TYPE_101: Table = &[
-    (0x9D, 0x01CF, Kind::Number),
+    (0x9D, 0x0008, Kind::Number),
     (0xDC, 0x0014, Kind::Text),
     (0xDD, 0x007E, Kind::Text),
     (0xDE, 0x00E0, Kind::Text),
@@ -456,14 +458,14 @@ const TYPE_101: Table = &[
 ];
 
 const TYPE_102: Table = &[
-    (0x9C, 0x01CF, Kind::Number),
+    (0x9C, 0x0008, Kind::Number),
     (0xDC, 0x0014, Kind::Text),
     (0xDD, 0x010A, Kind::Text),
     (0xDF, 0x0178, Kind::Guid),
 ];
 
 const TYPE_103: Table = &[
-    (0x9D, 0x01CF, Kind::Number),
+    (0x9D, 0x0008, Kind::Number),
     (0xDC, 0x0014, Kind::Text),
     (0xDD, 0x007E, Kind::Text),
     (0xDE, 0x00E0, Kind::Text),
@@ -503,7 +505,7 @@ const TYPE_104: Table = &[
 ];
 
 const TYPE_105: Table = &[
-    (0x9E, 0x01CF, Kind::Number),
+    (0x9E, 0x0008, Kind::Number),
     (0xDC, 0x0014, Kind::Text),
     (0xDD, 0x001B, Kind::Text),
     (0xDE, 0x0087, Kind::Text),
@@ -530,7 +532,7 @@ const TYPE_105: Table = &[
 ];
 
 const TYPE_106: Table = &[
-    (0x9E, 0x01CF, Kind::Number),
+    (0x9E, 0x0008, Kind::Number),
     (0xDC, 0x0014, Kind::Text),
     (0xDD, 0x001B, Kind::Text),
     (0xDE, 0x0087, Kind::Text),
@@ -579,7 +581,7 @@ const TYPE_107: Table = &[
 ];
 
 const TYPE_108: Table = &[
-    (0x9C, 0x01CF, Kind::Number),
+    (0x9C, 0x0008, Kind::Number),
     (0xDC, 0x0014, Kind::Text),
     (0xDD, 0x001B, Kind::Text),
     (0xDE, 0x0087, Kind::Text),
@@ -697,7 +699,7 @@ const TYPE_111: Table = &[
 ];
 
 const TYPE_112: Table = &[
-    (0x9C, 0x01CF, Kind::Number),
+    (0x9C, 0x0008, Kind::Number),
     (0xDC, 0x0014, Kind::Text),
     (0xDD, 0x0084, Kind::Text),
     (0xDE, 0x0031, Kind::Text),
@@ -744,8 +746,8 @@ const TYPE_122: Table = &[
 ];
 
 const TYPE_123: Table = &[
-    (0x30, 0x028A, Kind::Number),
-    (0x35, 0x0289, Kind::YesNo),
+    (0x30, 0x0095, Kind::Number),
+    (0x35, 0x001D, Kind::Number),
     (0xDC, 0x0014, Kind::Text),
     (0xDD, 0x0087, Kind::Text),
     (0xDE, 0x00E0, Kind::Text),
@@ -824,7 +826,7 @@ mod tests {
 
     /// A Blob with the header, the properties of the object, and `rest`.
     fn blob(object: &[u8], rest: &[u8]) -> Vec<u8> {
-        let mut data = vec![VERSION, 0, VERSION, 0, 0, 0, 0, 0, 0x96, 0, 0, 0];
+        let mut data = vec![VERSION, 0, VERSION, 0, 0, 0, 0, 0, 0x96, 0];
         data.extend_from_slice(object);
         data.extend_from_slice(rest);
         data
@@ -926,6 +928,29 @@ mod tests {
     }
 
     #[test]
+    fn the_properties_of_the_object_start_after_its_type() {
+        // The form itself is an entry without its end: its type at 8, then
+        // its properties. In its SaveAsText output (testdata/V2000/saveastext),
+        // base_Form has DividingLines and AllowDesignChanges = NotDefault, and
+        // Form_AllowLayoutView_1 DividingLines alone, followed by the 1-byte
+        // DefaultView.
+        let path = skip_if_missing!("V2000/propertyIdTestV2000.mdb");
+        let mut reader = PageReader::open(&path).unwrap();
+        for (name, not_default) in [
+            ("base_Form", &[0x8014, 0x801C][..]),
+            ("Form_AllowLayoutView_1", &[0x8014][..]),
+        ] {
+            let read =
+                read_form_properties_of_type(&mut reader, name, FormObjectType::Form).unwrap();
+            let ids: Vec<u16> = read.properties.iter().map(|p| p.prop_id).collect();
+            assert_eq!(ids[..not_default.len()], *not_default, "{name}");
+            let next = &read.properties[not_default.len()];
+            assert_eq!(next.prop_id, 0x8030, "{name}");
+            assert!(matches!(next.value, BlobValue::Short(0)), "{name}");
+        }
+    }
+
+    #[test]
     fn a_form_of_the_access_2000_format() {
         // Made by testdata/form-generators/same-name-generator.bas, then
         // saved in the Access 2000 format: the form Shared, with a caption, a
@@ -978,10 +1003,22 @@ mod tests {
         }
     }
 
+    /// The ID whose value the ID `id` of Access 2002 and later holds in a
+    /// file saved in the Access 2000 format: Access writes the value of
+    /// DatasheetGridlinesColor12 (0x0247) as DatasheetGridlinesColor (0x013F).
+    fn holding(id: u16) -> u16 {
+        if id == 0x013F {
+            0x0247
+        } else {
+            id
+        }
+    }
+
     #[test]
     fn tied_ids_hold_the_values_of_access_2002_and_later() {
         // The same forms and reports in both formats: each property given an
-        // ID of Access 2002 and later holds the value that ID holds there.
+        // ID of Access 2002 and later holds the value that ID holds there, or
+        // the one `holding` gives.
         for (file2000, file2007, at_least) in [
             (
                 "V2000/controlPropertyTestV2000.mdb",
@@ -1001,7 +1038,7 @@ mod tests {
             for (key, properties) in nodes(&path2000) {
                 let other = later.get(&key).unwrap_or_else(|| panic!("{key:?}"));
                 for p in properties.iter().filter(|p| p.prop_id < UNMAPPED) {
-                    let there = other.iter().find(|q| q.prop_id == p.prop_id);
+                    let there = other.iter().find(|q| q.prop_id == holding(p.prop_id));
                     assert_eq!(
                         there.map(|q| comparable(&q.value)),
                         Some(comparable(&p.value)),

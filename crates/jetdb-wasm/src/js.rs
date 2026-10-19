@@ -309,7 +309,7 @@ export interface FormControl {
     type: string;
     /** The number of the type. */
     typeCode: number;
-    /** The index of the control in the form or report. */
+    /** The place of the control in the list, from 0. */
     index: number;
 }
 
@@ -711,9 +711,9 @@ impl JsDatabase {
             .collect())
     }
 
-    /// The controls of a form or report, as `jetdb form controls` lists
-    /// them: in the order of its TypeInfo, with their index. A form or report
-    /// without a TypeInfo is FORM_NOT_FOUND.
+    /// The sections and controls of a form or report, as `jetdb form
+    /// controls` lists them: in the order of its Blob, with their places in
+    /// the list. A form or report without a Blob is FORM_NOT_FOUND.
     #[wasm_bindgen(js_name = formControls, unchecked_return_type = "FormControl[]")]
     pub fn form_controls(
         &mut self,
