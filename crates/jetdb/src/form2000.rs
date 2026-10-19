@@ -341,7 +341,7 @@ const FORM: Table = &[
     (0x67, 0x009E, Kind::Number),
     (0x9C, 0x00DB, Kind::Number),
     (0x9D, 0x006F, Kind::Number),
-    (0xA0, 0x0247, Kind::Number),
+    (0xA0, 0x013F, Kind::Number),
     (0xBD, 0x0080, Kind::Text),
     (0xBE, 0x007B, Kind::Text),
     (0xBF, 0x007C, Kind::Text),
@@ -446,7 +446,7 @@ const TYPE_100: Table = &[
 ];
 
 const TYPE_101: Table = &[
-    (0x9D, 0x01CF, Kind::Number),
+    (0x9D, 0x0008, Kind::Number),
     (0xDC, 0x0014, Kind::Text),
     (0xDD, 0x007E, Kind::Text),
     (0xDE, 0x00E0, Kind::Text),
@@ -458,14 +458,14 @@ const TYPE_101: Table = &[
 ];
 
 const TYPE_102: Table = &[
-    (0x9C, 0x01CF, Kind::Number),
+    (0x9C, 0x0008, Kind::Number),
     (0xDC, 0x0014, Kind::Text),
     (0xDD, 0x010A, Kind::Text),
     (0xDF, 0x0178, Kind::Guid),
 ];
 
 const TYPE_103: Table = &[
-    (0x9D, 0x01CF, Kind::Number),
+    (0x9D, 0x0008, Kind::Number),
     (0xDC, 0x0014, Kind::Text),
     (0xDD, 0x007E, Kind::Text),
     (0xDE, 0x00E0, Kind::Text),
@@ -505,7 +505,7 @@ const TYPE_104: Table = &[
 ];
 
 const TYPE_105: Table = &[
-    (0x9E, 0x01CF, Kind::Number),
+    (0x9E, 0x0008, Kind::Number),
     (0xDC, 0x0014, Kind::Text),
     (0xDD, 0x001B, Kind::Text),
     (0xDE, 0x0087, Kind::Text),
@@ -532,7 +532,7 @@ const TYPE_105: Table = &[
 ];
 
 const TYPE_106: Table = &[
-    (0x9E, 0x01CF, Kind::Number),
+    (0x9E, 0x0008, Kind::Number),
     (0xDC, 0x0014, Kind::Text),
     (0xDD, 0x001B, Kind::Text),
     (0xDE, 0x0087, Kind::Text),
@@ -581,7 +581,7 @@ const TYPE_107: Table = &[
 ];
 
 const TYPE_108: Table = &[
-    (0x9C, 0x01CF, Kind::Number),
+    (0x9C, 0x0008, Kind::Number),
     (0xDC, 0x0014, Kind::Text),
     (0xDD, 0x001B, Kind::Text),
     (0xDE, 0x0087, Kind::Text),
@@ -699,7 +699,7 @@ const TYPE_111: Table = &[
 ];
 
 const TYPE_112: Table = &[
-    (0x9C, 0x01CF, Kind::Number),
+    (0x9C, 0x0008, Kind::Number),
     (0xDC, 0x0014, Kind::Text),
     (0xDD, 0x0084, Kind::Text),
     (0xDE, 0x0031, Kind::Text),
@@ -746,8 +746,8 @@ const TYPE_122: Table = &[
 ];
 
 const TYPE_123: Table = &[
-    (0x30, 0x028A, Kind::Number),
-    (0x35, 0x0289, Kind::YesNo),
+    (0x30, 0x0095, Kind::Number),
+    (0x35, 0x001D, Kind::Number),
     (0xDC, 0x0014, Kind::Text),
     (0xDD, 0x0087, Kind::Text),
     (0xDE, 0x00E0, Kind::Text),
@@ -1006,7 +1006,10 @@ mod tests {
     #[test]
     fn tied_ids_hold_the_values_of_access_2002_and_later() {
         // The same forms and reports in both formats: each property given an
-        // ID of Access 2002 and later holds the value that ID holds there.
+        // ID of Access 2002 and later holds the value that ID holds there,
+        // except that saving in the Access 2000 format, Access writes the
+        // value of DatasheetGridlinesColor12 (0x0247) as DatasheetGridlinesColor
+        // (0x013F), which that format has alone.
         for (file2000, file2007, at_least) in [
             (
                 "V2000/controlPropertyTestV2000.mdb",
@@ -1026,7 +1029,12 @@ mod tests {
             for (key, properties) in nodes(&path2000) {
                 let other = later.get(&key).unwrap_or_else(|| panic!("{key:?}"));
                 for p in properties.iter().filter(|p| p.prop_id < UNMAPPED) {
-                    let there = other.iter().find(|q| q.prop_id == p.prop_id);
+                    let id = if p.prop_id == 0x013F {
+                        0x0247
+                    } else {
+                        p.prop_id
+                    };
+                    let there = other.iter().find(|q| q.prop_id == id);
                     assert_eq!(
                         there.map(|q| comparable(&q.value)),
                         Some(comparable(&p.value)),
