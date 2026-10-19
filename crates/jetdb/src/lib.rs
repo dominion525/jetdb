@@ -19,6 +19,8 @@ pub mod money;
 pub mod prop;
 pub mod query;
 pub mod relationship;
+#[cfg(test)]
+mod save_as_text;
 pub(crate) mod storage;
 pub mod table;
 pub mod timestamp;

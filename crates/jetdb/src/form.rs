@@ -1035,7 +1035,8 @@ pub(crate) fn format_guid(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::{HashMap, HashSet};
+    use crate::save_as_text;
+    use std::collections::HashMap;
 
     fn test_data_path(relative: &str) -> Option<std::path::PathBuf> {
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
@@ -1279,143 +1280,6 @@ mod tests {
         make_entry(prop_id, type_code, 1, value.len() as u32, &payload)
     }
 
-    /// The integer properties of a control in a SaveAsText file, by key.
-    type SavedIntegers = Vec<(String, i64)>;
-
-    /// A block of a SaveAsText file being read: its depth, the control name,
-    /// its integer properties and its `NotDefault` lines.
-    type SaveAsTextBlock = (usize, Option<String>, SavedIntegers, usize);
-
-    /// The integer properties a SaveAsText file of a form or report writes
-    /// for each control, by its name ("" for the form or report itself), and
-    /// the number of its `NotDefault` lines.
-    fn save_as_text_integers(path: &std::path::Path) -> HashMap<String, (SavedIntegers, usize)> {
-        let text = std::fs::read_to_string(path).unwrap();
-        let mut found: HashMap<String, (SavedIntegers, usize)> = HashMap::new();
-        let mut blocks: Vec<SaveAsTextBlock> = Vec::new();
-        // The depth of the binary data (`= Begin` ... `End`) being passed over.
-        let mut binary = 0;
-        for line in text.trim_start_matches('\u{feff}').lines() {
-            let trimmed = line.trim();
-            if binary > 0 {
-                binary += usize::from(trimmed.ends_with("= Begin"));
-                binary -= usize::from(trimmed == "End");
-            } else if trimmed.ends_with("= Begin") || trimmed.ends_with("=Begin") {
-                binary = 1;
-            } else if trimmed == "Begin" || trimmed.starts_with("Begin ") {
-                blocks.push((blocks.len(), None, Vec::new(), 0));
-            } else if trimmed == "End" {
-                if let Some(block) = blocks.pop() {
-                    close_save_as_text_block(&mut found, block);
-                }
-            } else if let Some(block) = blocks.last_mut() {
-                save_as_text_property(block, trimmed);
-            }
-        }
-        found
-    }
-
-    /// Adds what `block` holds to `found`, under its control name ("" for
-    /// the form or report itself); a block without a name is left out.
-    fn close_save_as_text_block(
-        found: &mut HashMap<String, (SavedIntegers, usize)>,
-        (depth, name, ints, not_default): SaveAsTextBlock,
-    ) {
-        let Some(name) = (if depth == 0 {
-            Some(String::new())
-        } else {
-            name
-        }) else {
-            return;
-        };
-        let entry = found.entry(name).or_default();
-        entry.0.extend(ints);
-        entry.1 += not_default;
-    }
-
-    /// Adds the property line `line` of a SaveAsText file to `block`.
-    fn save_as_text_property(block: &mut SaveAsTextBlock, line: &str) {
-        let Some((key, value)) = line.split_once('=') else {
-            return;
-        };
-        let (key, value) = (key.trim(), value.trim());
-        if key == "Name" && block.1.is_none() {
-            block.1 = Some(value.trim_matches('"').to_string());
-        } else if value == "NotDefault" {
-            block.3 += 1;
-        } else if let Ok(v) = value.parse::<i64>() {
-            block.2.push((key.to_string(), v));
-        }
-    }
-
-    /// The keys of `saved` whose value is `value` as SaveAsText writes it:
-    /// `None` for a value it does not write as an integer. A Yes value is -1,
-    /// 1 or 255.
-    fn keys_of(value: &BlobValue, saved: &SavedIntegers) -> Option<HashSet<String>> {
-        let values: &[i64] = match *value {
-            BlobValue::Short(v) => &[i64::from(v)],
-            BlobValue::Long(v) => &[i64::from(v)],
-            BlobValue::Bool(false) => &[0],
-            BlobValue::Bool(true) => &[-1, 1, 255],
-            _ => return None,
-        };
-        Some(
-            saved
-                .iter()
-                .filter(|(_, v)| values.contains(v))
-                .map(|(k, _)| k.clone())
-                .collect(),
-        )
-    }
-
-    /// Checks the values of the form or report `name` against its SaveAsText
-    /// file `file`: narrows the keys each property may be in `keys`, and
-    /// returns how many values were checked.
-    fn check_against_save_as_text(
-        path: &std::path::Path,
-        file: &std::path::Path,
-        object_type: FormObjectType,
-        name: &str,
-        keys: &mut HashMap<u16, HashSet<String>>,
-    ) -> usize {
-        let written = save_as_text_integers(file);
-        let mut reader = PageReader::open(path).unwrap();
-        let read = read_form_properties_of_type(&mut reader, name, object_type).unwrap();
-        let groups = std::iter::once((String::new(), read.properties))
-            .chain(read.controls.into_iter().map(|c| (c.name, c.properties)));
-        let mut checked = 0;
-        for (control, properties) in groups {
-            let (saved, not_default) = written.get(&control).cloned().unwrap_or_default();
-            // SaveAsText writes the right and bottom of a form only.
-            let report_side = object_type == FormObjectType::Report && control.is_empty();
-            let compared = properties.iter().filter(|p| {
-                p.prop_id != 0x0000 && !(report_side && matches!(p.prop_id, 0x0081 | 0x000C))
-            });
-            for p in compared {
-                let Some(found) = keys_of(&p.value, &saved) else {
-                    continue;
-                };
-                assert!(
-                    !found.is_empty(),
-                    "{name} {control:?} {:#06x} {:?}",
-                    p.prop_id,
-                    p.value
-                );
-                let narrowed = keys.entry(p.prop_id).or_insert_with(|| found.clone());
-                narrowed.retain(|k| found.contains(k));
-                checked += 1;
-            }
-            if control.is_empty() {
-                let read_not_default = properties
-                    .iter()
-                    .filter(|p| matches!(p.value, BlobValue::NotDefault))
-                    .count();
-                assert_eq!(read_not_default, not_default, "{name}");
-            }
-        }
-        checked
-    }
-
     #[test]
     fn every_blob_of_access_2002_and_later_reads_to_the_end_as_a_tree() {
         for (file, count) in [
@@ -1454,46 +1318,183 @@ mod tests {
         }
     }
 
-    #[test]
-    fn values_are_those_save_as_text_writes() {
-        // Every integer and Yes/No value of a form and a report of
-        // Sports.accdb is one SaveAsText writes for the same control under a
-        // key that is the same for every value of the property, and the form
-        // or report itself has as many NotDefault values as SaveAsText has
-        // lines, and a named property is under its name. Left out: property 0x0000, which SaveAsText does not write,
-        // and the right and bottom (0x0081, 0x000C) of a report.
-        let path = skip_if_missing!("saveastext/SportsAdmin/Sports.accdb");
-        let dir = path.parent().unwrap().to_path_buf();
-        let mut keys: HashMap<u16, HashSet<String>> = HashMap::new();
-        for (file, object_type, name, at_least) in [
-            (
-                "forms/Statistical Reports.bas",
-                FormObjectType::Form,
-                "Statistical Reports",
-                500,
-            ),
-            (
-                "reports/Field (High Jump).bas",
-                FormObjectType::Report,
-                "Field (High Jump)",
-                350,
-            ),
-        ] {
-            let checked =
-                check_against_save_as_text(&path, &dir.join(file), object_type, name, &mut keys);
-            assert!(checked >= at_least, "{name}: only {checked} values");
+    /// The combo boxes of Sports.accdb whose block in its SaveAsText output
+    /// also holds the lines of the control after them: in the files of
+    /// ruddj/SportsAdmin, the `End` of the combo box and the `Begin` of the
+    /// control are missing. Neither control has a block of its own to be
+    /// checked against.
+    const SPORTS_BROKEN: [(&str, &str, &str); 3] = [
+        ("EnterCompetitors", "FinalStatus", "HeatComplete"),
+        ("EventRecordsSF", "Field4", "Date"),
+        ("House Summary", "HT_Code", "Text15"),
+    ];
+
+    /// The properties the SaveAsText output of Sports.accdb does not write,
+    /// with the keys Access for Microsoft 365 writes them under: the right
+    /// and bottom of a report, the GUIDs, and the printer settings. The IDs
+    /// above 0x01C4 are those of the Access that made Sports.accdb, one
+    /// lower than those of Access for Microsoft 365.
+    const SPORTS_UNWRITTEN: [(u16, &str); 7] = [
+        (0x0081, "Right"),
+        (0x000C, "Bottom"),
+        (0x0178, "GUID"),
+        (0x00BE, "PrtDevMode"),
+        (0x00BF, "PrtDevNames"),
+        (0x02A6, "PrtDevModeW"),
+        (0x02A7, "PrtDevNamesW"),
+    ];
+
+    /// SaveAsText outputs by whether they are of a report, and by name.
+    type SaveAsTextFiles = HashMap<(bool, String), String>;
+
+    /// The SaveAsText output of the forms and reports of Sports.accdb, in
+    /// the files next to it.
+    fn sports_save_as_text(path: &std::path::Path, reader: &mut PageReader) -> SaveAsTextFiles {
+        let dir = path.parent().unwrap();
+        let mut texts = HashMap::new();
+        for entry in list_forms(reader).unwrap() {
+            let report = entry.object_type == FormObjectType::Report;
+            let file = dir
+                .join(if report { "reports" } else { "forms" })
+                .join(format!("{}.bas", entry.name));
+            let text = std::fs::read_to_string(&file).unwrap_or_else(|e| panic!("{file:?}: {e}"));
+            texts.insert((report, entry.name), text);
         }
-        for (id, found) in &keys {
-            assert!(!found.is_empty(), "{id:#06x}: no key fits every value");
-        }
-        let mut named = 0;
-        for (id, found) in &keys {
-            if let Some(key) = number_prop_id_name(*id) {
-                assert!(found.contains(key), "{id:#06x} {key}: {found:?}");
-                named += 1;
+        texts
+    }
+
+    /// The SaveAsText output a database made by a generator of
+    /// testdata/form-generators keeps in its table tblGenExport.
+    fn generated_save_as_text(reader: &mut PageReader) -> SaveAsTextFiles {
+        let catalog = crate::catalog::read_catalog(reader).unwrap();
+        let entry = crate::catalog::find_table(&catalog, "tblGenExport").unwrap();
+        let tdef = crate::table::read_table_def(reader, &entry.name, entry.table_page).unwrap();
+        let column = |name: &str| tdef.columns.iter().position(|c| c.name == name).unwrap();
+        let (kind, name, content) = (column("Kind"), column("ObjName"), column("Content"));
+        let text = |v: &crate::data::Value| match v {
+            crate::data::Value::Text(t) => t.clone(),
+            other => panic!("{other:?}"),
+        };
+        let rows = crate::data::read_table_rows(reader, &tdef).unwrap().rows;
+        rows.iter()
+            .map(|row| {
+                (
+                    (text(&row[kind]) == "report", text(&row[name])),
+                    text(&row[content]),
+                )
+            })
+            .collect()
+    }
+
+    /// Checks the forms and reports read by `reader` against `texts`, their
+    /// SaveAsText output, leaving out the controls of `broken`, after
+    /// checking that each pair of them has one block.
+    fn check_save_as_text(
+        reader: &mut PageReader,
+        texts: &SaveAsTextFiles,
+        broken: &[(&str, &str, &str)],
+        rules: save_as_text::Rules,
+    ) -> save_as_text::Checked {
+        let mut checked = save_as_text::Checked {
+            rules,
+            ..Default::default()
+        };
+        for entry in list_forms(reader).unwrap() {
+            let report = entry.object_type == FormObjectType::Report;
+            let saved = save_as_text::read(&texts[&(report, entry.name.clone())]);
+            let mut skipped = Vec::new();
+            for (_, combo, next) in broken.iter().filter(|(o, ..)| *o == entry.name) {
+                assert!(!saved.contains_key(*next), "{next}");
+                assert_eq!(saved[*combo]["Name"].len(), 2, "{combo}");
+                skipped.extend([*combo, *next]);
             }
+            let read =
+                read_form_properties_of_type(reader, &entry.name, entry.object_type).unwrap();
+            checked.object(&saved, &read, &skipped);
         }
-        assert!(named >= 10, "only {named} named properties checked");
+        checked
+    }
+
+    #[test]
+    fn every_value_is_one_save_as_text_writes() {
+        // Each value jetdb reads of each form and report, of its sections and
+        // of its controls is one Access's SaveAsText output writes in the
+        // block of the same object, section or control; the blocks and the
+        // controls are the same, each control given once, with as many
+        // NotDefault values; an ID given twice in a block has the same value;
+        // and over the files, every value of a property is under one key,
+        // which no other ID holds alone, and a named property is under its
+        // name and under no other key. The ID of a property is the same in
+        // each file through 0x01C4, and above it in the files of one version
+        // of Access: Sports.accdb, and the four made by Access for Microsoft
+        // 365. The values SaveAsText does not write are left out (see
+        // save_as_text).
+        //
+        // What this does not show: which property an ID without a name is,
+        // where its values fit several keys, as NotDefault values do; jetdb
+        // gives such an ID by its number. Nor the values of the IDs of the
+        // Access 2000 format without a pair, or the NotDefault values that
+        // format does not keep, as the SaveAsText output of those files is
+        // that of the database before it was saved in that format.
+        let files = [
+            ("saveastext/SportsAdmin/Sports.accdb", 28328),
+            ("V2007/controlPropertyTestV2007.accdb", 22074),
+            ("V2007/propertyIdTestV2007.accdb", 9217),
+            ("V2000/controlPropertyTestV2000.mdb", 7189),
+            ("V2000/propertyIdTestV2000.mdb", 2055),
+        ];
+        let mut all = Vec::new();
+        for (file, at_least) in files {
+            let path = skip_if_missing!(file);
+            let mut reader = PageReader::open(&path).unwrap();
+            let (texts, broken, rules): (_, &[_], _) = if file.starts_with("saveastext/") {
+                let rules = save_as_text::Rules {
+                    unwritten: &SPORTS_UNWRITTEN,
+                    converted: false,
+                };
+                (
+                    sports_save_as_text(&path, &mut reader),
+                    &SPORTS_BROKEN,
+                    rules,
+                )
+            } else {
+                let rules = save_as_text::Rules {
+                    unwritten: &[],
+                    converted: file.starts_with("V2000/"),
+                };
+                (generated_save_as_text(&mut reader), &[], rules)
+            };
+            let checked = check_save_as_text(&mut reader, &texts, broken, rules);
+            assert_eq!(checked.unmatched, Vec::<String>::new(), "{file}");
+            assert_eq!(checked.problems, Vec::<String>::new(), "{file}");
+            assert!(checked.observations.len() >= at_least, "{file}");
+            all.push(checked.observations);
+        }
+        let (sports, later) = all.split_first().unwrap();
+        let mut by_version = [
+            save_as_text::Agreement::default(),
+            save_as_text::Agreement::default(),
+        ];
+        by_version[0].add(sports);
+        by_version[1].add(later.iter().flatten());
+        let mut low = save_as_text::Agreement::default();
+        low.add(
+            all.iter()
+                .flatten()
+                .filter(|o| o.key.0 <= 0x01C4 && o.key.2 == 0),
+        );
+        for agreement in by_version.iter().chain([&low]) {
+            assert_eq!(agreement.disagreements(), Vec::<String>::new());
+            assert_eq!(agreement.shared(), Vec::<String>::new());
+        }
+        assert_eq!(low.misnamed(), Vec::<String>::new());
+        // Access for Microsoft 365 writes what the SaveAsText output of
+        // Sports.accdb does not, under the keys left out for it.
+        for (id, key) in SPORTS_UNWRITTEN {
+            let id = if id > 0x01C4 { id + 1 } else { id };
+            assert!(by_version[1].holds(id, key), "{id:#06x} {key}");
+        }
+        assert!(low.named() >= 60, "{}", low.named());
     }
 
     #[test]
