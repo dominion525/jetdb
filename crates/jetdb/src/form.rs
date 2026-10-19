@@ -395,7 +395,9 @@ pub fn control_type_name(type_code: u16) -> Option<&'static str> {
         0x1899 => Some("FormHeader"),
         0x189A => Some("FormFooter"),
         0x247F => Some("EmptyCell"),
-        // The types of the Access 2000 format: the acControlType of Access
+        // The types in the Blob, of the Access 2000 format and of the tree of
+        // later formats: the acControlType of Access. 0x0099 and 0x009A are
+        // the header and footer of a form or of a report, so not named here.
         0x0064 => Some("Label"),
         0x0065 => Some("Rectangle"),
         0x0066 => Some("Line"),
@@ -411,10 +413,15 @@ pub fn control_type_name(type_code: u16) -> Option<&'static str> {
         0x0070 => Some("SubForm"),
         0x0072 => Some("ObjectFrame"),
         0x0076 => Some("PageBreak"),
+        0x0077 => Some("CustomControl"),
         0x007A => Some("ToggleButton"),
         0x007B => Some("TabControl"),
         0x007C => Some("Page"),
         0x0098 => Some("Detail"),
+        0x009B => Some("PageHeader"),
+        0x009C => Some("PageFooter"),
+        0x009D => Some("GroupHeader"),
+        0x009E => Some("GroupFooter"),
         // Report controls
         0x1B64 => Some("Label"),
         0x1B65 => Some("Rectangle"),
@@ -2093,6 +2100,24 @@ mod tests {
                 code,
                 expected
             );
+        }
+    }
+
+    #[test]
+    fn control_type_name_types_in_the_blob() {
+        // The low byte of the type in TypeInfo: an ActiveX control
+        // (Forms.SpinButton.1 in Strings.mdb), and the sections of pages and
+        // groups. The header and footer of a form or report are not named.
+        for (code, expected) in [
+            (0x0077, Some("CustomControl")),
+            (0x009B, Some("PageHeader")),
+            (0x009C, Some("PageFooter")),
+            (0x009D, Some("GroupHeader")),
+            (0x009E, Some("GroupFooter")),
+            (0x0099, None),
+            (0x009A, None),
+        ] {
+            assert_eq!(control_type_name(code), expected, "0x{code:04X}");
         }
     }
 
