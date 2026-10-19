@@ -1446,30 +1446,44 @@ mod tests {
         let mut all = Vec::new();
         for (file, at_least) in files {
             let path = skip_if_missing!(file);
-            let mut reader = PageReader::open(&path).unwrap();
-            let (texts, broken, rules): (_, &[_], _) = if file.starts_with("saveastext/") {
-                let rules = save_as_text::Rules {
-                    unwritten: &SPORTS_UNWRITTEN,
-                    converted: false,
-                };
-                (
-                    sports_save_as_text(&path, &mut reader),
-                    &SPORTS_BROKEN,
-                    rules,
-                )
-            } else {
-                let rules = save_as_text::Rules {
-                    unwritten: &[],
-                    converted: file.starts_with("V2000/"),
-                };
-                (generated_save_as_text(&mut reader), &[], rules)
-            };
-            let checked = check_save_as_text(&mut reader, &texts, broken, rules);
-            assert_eq!(checked.unmatched, Vec::<String>::new(), "{file}");
-            assert_eq!(checked.problems, Vec::<String>::new(), "{file}");
-            assert!(checked.observations.len() >= at_least, "{file}");
-            all.push(checked.observations);
+            let observations = checked_values(file, &path);
+            assert!(observations.len() >= at_least, "{file}");
+            all.push(observations);
         }
+        check_agreement(&all);
+    }
+
+    /// The values of the forms and reports of `file`, at `path`, after
+    /// checking each against its SaveAsText output.
+    fn checked_values(file: &str, path: &std::path::Path) -> Vec<save_as_text::Observation> {
+        let mut reader = PageReader::open(path).unwrap();
+        let (texts, broken, rules): (_, &[_], _) = if file.starts_with("saveastext/") {
+            let rules = save_as_text::Rules {
+                unwritten: &SPORTS_UNWRITTEN,
+                converted: false,
+            };
+            (
+                sports_save_as_text(path, &mut reader),
+                &SPORTS_BROKEN,
+                rules,
+            )
+        } else {
+            let rules = save_as_text::Rules {
+                unwritten: &[],
+                converted: file.starts_with("V2000/"),
+            };
+            (generated_save_as_text(&mut reader), &[], rules)
+        };
+        let checked = check_save_as_text(&mut reader, &texts, broken, rules);
+        assert_eq!(checked.unmatched, Vec::<String>::new(), "{file}");
+        assert_eq!(checked.problems, Vec::<String>::new(), "{file}");
+        checked.observations
+    }
+
+    /// Checks the values of the files, those of Sports.accdb first in
+    /// `all`, against each other: in each version of Access, and through
+    /// 0x01C4 over them all.
+    fn check_agreement(all: &[Vec<save_as_text::Observation>]) {
         let (sports, later) = all.split_first().unwrap();
         let mut by_version = [
             save_as_text::Agreement::default(),

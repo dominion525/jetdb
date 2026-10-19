@@ -42,12 +42,8 @@ struct Reader {
 
 impl Reader {
     fn line(&mut self, line: &str) {
-        if let Some(key) = &self.binary {
-            if line == "End" {
-                self.binary = None;
-            } else if let Some(Saved::Bytes(bytes)) = self.last_value(key.clone()) {
-                bytes.extend(hex_bytes(line));
-            }
+        if self.binary.is_some() {
+            self.binary_line(line);
             return;
         }
         if !line.starts_with('"') {
@@ -62,6 +58,18 @@ impl Reader {
             self.close();
         } else {
             self.property(line);
+        }
+    }
+
+    /// A line of the binary value being read: its bytes, or its `End`.
+    fn binary_line(&mut self, line: &str) {
+        let Some(key) = self.binary.clone() else {
+            return;
+        };
+        if line == "End" {
+            self.binary = None;
+        } else if let Some(Saved::Bytes(bytes)) = self.last_value(key) {
+            bytes.extend(hex_bytes(line));
         }
     }
 
@@ -177,13 +185,17 @@ fn quoted(value: &str) -> Option<String> {
 pub(crate) fn holds(saved: &Saved, value: &BlobValue) -> bool {
     match saved {
         Saved::Quoted(text) => matches!(value, BlobValue::Text(t) if t == text),
-        Saved::Bytes(bytes) => match value {
-            BlobValue::Binary(b) => b == bytes,
-            BlobValue::Guid(g) => guid(bytes).is_some_and(|text| text == *g),
-            BlobValue::Double(v) => *bytes == v.to_le_bytes(),
-            _ => false,
-        },
+        Saved::Bytes(bytes) => holds_bytes(bytes, value),
         Saved::Bare(bare) => holds_bare(bare, value),
+    }
+}
+
+fn holds_bytes(bytes: &[u8], value: &BlobValue) -> bool {
+    match value {
+        BlobValue::Binary(b) => b == bytes,
+        BlobValue::Guid(g) => guid(bytes).is_some_and(|text| text == *g),
+        BlobValue::Double(v) => *bytes == v.to_le_bytes(),
+        _ => false,
     }
 }
 
