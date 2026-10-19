@@ -451,13 +451,13 @@ $ xxd form_blob.bin | head
 $ jetdb form dump -s typeinfo database.accdb F_Menu > typeinfo.bin
 ```
 
-#### form controls — List control names from TypeInfo
+#### form controls — List the sections and controls
 
 ```
 jetdb form controls [OPTIONS] <FILE> <NAME>
 ```
 
-Parse the TypeInfo stream and list all controls in the form or report. Output is tab-separated: name, type code (hex), index.
+List the sections and controls of the form or report from its Blob, each section followed by its controls, as `form props` shows them. Output is tab-separated: name, type (its code in hex for one jetdb does not know), and the place in the list from 0.
 
 ##### Options
 
@@ -468,11 +468,11 @@ Parse the TypeInfo stream and list all controls in the form or report. Output is
 ```
 $ jetdb form controls database.accdb F_ClientList
 FormHeader      FormHeader      0
-Detail          Detail          1
-FormFooter      FormFooter      2
-Btn_Search      CommandButton   3
-Txt_Name        TextBox         4
-Cmb_Status      ComboBox        5
+Btn_Search      CommandButton   1
+Detail          Detail          2
+Txt_Name        TextBox         3
+Cmb_Status      ComboBox        4
+FormFooter      FormFooter      5
 ```
 
 #### form props — Show form/report and control properties
