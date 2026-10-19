@@ -218,7 +218,7 @@ jetdb は、種類ごとの表（409 組）で、プロパティに Access 2002 
 
 ### prop_id マッピング
 
-判明済みの prop_id は名前で表示し、未知のものは `0xXXXX` 形式で数値表示する。名前は値の種類ごとに付ける。文字列の値には下の 1 つ目の表の名前を、整数とはい/いいえの値には 2 つ目の表の名前を付ける。値がそれ以外の種類の ID は、その場所では別のプロパティなので数値で表示する。たとえば 0x0068 は、フォームでは OnKeyDown だが、キー操作のイベントを持たないラベルでは色を持つ。名前は、データにあるものについて、`Sports.accdb`（ruddj/SportsAdmin）のフォームとレポート 116 個の、Access の SaveAsText の出力と突き合わせて確かめた。どの値も、その名前のプロパティと一致した。ただし、12 個のフォームとレポートでは、フォーム・レポート自体の FontName が、SaveAsText の出力に無かった。
+判明済みの prop_id は名前で表示し、未知のものは `0xXXXX` 形式で数値表示する。名前は値の種類ごとに付ける。文字列の値には下の 1 つ目の表の名前を、整数とはい/いいえの値には 2 つ目の表の名前を付ける。値がそれ以外の種類の ID は、その場所では別のプロパティなので数値で表示する。たとえば 0x0068 は、フォームでは OnKeyDown だが、キー操作のイベントを持たないラベルでは色を持つ。名前は、データにあるものについて、Access の SaveAsText の出力と突き合わせて確かめた。突き合わせたのは、`Sports.accdb`（ruddj/SportsAdmin）のフォームとレポート 116 個と、`testdata/V2007/controlPropertyTestV2007.accdb`・`propertyIdTestV2007.accdb` とその Access 2000 形式版（`testdata/V2000/`）のフォームとレポートで、後者は SaveAsText の出力を表 `tblGenExport` に持っている。どの値も、その名前のプロパティと一致した。
 
 | ID | プロパティ名 | 用途 |
 |--------|--------------|------|
@@ -250,16 +250,17 @@ jetdb は、種類ごとの表（409 組）で、プロパティに Access 2002 
 | 0x0084 | SourceObject | サブフォームに表示するフォーム・レポート |
 | 0x0087 | StatusBarText | ステータスバーテキスト |
 | 0x009C | RecordSource | フォーム/レポートのデータソース |
-| 0x00A0 | FontName | フォームレベルフォント名 |
+| 0x00A0 | DatasheetFontName | データシートビューのフォント名 |
 | 0x00DA | HelpFile | ヘルプファイル |
 | 0x00DE | OnEnter | フォーカス取得時 |
 | 0x00DF | OnExit | フォーカス喪失時 |
 | 0x00E0 | OnDblClick | ダブルクリック時 |
 | 0x00F5 | Filter | フィルタ条件 |
-| 0x010A | LabelType | ラベル種別 |
+| 0x010A | Tag | タグ |
 | 0x0112 | Class | オブジェクトフレームのクラス |
 | 0x0130 | ShortcutMenuBar | ショートカットメニュー |
 | 0x013D | ControlTipText | コントロールヒントテキスト |
+| 0x015A | ColumnInfo | コンボボックスやリストボックスの列の情報 |
 | 0x0161 | Toolbar | ツールバー |
 
 整数とはい/いいえの値の名前は、`Sports.accdb` と、Access でプロパティを 1 つずつ設定して作った `testdata/V2007/propertyIdTestV2007.accdb` の、その ID が出てくるすべてのフォームとレポートで、値が一致する SaveAsText のキーである。名前を付けるのは、1 つのキーがすべての値に合うよう値がいろいろに変わる ID か、`propertyIdTestV2007.accdb` でそのプロパティを設定すると値が変わる ID である。名前は 0x01C4 までの ID にだけ付ける。Microsoft 365 の Access は、Anchor やレイアウトのものなど、それより大きい ID を、`Sports.accdb` を作った Access より 1 つ大きく書くため。

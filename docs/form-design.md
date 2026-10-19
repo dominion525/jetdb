@@ -218,7 +218,7 @@ jetdb gives a property the ID of Access 2002 and later from a table of each type
 
 ### prop_id Mapping
 
-Known prop_id values are displayed by name; unknown ones are shown in `0xXXXX` numeric format. A name is given to values of one kind: text values by the first table below, and integer and Yes/No values by the second. An ID whose value is of another kind belongs to another property in that place and is shown by number. For example, 0x0068 is OnKeyDown on a form, but holds a color on a label, which has no key events. Where the data has them, the names were checked against the SaveAsText output of Access for the 116 forms and reports of `Sports.accdb` (ruddj/SportsAdmin): each value matched the property of that name, except that 12 forms and reports have a FontName of their own that their SaveAsText output does not have.
+Known prop_id values are displayed by name; unknown ones are shown in `0xXXXX` numeric format. A name is given to values of one kind: text values by the first table below, and integer and Yes/No values by the second. An ID whose value is of another kind belongs to another property in that place and is shown by number. For example, 0x0068 is OnKeyDown on a form, but holds a color on a label, which has no key events. Where the data has them, the names were checked against the SaveAsText output of Access for the 116 forms and reports of `Sports.accdb` (ruddj/SportsAdmin), and for the forms and reports of `testdata/V2007/controlPropertyTestV2007.accdb` and `propertyIdTestV2007.accdb` and of their Access 2000 versions in `testdata/V2000/`, which keep it in their table `tblGenExport`: each value matched the property of that name.
 
 | ID | Property Name | Purpose |
 |--------|--------------|------|
@@ -250,16 +250,17 @@ Known prop_id values are displayed by name; unknown ones are shown in `0xXXXX` n
 | 0x0084 | SourceObject | Form or report shown in a subform |
 | 0x0087 | StatusBarText | Status bar text |
 | 0x009C | RecordSource | Form/report data source |
-| 0x00A0 | FontName | Form-level font name |
+| 0x00A0 | DatasheetFontName | Font name of the datasheet view |
 | 0x00DA | HelpFile | Help file |
 | 0x00DE | OnEnter | Enter (focus received) event |
 | 0x00DF | OnExit | Exit (focus lost) event |
 | 0x00E0 | OnDblClick | Double-click event |
 | 0x00F5 | Filter | Filter condition |
-| 0x010A | LabelType | Label type |
+| 0x010A | Tag | Tag |
 | 0x0112 | Class | Class of an object frame |
 | 0x0130 | ShortcutMenuBar | Shortcut menu |
 | 0x013D | ControlTipText | Control tip text |
+| 0x015A | ColumnInfo | Column information of a combo box or list box |
 | 0x0161 | Toolbar | Toolbar |
 
 Names of integer and Yes/No values: each is the SaveAsText key that the values of the ID agree with in every form and report where it appears, in `Sports.accdb` and in `testdata/V2007/propertyIdTestV2007.accdb`, which was made in Access with one property set at a time. An ID is named where its values vary, so that one key fits them all, or where setting the property in `propertyIdTestV2007.accdb` changes the value of the ID. Only IDs up to 0x01C4 are named: Access for Microsoft 365 writes the IDs above, such as those of the anchors and the layout, one higher than the Access that made `Sports.accdb`.
