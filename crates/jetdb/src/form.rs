@@ -651,17 +651,46 @@ fn find_stream(
 /// TypeInfo magic number.
 const TYPEINFO_MAGIC: u32 = 0xACCD_EAF7;
 
+/// The type of an ActiveX control (`acCustomControl`), in the low byte of
+/// its type code.
+const ACTIVEX: u16 = 0x77;
+
+/// The bytes the entry of an ActiveX control has after its names: the class
+/// ID and the ID of the type library of the control (16 bytes each), and 4
+/// bytes. The test data has the spin button of Microsoft Forms 2.0 only.
+const ACTIVEX_TAIL: usize = 36;
+
 /// Parse TypeInfo binary into a list of control entries.
 ///
 /// Format:
 /// - Header (32 bytes): magic(u32) + field1(u32) + field2(i32) + count(u32) + GUID(16)
 /// - Entries: ctrl_type(u16) + padding(u16) + index(u32) + name(NUL) + align(0x00)
+///   (see [`ACTIVEX_TAIL`] for the bytes an ActiveX control has after them)
 ///
 /// The names are bytes in a code page, read in `code_page`, that of the
 /// header of the database. The code page they are written in is that of
 /// the Access that saved the form, which the file does not tell: the
 /// Russian names of Strings.mdb are in 1251, while its header has 1252.
 fn parse_type_info(data: &[u8], code_page: u16) -> Result<Vec<ControlInfo>, FileError> {
+    let entry_count = type_info_count(data)?;
+    let mut controls = Vec::with_capacity(entry_count);
+    let mut pos = 32; // skip header
+    for _ in 0..entry_count {
+        let Some((entry, next)) = type_info_entry(data, pos, code_page) else {
+            break;
+        };
+        pos = next;
+        // 0x1EFF: internal metadata entries, not real controls
+        if entry.type_code != 0x1EFF {
+            controls.push(entry);
+        }
+    }
+    Ok(controls)
+}
+
+/// The number of entries the header of the TypeInfo `data` gives, after
+/// checking its size and magic number.
+fn type_info_count(data: &[u8]) -> Result<usize, FileError> {
     if data.len() < 32 {
         return Err(FileError::InvalidFormData {
             reason: "TypeInfo too short for header",
@@ -685,62 +714,47 @@ fn parse_type_info(data: &[u8], code_page: u16) -> Result<Vec<ControlInfo>, File
             reason: "TypeInfo entry count exceeds data size",
         });
     }
+    Ok(entry_count)
+}
 
-    let mut controls = Vec::with_capacity(entry_count);
-    let mut pos = 32; // skip header
+/// The entry of TypeInfo at `pos`, and where the next one starts; `None`
+/// when the data has no room for one.
+fn type_info_entry(data: &[u8], pos: usize, code_page: u16) -> Option<(ControlInfo, usize)> {
+    let head = data.get(pos..pos.checked_add(8)?)?;
+    let type_code = u16::from_le_bytes([head[0], head[1]]);
+    // skip padding u16 at 2..4
+    let index = u32::from_le_bytes([head[4], head[5], head[6], head[7]]);
 
-    for _ in 0..entry_count {
-        if pos + 8 > data.len() {
-            break;
-        }
-
-        let ctrl_type = u16::from_le_bytes([data[pos], data[pos + 1]]);
-        // skip padding u16 at pos+2..pos+4
-        let index =
-            u32::from_le_bytes([data[pos + 4], data[pos + 5], data[pos + 6], data[pos + 7]]);
-        pos += 8;
-
-        // Each entry has two NUL-terminated strings:
-        //   1. EventProcPrefix (or Name if no special characters)
-        //   2. RealName (actual name when it contains parentheses, else empty)
-        let epp_start = pos;
-        while pos < data.len() && data[pos] != 0x00 {
-            pos += 1;
-        }
-        let epp_bytes = &data[epp_start..pos];
-        if pos < data.len() {
-            pos += 1; // skip NUL terminator
-        }
-
-        let real_start = pos;
-        while pos < data.len() && data[pos] != 0x00 {
-            pos += 1;
-        }
-        let real_bytes = &data[real_start..pos];
-        if pos < data.len() {
-            pos += 1; // skip NUL terminator
-        }
-
-        // Use RealName if present, otherwise EventProcPrefix
-        let name = if real_bytes.is_empty() {
-            encoding::decode_code_page(epp_bytes, code_page)
-        } else {
-            encoding::decode_code_page(real_bytes, code_page)
-        };
-
-        // 0x1EFF: internal metadata entries, not real controls
-        if ctrl_type == 0x1EFF {
-            continue;
-        }
-
-        controls.push(ControlInfo {
-            name,
-            type_code: ctrl_type,
-            index,
-        });
+    // Each entry has two NUL-terminated strings:
+    //   1. EventProcPrefix (or Name if no special characters)
+    //   2. RealName (actual name when it contains parentheses, else empty)
+    let (epp_bytes, next) = nul_terminated(data, pos + 8);
+    let (real_bytes, mut next) = nul_terminated(data, next);
+    if type_code & 0xFF == ACTIVEX {
+        next = (next + ACTIVEX_TAIL).min(data.len());
     }
 
-    Ok(controls)
+    // Use RealName if present, otherwise EventProcPrefix
+    let name_bytes = if real_bytes.is_empty() {
+        epp_bytes
+    } else {
+        real_bytes
+    };
+    let name = encoding::decode_code_page(name_bytes, code_page);
+    let entry = ControlInfo {
+        name,
+        type_code,
+        index,
+    };
+    Some((entry, next))
+}
+
+/// The bytes of `data` from `start` up to a NUL, or to its end, and where
+/// the reading goes on after the NUL.
+fn nul_terminated(data: &[u8], start: usize) -> (&[u8], usize) {
+    let rest = &data[start..];
+    let len = rest.iter().position(|&b| b == 0x00).unwrap_or(rest.len());
+    (&rest[..len], (start + len + 1).min(data.len()))
 }
 
 // ---------------------------------------------------------------------------
@@ -1111,6 +1125,44 @@ mod tests {
         assert_eq!(found("H_code"), Some(0x136F));
         assert_eq!(found("h_code"), Some(0x136F));
         assert_eq!(found("Sex"), None);
+    }
+
+    #[test]
+    fn type_info_reads_on_past_an_activex_control() {
+        // The form Hyphenate of Strings.mdb has spin buttons of Microsoft
+        // Forms 2.0, whose entries have 36 bytes after their names: each
+        // entry after them has the type of the control of its name in the
+        // tree of the Blob.
+        let path = skip_if_missing!("saveastext/Strings/Strings.mdb");
+        let mut reader = PageReader::open(&path).unwrap();
+        let info =
+            read_form_type_info_of_type(&mut reader, "Hyphenate", FormObjectType::Form).unwrap();
+        let read =
+            read_form_properties_of_type(&mut reader, "Hyphenate", FormObjectType::Form).unwrap();
+        let tree: HashMap<&str, u16> = read
+            .controls
+            .iter()
+            .map(|c| (c.name.as_str(), c.type_code))
+            .collect();
+        let ascii: Vec<&ControlInfo> = info.controls.iter().filter(|c| c.name.is_ascii()).collect();
+        assert!(ascii.len() >= 20, "{}", ascii.len());
+        for c in ascii {
+            assert_eq!(tree.get(c.name.as_str()), Some(&c.type_code), "{}", c.name);
+        }
+        // As many ActiveX controls as the tree has, past which it reads.
+        let activex = |code: u16| code & 0xFF == ACTIVEX;
+        let in_tree = read
+            .controls
+            .iter()
+            .filter(|c| activex(c.type_code))
+            .count();
+        assert!(in_tree > 0);
+        let listed = info
+            .controls
+            .iter()
+            .filter(|c| activex(c.type_code))
+            .count();
+        assert_eq!(listed, in_tree);
     }
 
     #[test]
