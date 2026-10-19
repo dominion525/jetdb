@@ -540,7 +540,7 @@ pub fn read_form_properties_in(
     let controls = control_prop_groups
         .into_iter()
         .enumerate()
-        .map(|(i, props)| {
+        .map(|(i, (blob_type, props))| {
             // Find control name from Blob's Name property (0x14).
             let blob_name = props
                 .iter()
@@ -551,11 +551,14 @@ pub fn read_form_properties_in(
                 })
                 .unwrap_or_else(|| format!("Control_{i}"));
 
-            // Match with TypeInfo by name, fallback to index.
-            let type_code = type_info_by_name(&type_info_controls, &blob_name)
-                .or_else(|| type_info_controls.get(i))
-                .map(|c| c.type_code)
-                .unwrap_or(0);
+            // Match with TypeInfo by name, then the type in the Blob, then
+            // TypeInfo by index.
+            let by_name = type_info_by_name(&type_info_controls, &blob_name);
+            let type_code = match (by_name, blob_type) {
+                (Some(c), _) => c.type_code,
+                (None, 1..) => blob_type,
+                (None, 0) => type_info_controls.get(i).map_or(0, |c| c.type_code),
+            };
 
             ControlProperties {
                 name: blob_name,
@@ -740,27 +743,109 @@ fn parse_type_info(data: &[u8], code_page: u16) -> Result<Vec<ControlInfo>, File
 // Internal: Blob parser
 // ---------------------------------------------------------------------------
 
-/// Parse the Blob binary into form-level and per-control property groups.
+/// The properties of a section or control: its type (0 when it is not
+/// known), and its properties.
+type BlobControl = (u16, Vec<BlobProperty>);
+
+/// Parse the Blob binary into the properties of the form or report itself
+/// and of its sections and controls.
 ///
-/// Returns (form_properties, vec_of_control_properties).
-/// Each control section starts with a Name (0x14) property.
-/// Parsing stops gracefully on unknown types or malformed data.
-///
-/// Entry format (reverse-engineered): see [`parse_entry`].
-fn parse_blob(data: &[u8]) -> Result<(Vec<BlobProperty>, Vec<Vec<BlobProperty>>), FileError> {
+/// The Blob keeps the design as a tree (see [`parse_nodes`]): the group of
+/// entries of the form or report itself (see [`parse_entry`]), then its
+/// default controls and its sections, each holding its controls. When the
+/// bytes do not read to the end as such a tree, each control is found by its
+/// Name entry instead, and only its properties from the name on are read.
+fn parse_blob(data: &[u8]) -> Result<(Vec<BlobProperty>, Vec<BlobControl>), FileError> {
     if data.len() < 14 {
         return Ok((Vec::new(), Vec::new()));
     }
 
     // Skip 8-byte blob header + 6-byte section preamble.
-    let (all_props, pos) = parse_group(data, 14, data.len());
+    let (all_props, pos, end) = parse_group(data, 14, data.len());
 
-    // The sequential parse above covers form-level properties but stops at binary
-    // layout data in the middle. Control sections come later, each starting with a
-    // Name (prop_id=0x14, type=0x0A) property. Scan the remaining blob for these.
-    let control_groups = scan_control_sections(data, pos);
+    if let Some(controls) = end.and_then(|end| controls_of_tree(data, pos, end)) {
+        return Ok((all_props, controls));
+    }
+    let controls = scan_control_sections(data, pos)
+        .into_iter()
+        .map(|props| (0, props))
+        .collect();
+    Ok((all_props, controls))
+}
 
-    Ok((all_props, control_groups))
+/// The types of sections: the detail section, and the headers and footers
+/// of the form or report, of its pages and of its groups.
+const SECTIONS: std::ops::RangeInclusive<u16> = 0x98..=0x9E;
+
+/// A node of the tree a Blob keeps: a default control, a section or a
+/// control, with the nodes in it.
+struct BlobNode {
+    /// The `acControlType` of Access, such as 109 for a text box.
+    type_code: u16,
+    properties: Vec<BlobProperty>,
+    children: Vec<BlobNode>,
+}
+
+/// The sections and controls of the tree from `pos`, which follows a group
+/// that ended with `end`, in the order of the Blob: each section followed by
+/// its controls. `None` when the bytes do not read to the end as a tree.
+fn controls_of_tree(data: &[u8], mut pos: usize, end: u32) -> Option<Vec<BlobControl>> {
+    let nodes = parse_nodes(data, &mut pos, end)?;
+    if pos != data.len() {
+        return None;
+    }
+    let mut controls = Vec::new();
+    // The nodes at the top are the default controls and the sections.
+    for section in nodes
+        .into_iter()
+        .filter(|n| SECTIONS.contains(&n.type_code) || !n.children.is_empty())
+    {
+        push_with_children(section, &mut controls);
+    }
+    Some(controls)
+}
+
+/// Adds `node`, and the nodes in it, to `out`.
+fn push_with_children(node: BlobNode, out: &mut Vec<BlobControl>) {
+    out.push((node.type_code, node.properties));
+    for child in node.children {
+        push_with_children(child, out);
+    }
+}
+
+/// The nodes that follow a group that ended with `end`, read from `pos`: none
+/// for 253, one for 254, and a count (u16) of them for 255. Each node is its
+/// type (u16), 4 bytes jetdb does not use, a group of entries, and the nodes
+/// that follow it: the controls of a section, the pages of a tab control.
+fn parse_nodes(data: &[u8], pos: &mut usize, end: u32) -> Option<Vec<BlobNode>> {
+    let count = match end {
+        253 => 0,
+        254 => 1,
+        _ => {
+            let b = data.get(*pos..*pos + 2)?;
+            *pos += 2;
+            u16::from_le_bytes([b[0], b[1]])
+        }
+    };
+    // The count comes from the file: grow as nodes are read.
+    let mut nodes = Vec::new();
+    for _ in 0..count {
+        nodes.push(parse_node(data, pos)?);
+    }
+    Some(nodes)
+}
+
+fn parse_node(data: &[u8], pos: &mut usize) -> Option<BlobNode> {
+    let b = data.get(*pos..*pos + 6)?;
+    let type_code = u16::from_le_bytes([b[0], b[1]]);
+    let (properties, next, end) = parse_group(data, *pos + 6, data.len());
+    *pos = next;
+    let children = parse_nodes(data, pos, end?)?;
+    Some(BlobNode {
+        type_code,
+        properties,
+        children,
+    })
 }
 
 /// Scan the blob for control property sections starting with Name (0x14) entries.
@@ -796,36 +881,37 @@ fn scan_control_sections(data: &[u8], start: usize) -> Vec<Vec<BlobProperty>> {
     control_groups
 }
 
-/// The trailers that end a group of entries: the properties of the form or
-/// report itself end with 255, those of a control with 253.
+/// The trailers that end a group of entries, which tell the nodes that
+/// follow it (see [`parse_nodes`]): 253 none, 254 one, 255 a count of them.
 const GROUP_END: std::ops::RangeInclusive<u32> = 253..=255;
 
 /// The entries of the group from `start`, which ends by `end`: through the
 /// entry whose trailer ends the group (see [`GROUP_END`]), or up to the
-/// bytes that are not an entry. Returns them and where the reading stopped.
-fn parse_group(data: &[u8], start: usize, end: usize) -> (Vec<BlobProperty>, usize) {
+/// bytes that are not an entry. Returns them, where the reading stopped, and
+/// the trailer that ended the group, `None` when it did not end.
+fn parse_group(data: &[u8], start: usize, end: usize) -> (Vec<BlobProperty>, usize, Option<u32>) {
     let mut props = Vec::new();
     let mut pos = start;
     while let Some((property, next, last)) = parse_entry(data, pos, end) {
         props.push(property);
         pos = next;
-        if last {
-            break;
+        if last.is_some() {
+            return (props, pos, last);
         }
     }
-    (props, pos)
+    (props, pos, None)
 }
 
 /// The property entry at `pos`, which ends by `end`, where the next entry
-/// starts, and whether it ends its group; `None` when there is no entry
-/// there.
+/// starts, and its trailer when it ends its group; `None` when there is no
+/// entry there.
 ///
 /// An entry is reverse-engineered as `prop_id(u16) + type(u32) + B(u32) +
 /// C(u32)`, then C bytes of value and a 4-byte trailer. The type tells how
 /// to read the value (see [`entry_value`]); B is not used. The trailer grows
 /// from one entry to the next, and is one of [`GROUP_END`] for the last entry
 /// of a group.
-fn parse_entry(data: &[u8], pos: usize, end: usize) -> Option<(BlobProperty, usize, bool)> {
+fn parse_entry(data: &[u8], pos: usize, end: usize) -> Option<(BlobProperty, usize, Option<u32>)> {
     let header = data.get(pos..pos.checked_add(14)?)?;
     let prop_id = u16::from_le_bytes([header[0], header[1]]);
     let type_code = u32::from_le_bytes([header[2], header[3], header[4], header[5]]);
@@ -836,7 +922,8 @@ fn parse_entry(data: &[u8], pos: usize, end: usize) -> Option<(BlobProperty, usi
     let t = &data[data_end..data_end + 4];
     let trailer = u32::from_le_bytes([t[0], t[1], t[2], t[3]]);
     let property = BlobProperty { prop_id, value };
-    Some((property, data_end + 4, GROUP_END.contains(&trailer)))
+    let last = GROUP_END.contains(&trailer).then_some(trailer);
+    Some((property, data_end + 4, last))
 }
 
 /// The value of an entry of type `type_code` whose value bytes are `bytes`.
@@ -1326,15 +1413,51 @@ mod tests {
     }
 
     #[test]
+    fn every_blob_of_access_2002_and_later_reads_to_the_end_as_a_tree() {
+        for (file, count) in [
+            ("vbaV2003.mdb", 1),
+            ("formPropTest.accdb", 4),
+            ("jetdb-sample.accdb", 1),
+            ("V2003/macroGeneratedTestV2003.mdb", 2),
+            ("V2007/sameNameTestV2007.accdb", 2),
+            ("V2007/propertyIdTestV2007.accdb", 106),
+            ("V2007/controlPropertyTestV2007.accdb", 96),
+            ("V2010/macroGeneratedTestV2010.accdb", 2),
+            ("saveastext/SportsAdmin/Sports.accdb", 116),
+            ("saveastext/Strings/Strings.mdb", 13),
+        ] {
+            let path = skip_if_missing!(file);
+            let mut reader = PageReader::open(&path).unwrap();
+            let mut found = 0;
+            for entry in list_forms(&mut reader).unwrap() {
+                let data = read_form_stream_of_type(
+                    &mut reader,
+                    &entry.name,
+                    entry.object_type,
+                    StreamKind::Blob,
+                )
+                .unwrap()
+                .data;
+                if data.first() == Some(&crate::form2000::VERSION) {
+                    continue;
+                }
+                found += 1;
+                let (_, pos, end) = parse_group(&data, 14, data.len());
+                let tree = end.and_then(|end| controls_of_tree(&data, pos, end));
+                assert!(tree.is_some(), "{file}: {}", entry.name);
+            }
+            assert_eq!(found, count, "{file}");
+        }
+    }
+
+    #[test]
     fn values_are_those_save_as_text_writes() {
         // Every integer and Yes/No value of a form and a report of
         // Sports.accdb is one SaveAsText writes for the same control under a
         // key that is the same for every value of the property, and the form
         // or report itself has as many NotDefault values as SaveAsText has
         // lines, and a named property is under its name. Left out: property 0x0000, which SaveAsText does not write,
-        // and the right and bottom (0x0081, 0x000C) of a report. Few
-        // properties of the controls of the report come after their names,
-        // where jetdb reads them, so fewer values are checked there.
+        // and the right and bottom (0x0081, 0x000C) of a report.
         let path = skip_if_missing!("saveastext/SportsAdmin/Sports.accdb");
         let dir = path.parent().unwrap().to_path_buf();
         let mut keys: HashMap<u16, HashSet<String>> = HashMap::new();
@@ -1343,13 +1466,13 @@ mod tests {
                 "forms/Statistical Reports.bas",
                 FormObjectType::Form,
                 "Statistical Reports",
-                50,
+                500,
             ),
             (
                 "reports/Field (High Jump).bas",
                 FormObjectType::Report,
                 "Field (High Jump)",
-                5,
+                350,
             ),
         ] {
             let checked =
