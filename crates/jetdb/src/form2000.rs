@@ -249,8 +249,6 @@ fn stored_value(id: u8, raw: &Raw) -> BlobValue {
 enum Kind {
     /// A number, of the size stored.
     Number,
-    /// A Yes/No, 0 for No.
-    YesNo,
     /// UTF-16LE text.
     Text,
     /// A GUID of 16 bytes.
@@ -310,7 +308,6 @@ const ENTRY_TABLES: &[(u16, Table)] = &[
 /// The value of `raw` given as `kind`; `None` to give it as stored.
 fn value_as(raw: &Raw, kind: Kind) -> Option<BlobValue> {
     match (raw, kind) {
-        (Raw::Int(v), Kind::YesNo) => Some(BlobValue::Bool(*v != 0)),
         (Raw::Bytes(b), Kind::Text) => encoding::decode_utf16le(b).ok().map(BlobValue::Text),
         (Raw::Bytes(b), Kind::Guid) if b.len() == 16 => Some(BlobValue::Guid(format_guid(b))),
         _ => None,
@@ -322,8 +319,11 @@ fn value_as(raw: &Raw, kind: Kind) -> Option<BlobValue> {
 // against the same objects in V2007/controlPropertyTestV2007.accdb and
 // propertyIdTestV2007.accdb (Access for Microsoft 365): the values of an ID
 // across the objects are those of one ID of the later format, and of no
-// other. The IDs of the later format are those of Access for Microsoft 365,
-// one higher above 0x01C4 than in files of earlier Access (see form.rs).
+// other. Where the SaveAsText output of the files of the 2000 format
+// themselves (testdata/V2000/saveastext) names a property another ID holds in
+// the later format, the pair follows the name. The IDs of the later format
+// are those of Access for Microsoft 365, one higher above 0x01C4 than in
+// files of earlier Access (see form.rs).
 
 const FORM: Table = &[
     (0x31, 0x002D, Kind::Number),
