@@ -181,12 +181,29 @@ fn quoted(value: &str) -> Option<String> {
 
 /// Whether `saved` is `value` as SaveAsText writes it. A Yes value is -1,
 /// 1 or 255, as Access writes different properties; a double can be written
-/// as its 8 bytes, as the date and time `RecSrcDt`.
+/// as its 8 bytes, as the date and time `RecSrcDt`; text can be given as its
+/// bytes (see `holds_text`).
 pub(crate) fn holds(saved: &Saved, value: &BlobValue) -> bool {
     match saved {
-        Saved::Quoted(text) => matches!(value, BlobValue::Text(t) if t == text),
+        Saved::Quoted(text) => holds_text(text, value),
         Saved::Bytes(bytes) => holds_bytes(bytes, value),
         Saved::Bare(bare) => holds_bare(bare, value),
+    }
+}
+
+/// Whether `text` is `value`: text, or the bytes of text in UTF-16LE, as
+/// jetdb gives the text of an ID of the Access 2000 format without a pair.
+fn holds_text(text: &str, value: &BlobValue) -> bool {
+    match value {
+        BlobValue::Text(t) => t == text,
+        BlobValue::Binary(b) => {
+            b.len() == text.encode_utf16().count() * 2
+                && text
+                    .encode_utf16()
+                    .flat_map(u16::to_le_bytes)
+                    .eq(b.iter().copied())
+        }
+        _ => false,
     }
 }
 
@@ -262,29 +279,14 @@ pub(crate) struct Observation {
     pub(crate) name: Option<&'static str>,
 }
 
-/// How the SaveAsText output of a file is checked.
-#[derive(Default)]
-pub(crate) struct Rules {
-    /// The properties, with their keys, its SaveAsText output may not write:
-    /// an older Access does not write some that Access for Microsoft 365
-    /// does. Such a value is left out where its block has no key of the name.
-    pub(crate) unwritten: &'static [(u16, &'static str)],
-    /// Whether the output is that of the database before it was saved in the
-    /// Access 2000 format, as the generators export each object in the
-    /// .accdb they make. The values of IDs without a pair, which the Access
-    /// 2000 format keeps in its own way, are then not checked: one of them
-    /// can be held by a key of the output only by chance. The object may have
-    /// fewer NotDefault values than the output: the Blob reads to its end, so
-    /// what it does not give is not in it as a NotDefault value.
-    pub(crate) converted: bool,
-}
-
 /// What the forms and reports of a file gave.
 #[derive(Default)]
 pub(crate) struct Checked {
-    pub(crate) rules: Rules,
-    /// The values of IDs without a pair of a converted file, not checked.
-    pub(crate) unpaired: usize,
+    /// The properties, with their keys, the SaveAsText output may not
+    /// write: an older Access does not write some that Access for Microsoft
+    /// 365 does. Such a value is left out where its block has no key of the
+    /// name.
+    pub(crate) unwritten: &'static [(u16, &'static str)],
     pub(crate) observations: Vec<Observation>,
     /// The values no key of their block holds.
     pub(crate) unmatched: Vec<String>,
@@ -362,7 +364,7 @@ impl Checked {
                     ));
                 }
             }
-            if !left_out(p, block, self.rules.unwritten) {
+            if !left_out(p, block, self.unwritten) {
                 self.value(at, block, p, scope);
             }
         }
@@ -378,7 +380,7 @@ impl Checked {
             .flatten()
             .filter(|s| matches!(s, Saved::Bare(b) if b == "NotDefault"))
             .count();
-        if read != written && !(self.rules.converted && read < written) {
+        if read != written {
             self.problems.push(format!(
                 "{at}: {read} NotDefault values, {written} in SaveAsText"
             ));
@@ -386,10 +388,6 @@ impl Checked {
     }
 
     fn value(&mut self, at: &str, block: &Block, p: &BlobProperty, scope: u16) {
-        if self.rules.converted && p.prop_id >= 0x8000 {
-            self.unpaired += 1;
-            return;
-        }
         let found: HashSet<String> = block
             .iter()
             .filter(|(_, saved)| saved.iter().any(|s| holds(s, &p.value)))

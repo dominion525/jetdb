@@ -1347,18 +1347,23 @@ mod tests {
     /// SaveAsText outputs by whether they are of a report, and by name.
     type SaveAsTextFiles = HashMap<(bool, String), String>;
 
-    /// The SaveAsText output of the forms and reports of Sports.accdb, in
-    /// the files next to it.
-    fn sports_save_as_text(path: &std::path::Path, reader: &mut PageReader) -> SaveAsTextFiles {
-        let dir = path.parent().unwrap();
+    /// The SaveAsText output of the forms and reports read by `reader`, in
+    /// the files `forms/<name>.<extension>` and `reports/<name>.<extension>`
+    /// of `dir`, read by `decode`.
+    fn save_as_text_files(
+        reader: &mut PageReader,
+        dir: &std::path::Path,
+        extension: &str,
+        decode: fn(Vec<u8>) -> String,
+    ) -> SaveAsTextFiles {
         let mut texts = HashMap::new();
         for entry in list_forms(reader).unwrap() {
             let report = entry.object_type == FormObjectType::Report;
             let file = dir
                 .join(if report { "reports" } else { "forms" })
-                .join(format!("{}.bas", entry.name));
-            let text = std::fs::read_to_string(&file).unwrap_or_else(|e| panic!("{file:?}: {e}"));
-            texts.insert((report, entry.name), text);
+                .join(format!("{}.{extension}", entry.name));
+            let bytes = std::fs::read(&file).unwrap_or_else(|e| panic!("{file:?}: {e}"));
+            texts.insert((report, entry.name), decode(bytes));
         }
         texts
     }
@@ -1393,10 +1398,10 @@ mod tests {
         reader: &mut PageReader,
         texts: &SaveAsTextFiles,
         broken: &[(&str, &str, &str)],
-        rules: save_as_text::Rules,
+        unwritten: &'static [(u16, &'static str)],
     ) -> save_as_text::Checked {
         let mut checked = save_as_text::Checked {
-            rules,
+            unwritten,
             ..Default::default()
         };
         for entry in list_forms(reader).unwrap() {
@@ -1432,16 +1437,13 @@ mod tests {
         //
         // What this does not show: which property an ID without a name is,
         // where its values fit several keys, as NotDefault values do; jetdb
-        // gives such an ID by its number. Nor the values of the IDs of the
-        // Access 2000 format without a pair, or the NotDefault values that
-        // format does not keep, as the SaveAsText output of those files is
-        // that of the database before it was saved in that format.
+        // gives such an ID by its number.
         let files = [
             ("saveastext/SportsAdmin/Sports.accdb", 28328),
             ("V2007/controlPropertyTestV2007.accdb", 22074),
             ("V2007/propertyIdTestV2007.accdb", 9217),
-            ("V2000/controlPropertyTestV2000.mdb", 7189),
-            ("V2000/propertyIdTestV2000.mdb", 2055),
+            ("V2000/controlPropertyTestV2000.mdb", 13322),
+            ("V2000/propertyIdTestV2000.mdb", 5200),
         ];
         let mut all = Vec::new();
         for (file, at_least) in files {
@@ -1454,27 +1456,30 @@ mod tests {
     }
 
     /// The values of the forms and reports of `file`, at `path`, after
-    /// checking each against its SaveAsText output.
+    /// checking each against its SaveAsText output: the files of
+    /// Sports.accdb, testdata/V2000/saveastext for the databases of the Access
+    /// 2000 format, which Access writes in Shift_JIS, and the table
+    /// tblGenExport for the others.
     fn checked_values(file: &str, path: &std::path::Path) -> Vec<save_as_text::Observation> {
         let mut reader = PageReader::open(path).unwrap();
-        let (texts, broken, rules): (_, &[_], _) = if file.starts_with("saveastext/") {
-            let rules = save_as_text::Rules {
-                unwritten: &SPORTS_UNWRITTEN,
-                converted: false,
-            };
+        let dir = path.parent().unwrap();
+        let (texts, broken, unwritten): (_, &[_], &'static [_]) = if file.starts_with("saveastext/")
+        {
+            let utf8 = |bytes| String::from_utf8(bytes).unwrap();
+            let texts = save_as_text_files(&mut reader, dir, "bas", utf8);
+            (texts, &SPORTS_BROKEN, &SPORTS_UNWRITTEN)
+        } else if file.starts_with("V2000/") {
+            let dir = dir.join("saveastext").join(path.file_stem().unwrap());
+            let shift_jis = |bytes: Vec<u8>| crate::encoding::decode_code_page(&bytes, 932);
             (
-                sports_save_as_text(path, &mut reader),
-                &SPORTS_BROKEN,
-                rules,
+                save_as_text_files(&mut reader, &dir, "txt", shift_jis),
+                &[],
+                &[],
             )
         } else {
-            let rules = save_as_text::Rules {
-                unwritten: &[],
-                converted: file.starts_with("V2000/"),
-            };
-            (generated_save_as_text(&mut reader), &[], rules)
+            (generated_save_as_text(&mut reader), &[], &[])
         };
-        let checked = check_save_as_text(&mut reader, &texts, broken, rules);
+        let checked = check_save_as_text(&mut reader, &texts, broken, unwritten);
         assert_eq!(checked.unmatched, Vec::<String>::new(), "{file}");
         assert_eq!(checked.problems, Vec::<String>::new(), "{file}");
         checked.observations
