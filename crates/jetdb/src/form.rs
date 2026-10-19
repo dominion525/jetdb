@@ -551,14 +551,10 @@ pub fn read_form_properties_in(
                 })
                 .unwrap_or_else(|| format!("Control_{i}"));
 
-            // Match with TypeInfo by name, then the type in the Blob, then
-            // TypeInfo by index.
-            let by_name = type_info_by_name(&type_info_controls, &blob_name);
-            let type_code = match (by_name, blob_type) {
-                (Some(c), _) => c.type_code,
-                (None, 1..) => blob_type,
-                (None, 0) => type_info_controls.get(i).map_or(0, |c| c.type_code),
-            };
+            // Match with TypeInfo by name, else the type in the Blob. Not by
+            // index: TypeInfo can list the controls in another order.
+            let type_code = type_info_by_name(&type_info_controls, &blob_name)
+                .map_or(blob_type, |c| c.type_code);
 
             ControlProperties {
                 name: blob_name,
