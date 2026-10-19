@@ -1003,13 +1003,22 @@ mod tests {
         }
     }
 
+    /// The ID whose value the ID `id` of Access 2002 and later holds in a
+    /// file saved in the Access 2000 format: Access writes the value of
+    /// DatasheetGridlinesColor12 (0x0247) as DatasheetGridlinesColor (0x013F).
+    fn holding(id: u16) -> u16 {
+        if id == 0x013F {
+            0x0247
+        } else {
+            id
+        }
+    }
+
     #[test]
     fn tied_ids_hold_the_values_of_access_2002_and_later() {
         // The same forms and reports in both formats: each property given an
-        // ID of Access 2002 and later holds the value that ID holds there,
-        // except that saving in the Access 2000 format, Access writes the
-        // value of DatasheetGridlinesColor12 (0x0247) as DatasheetGridlinesColor
-        // (0x013F), which that format has alone.
+        // ID of Access 2002 and later holds the value that ID holds there, or
+        // the one `holding` gives.
         for (file2000, file2007, at_least) in [
             (
                 "V2000/controlPropertyTestV2000.mdb",
@@ -1029,12 +1038,7 @@ mod tests {
             for (key, properties) in nodes(&path2000) {
                 let other = later.get(&key).unwrap_or_else(|| panic!("{key:?}"));
                 for p in properties.iter().filter(|p| p.prop_id < UNMAPPED) {
-                    let id = if p.prop_id == 0x013F {
-                        0x0247
-                    } else {
-                        p.prop_id
-                    };
-                    let there = other.iter().find(|q| q.prop_id == id);
+                    let there = other.iter().find(|q| q.prop_id == holding(p.prop_id));
                     assert_eq!(
                         there.map(|q| comparable(&q.value)),
                         Some(comparable(&p.value)),
