@@ -232,6 +232,17 @@ These files were created by the jetdb project using Microsoft Access for Microso
 
 They were made with the VBA module `form-generators/control-property-generator.bas` (`CreateControlPropertyForms`), imported into a new, empty `.accdb` and run from the Immediate window until it was done. Access stopped on setting `ConditionalFormat14` of a text box and `OnKeyUp` of a form, which the module then left out of every object, as `tblGenLog` records. The unbound object frame is not among the types, as Access asks for the object to insert when one is made. Saving in the Access 2000 format, Access warned that the values `z1_5`, `z2_5` and `z3_5` set to the subforms and subreports name no form or report.
 
+## Created independently: SaveAsText output of the Access 2000 format
+
+These files were written by Microsoft Access for Microsoft 365 MSO (Version 2609 Build 16.0.20430.20092, 64-bit) from the databases in the Access 2000 format, opened without converting them.
+
+| File | Purpose |
+|------|---------|
+| V2000/saveastext/controlPropertyTestV2000/{forms,reports}/*.txt | SaveAsText output of the 96 forms and reports of `V2000/controlPropertyTestV2000.mdb`, in Shift_JIS with `Version =19`, as Access writes it for this format |
+| V2000/saveastext/propertyIdTestV2000/{forms,reports}/*.txt | SaveAsText output of the 106 forms and reports of `V2000/propertyIdTestV2000.mdb` |
+
+They were written with the VBA module `form-generators/save-as-text-exporter.bas` (`ExportSaveAsText`), imported into a copy of each database and run once from the Immediate window. The `tblGenExport` tables of these databases hold the output of the `.accdb` they were saved from, before they were saved in this format.
+
 ## Created independently
 
 These files were created by the jetdb project using Microsoft Access for Microsoft 365 MSO (Version 2602 Build 16.0.19725.20014, 64-bit).

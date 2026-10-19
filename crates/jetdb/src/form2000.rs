@@ -3,8 +3,9 @@
 //! Its Blob starts with the version byte [`VERSION`] and holds the design as
 //! a tree, unlike the property entries of Access 2002 and later:
 //!
-//! - 12 bytes of header, then the properties of the form or report itself,
-//!   then a list.
+//! - 8 bytes of header, then the form or report itself as an entry
+//!   without its end: its type (u16, 0x96 for a form, 0x97 for a report)
+//!   and its properties, then a list.
 //! - A list is `FF` and a count (u16) of entries, or `FE` and one entry.
 //! - An entry is a type (u16, the `acControlType` of Access, such as 109 for
 //!   a text box or 152 for the detail section), its properties, and `FD`, or a
@@ -161,7 +162,8 @@ impl Reader<'_> {
 /// controls, from a Blob of the Access 2000 format; `None` when the bytes do
 /// not fit the format.
 pub(crate) fn read(data: &[u8]) -> Option<(Vec<BlobProperty>, Vec<ControlProperties>)> {
-    let mut reader = Reader { data, pos: 12 };
+    // The properties of the object follow its type, at 8.
+    let mut reader = Reader { data, pos: 10 };
     let object = reader.props()?;
     let entries = reader.list()?;
     if reader.pos != data.len() {
@@ -824,7 +826,7 @@ mod tests {
 
     /// A Blob with the header, the properties of the object, and `rest`.
     fn blob(object: &[u8], rest: &[u8]) -> Vec<u8> {
-        let mut data = vec![VERSION, 0, VERSION, 0, 0, 0, 0, 0, 0x96, 0, 0, 0];
+        let mut data = vec![VERSION, 0, VERSION, 0, 0, 0, 0, 0, 0x96, 0];
         data.extend_from_slice(object);
         data.extend_from_slice(rest);
         data
@@ -922,6 +924,29 @@ mod tests {
             for (name, data) in found {
                 assert!(read(&data).is_some(), "{file}: {name}");
             }
+        }
+    }
+
+    #[test]
+    fn the_properties_of_the_object_start_after_its_type() {
+        // The form itself is an entry without its end: its type at 8, then
+        // its properties. In its SaveAsText output (testdata/V2000/saveastext),
+        // base_Form has DividingLines and AllowDesignChanges = NotDefault, and
+        // Form_AllowLayoutView_1 DividingLines alone, followed by the 1-byte
+        // DefaultView.
+        let path = skip_if_missing!("V2000/propertyIdTestV2000.mdb");
+        let mut reader = PageReader::open(&path).unwrap();
+        for (name, not_default) in [
+            ("base_Form", &[0x8014, 0x801C][..]),
+            ("Form_AllowLayoutView_1", &[0x8014][..]),
+        ] {
+            let read =
+                read_form_properties_of_type(&mut reader, name, FormObjectType::Form).unwrap();
+            let ids: Vec<u16> = read.properties.iter().map(|p| p.prop_id).collect();
+            assert_eq!(ids[..not_default.len()], *not_default, "{name}");
+            let next = &read.properties[not_default.len()];
+            assert_eq!(next.prop_id, 0x8030, "{name}");
+            assert!(matches!(next.value, BlobValue::Short(0)), "{name}");
         }
     }
 
