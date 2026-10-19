@@ -261,7 +261,6 @@ jetdb は、種類ごとの表（409 組）で、プロパティに Access 2002 
 | 0x0112 | Class | オブジェクトフレームのクラス |
 | 0x0130 | ShortcutMenuBar | ショートカットメニュー |
 | 0x013D | ControlTipText | コントロールヒントテキスト |
-| 0x015A | InputMask | 入力マスク |
 | 0x0161 | Toolbar | ツールバー |
 
 整数とはい/いいえの値の名前は、`Sports.accdb` と、Access でプロパティを 1 つずつ設定して作った `testdata/V2007/propertyIdTestV2007.accdb` の、その ID が出てくるすべてのフォームとレポートで、値が一致する SaveAsText のキーである。名前を付けるのは、1 つのキーがすべての値に合うよう値がいろいろに変わる ID か、`propertyIdTestV2007.accdb` でそのプロパティを設定すると値が変わる ID である。名前は 0x01C4 までの ID にだけ付ける。Microsoft 365 の Access は、Anchor やレイアウトのものなど、それより大きい ID を、`Sports.accdb` を作った Access より 1 つ大きく書くため。

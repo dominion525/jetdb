@@ -261,7 +261,6 @@ Known prop_id values are displayed by name; unknown ones are shown in `0xXXXX` n
 | 0x0112 | Class | Class of an object frame |
 | 0x0130 | ShortcutMenuBar | Shortcut menu |
 | 0x013D | ControlTipText | Control tip text |
-| 0x015A | InputMask | Input mask |
 | 0x0161 | Toolbar | Toolbar |
 
 Names of integer and Yes/No values: each is the SaveAsText key that the values of the ID agree with in every form and report where it appears, in `Sports.accdb` and in `testdata/V2007/propertyIdTestV2007.accdb`, which was made in Access with one property set at a time. An ID is named where its values vary, so that one key fits them all, or where setting the property in `propertyIdTestV2007.accdb` changes the value of the ID. Only IDs up to 0x01C4 are named: Access for Microsoft 365 writes the IDs above, such as those of the anchors and the layout, one higher than the Access that made `Sports.accdb`.

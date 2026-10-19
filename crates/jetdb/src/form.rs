@@ -334,7 +334,6 @@ pub fn prop_id_name(prop_id: u16) -> Option<&'static str> {
         0x0112 => Some("Class"),
         0x0130 => Some("ShortcutMenuBar"),
         0x013D => Some("ControlTipText"),
-        0x015A => Some("InputMask"),
         0x0161 => Some("Toolbar"),
         _ => None,
     }
