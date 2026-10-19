@@ -398,9 +398,13 @@ function checkForms(Database, build) {
   assert.equal(shared.formProperties("Shared", { type: "Report" }).type, "Report", build);
   assert.throws(() => shared.formStream("Shared"), { name: "JetdbError", code: "INVALID_ARGUMENT" }, build);
   assert.throws(() => shared.formControls("Shared"), { name: "JetdbError", code: "INVALID_ARGUMENT" }, build);
-  // Made by VBA, these have an empty TypeInfo, which jetdb form controls
-  // cannot read either.
-  assert.throws(() => shared.formControls("Shared", { type: "Report" }), { name: "JetdbError", code: "INVALID_FILE" }, build);
+  // Made by VBA, the report has an empty TypeInfo; its controls come from
+  // the Blob.
+  assert.deepEqual(
+    shared.formControls("Shared", { type: "Report" }).map((c) => `${c.name} ${c.type} ${c.index}`),
+    ["ページヘッダーセクション PageHeader 0", "詳細 Detail 1", "lblReportOnly Label 2", "ページフッターセクション PageFooter 3"],
+    build,
+  );
   assert.ok(shared.formStream("Shared", { type: "Report" }).length > 0, build);
   assert.equal(shared.embeddedMacros("Shared", { type: "Report" })[0].source.event, "OnOpen", build);
   assert.throws(() => shared.embeddedMacros("Shared", { type: "Page" }), { name: "JetdbError", code: "INVALID_ARGUMENT" }, build);

@@ -23,7 +23,7 @@ pub enum FormCommands {
     List(FormListArgs),
     /// Dump a binary stream from a form or report
     Dump(FormDumpArgs),
-    /// List control names from TypeInfo
+    /// List the sections and controls of a form or report
     Controls(FormControlsArgs),
     /// Show form/report and control properties parsed from Blob
     Props(FormPropsArgs),
@@ -245,17 +245,18 @@ fn run_dump(args: &FormDumpArgs, password: Option<&str>) -> Result<(), String> {
 fn run_controls(args: &FormControlsArgs, password: Option<&str>) -> Result<(), String> {
     let mut reader =
         PageReader::open_with_password(&args.file, password).map_err(|e| e.to_string())?;
-    let type_info = match form_type_of(&mut reader, &args.name, args.object_type)? {
-        Some(t) => jetdb::read_form_type_info_of_type(&mut reader, &args.name, t),
-        None => jetdb::read_form_type_info(&mut reader, &args.name),
+    // The sections and controls of the Blob, which TypeInfo can lack.
+    let form_props = match form_type_of(&mut reader, &args.name, args.object_type)? {
+        Some(t) => jetdb::read_form_properties_of_type(&mut reader, &args.name, t),
+        None => jetdb::read_form_properties(&mut reader, &args.name),
     }
     .map_err(|e| e.to_string())?;
 
-    for ctrl in &type_info.controls {
+    for (index, ctrl) in form_props.controls.iter().enumerate() {
         let type_name = jetdb::control_type_name(ctrl.type_code)
             .map(|s| s.to_string())
             .unwrap_or_else(|| format!("0x{:04X}", ctrl.type_code));
-        println!("{}\t{}\t{}", ctrl.name, type_name, ctrl.index);
+        println!("{}\t{}\t{}", ctrl.name, type_name, index);
     }
 
     Ok(())

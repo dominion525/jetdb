@@ -17,12 +17,12 @@ use jetdb::{
     calculated_column_types_in, control_type_name, data_macros_to_text, embedded_macro_to_text,
     entry_properties, find_table, list_forms_in, list_macros_in, query_to_sql, read_access_storage,
     read_catalog, read_complex_column, read_data_macros_in, read_embedded_macros_in,
-    read_form_properties_in, read_form_stream_in, read_form_type_info_in, read_macro_in,
-    read_object_properties, read_queries_in, read_relationships_in, read_table_def,
-    read_vba_project_in, relationship_flags, timestamp, write_csv, AccessStorage, BlobProperty,
-    BlobValue, CatalogEntry, ComplexColumn, ComplexValues, CsvOptions, FileError, FormObjectType,
-    IndexColumnOrder, MacroDef, MacroGrid, PageReader, PropMapType, QueryDef, QueryType,
-    RowPosition, StreamKind, TableDef, TableRows, Value, VbaModule, VbaModuleType,
+    read_form_properties_in, read_form_stream_in, read_macro_in, read_object_properties,
+    read_queries_in, read_relationships_in, read_table_def, read_vba_project_in,
+    relationship_flags, timestamp, write_csv, AccessStorage, BlobProperty, BlobValue, CatalogEntry,
+    ComplexColumn, ComplexValues, CsvOptions, FileError, FormObjectType, IndexColumnOrder,
+    MacroDef, MacroGrid, PageReader, PropMapType, QueryDef, QueryType, RowPosition, StreamKind,
+    TableDef, TableRows, Value, VbaModule, VbaModuleType,
 };
 
 /// A database opened from bytes in memory.
@@ -260,8 +260,24 @@ pub struct ControlEntry {
     /// The type name (see [`control_type`]).
     pub type_name: String,
     pub type_code: u16,
-    /// The index of the control in the form or report.
+    /// The place of the control in the list, from 0.
     pub index: u32,
+}
+
+/// The sections and controls of `design`, as `jetdb form controls` lists
+/// them.
+fn controls_of(design: jetdb::FormProperties) -> Vec<ControlEntry> {
+    design
+        .controls
+        .into_iter()
+        .zip(0..)
+        .map(|(c, index)| ControlEntry {
+            type_name: control_type(c.type_code),
+            name: c.name,
+            type_code: c.type_code,
+            index,
+        })
+        .collect()
 }
 
 /// The name of the control type `code`, or the code as `0x....` for a type
@@ -718,25 +734,16 @@ impl Database {
         Ok(out)
     }
 
-    /// The controls of the form or report `name`, as `jetdb form controls`
-    /// lists them: in the order of its TypeInfo, with their index.
+    /// The sections and controls of the form or report `name`, as `jetdb form
+    /// controls` lists them: in the order of its Blob, with their places.
     pub fn form_controls(
         &mut self,
         name: &str,
         form_type: Option<FormObjectType>,
     ) -> Result<Vec<ControlEntry>, PropertiesError> {
         let form_type = self.form_type(name, form_type)?;
-        let type_info = read_form_type_info_in(self.storage()?, name, form_type)?;
-        Ok(type_info
-            .controls
-            .into_iter()
-            .map(|c| ControlEntry {
-                name: c.name,
-                type_name: control_type(c.type_code),
-                type_code: c.type_code,
-                index: c.index,
-            })
-            .collect())
+        let design = read_form_properties_in(self.storage()?, name, form_type)?;
+        Ok(controls_of(design))
     }
 
     /// The bytes of the stream `kind` of the form or report `name`, as
@@ -1136,7 +1143,7 @@ mod tests {
     // which the tests compare Database with.
     use jetdb::{
         list_forms, list_macros, read_data_macros, read_embedded_macros, read_form_properties,
-        read_form_stream_of_type, read_form_type_info_of_type, read_macro, read_vba_project,
+        read_form_properties_of_type, read_form_stream_of_type, read_macro, read_vba_project,
     };
 
     fn test_data(relative: &str) -> Option<Vec<u8>> {
@@ -1901,15 +1908,17 @@ mod tests {
         Result<Vec<ControlEntry>, String>,
         Result<Vec<ControlEntry>, String>,
     ) {
-        let expected = read_form_type_info_of_type(reader, &entry.name, entry.object_type)
-            .map(|t| {
-                t.controls
+        let expected = read_form_properties_of_type(reader, &entry.name, entry.object_type)
+            .map(|design| {
+                design
+                    .controls
                     .into_iter()
-                    .map(|c| ControlEntry {
+                    .zip(0..)
+                    .map(|(c, index)| ControlEntry {
                         type_name: control_name_of_cli(c.type_code),
                         name: c.name,
                         type_code: c.type_code,
-                        index: c.index,
+                        index,
                     })
                     .collect()
             })
@@ -1933,9 +1942,8 @@ mod tests {
     #[test]
     fn form_controls_as_jetdb_form_controls_lists_them() {
         // The controls of each form and report are those jetdb form controls
-        // lists, in its order; their names, ignoring case, and types are those
-        // of the controls of formProperties. A control of Sports.accdb is
-        // H_Code in TypeInfo and H_code in the Blob.
+        // lists, in its order; their names and types are those of the
+        // controls of formProperties.
         for file in ["formPropTest.accdb", "saveastext/SportsAdmin/Sports.accdb"] {
             let bytes = skip_if_missing!(file);
             let mut db = Database::open(bytes.clone(), None).unwrap();

@@ -1663,6 +1663,30 @@ mod tests {
     }
 
     #[test]
+    fn controls_of_an_empty_type_info_have_the_types_of_the_tree() {
+        // Made by VBA, the report Shared has an empty TypeInfo; its sections
+        // and controls have the types in the tree of its Blob.
+        let path = skip_if_missing!("V2007/sameNameTestV2007.accdb");
+        let mut reader = PageReader::open(&path).unwrap();
+        let read =
+            read_form_properties_of_type(&mut reader, "Shared", FormObjectType::Report).unwrap();
+        let controls: Vec<(&str, u16)> = read
+            .controls
+            .iter()
+            .map(|c| (c.name.as_str(), c.type_code))
+            .collect();
+        assert_eq!(
+            controls,
+            [
+                ("ページヘッダーセクション", 0x9B),
+                ("詳細", 0x98),
+                ("lblReportOnly", 0x64),
+                ("ページフッターセクション", 0x9C),
+            ]
+        );
+    }
+
+    #[test]
     fn properties_after_an_entry_of_an_unknown_type() {
         // The form Shared has an entry 0x0201 of type 0x11 (730 bytes), and
         // twelve more after it, through 0x02E6, whose trailer 255 ends the
