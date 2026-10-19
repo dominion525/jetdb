@@ -277,7 +277,7 @@ pub fn read_form_type_info_in(
 ) -> Result<FormTypeInfo, FileError> {
     let (object_type, stream_data) =
         find_stream(&storage.entries, name, object_type, StreamKind::TypeInfo)?;
-    let controls = parse_type_info(&stream_data)?;
+    let controls = parse_type_info(&stream_data, storage.code_page)?;
 
     Ok(FormTypeInfo {
         form_name: name.to_string(),
@@ -530,7 +530,7 @@ pub fn read_form_properties_in(
     // name of a form.
     let type_info_controls =
         match find_stream(entries, name, Some(object_type), StreamKind::TypeInfo) {
-            Ok((_, ti_data)) => parse_type_info(&ti_data).unwrap_or_default(),
+            Ok((_, ti_data)) => parse_type_info(&ti_data, storage.code_page).unwrap_or_default(),
             Err(_) => Vec::new(),
         };
 
@@ -648,8 +648,13 @@ const TYPEINFO_MAGIC: u32 = 0xACCD_EAF7;
 ///
 /// Format:
 /// - Header (32 bytes): magic(u32) + field1(u32) + field2(i32) + count(u32) + GUID(16)
-/// - Entries: ctrl_type(u16) + padding(u16) + index(u32) + name(Shift-JIS, NUL) + align(0x00)
-fn parse_type_info(data: &[u8]) -> Result<Vec<ControlInfo>, FileError> {
+/// - Entries: ctrl_type(u16) + padding(u16) + index(u32) + name(NUL) + align(0x00)
+///
+/// The names are bytes in a code page, read in `code_page`, that of the
+/// header of the database. The code page they are written in is that of
+/// the Access that saved the form, which the file does not tell: the
+/// Russian names of Strings.mdb are in 1251, while its header has 1252.
+fn parse_type_info(data: &[u8], code_page: u16) -> Result<Vec<ControlInfo>, FileError> {
     if data.len() < 32 {
         return Err(FileError::InvalidFormData {
             reason: "TypeInfo too short for header",
@@ -688,7 +693,7 @@ fn parse_type_info(data: &[u8]) -> Result<Vec<ControlInfo>, FileError> {
             u32::from_le_bytes([data[pos + 4], data[pos + 5], data[pos + 6], data[pos + 7]]);
         pos += 8;
 
-        // Each entry has two NUL-terminated Shift-JIS strings:
+        // Each entry has two NUL-terminated strings:
         //   1. EventProcPrefix (or Name if no special characters)
         //   2. RealName (actual name when it contains parentheses, else empty)
         let epp_start = pos;
@@ -711,9 +716,9 @@ fn parse_type_info(data: &[u8]) -> Result<Vec<ControlInfo>, FileError> {
 
         // Use RealName if present, otherwise EventProcPrefix
         let name = if real_bytes.is_empty() {
-            decode_shift_jis(epp_bytes)
+            encoding::decode_code_page(epp_bytes, code_page)
         } else {
-            decode_shift_jis(real_bytes)
+            encoding::decode_code_page(real_bytes, code_page)
         };
 
         // 0x1EFF: internal metadata entries, not real controls
@@ -729,12 +734,6 @@ fn parse_type_info(data: &[u8]) -> Result<Vec<ControlInfo>, FileError> {
     }
 
     Ok(controls)
-}
-
-/// Decode Shift-JIS (cp932) bytes to a String.
-fn decode_shift_jis(bytes: &[u8]) -> String {
-    let (result, _, _) = encoding_rs::SHIFT_JIS.decode(bytes);
-    result.into_owned()
 }
 
 // ---------------------------------------------------------------------------
@@ -1025,7 +1024,7 @@ mod tests {
     #[test]
     fn parse_type_info_too_short() {
         let data = [0u8; 16];
-        let result = parse_type_info(&data);
+        let result = parse_type_info(&data, 932);
         assert!(result.is_err());
     }
 
@@ -1033,7 +1032,7 @@ mod tests {
     fn parse_type_info_bad_magic() {
         let mut data = [0u8; 32];
         data[0] = 0xFF; // wrong magic
-        let result = parse_type_info(&data);
+        let result = parse_type_info(&data, 932);
         assert!(result.is_err());
     }
 
@@ -1045,7 +1044,7 @@ mod tests {
         // entry_count = 0 (at offset 12)
         data[12..16].copy_from_slice(&0u32.to_le_bytes());
 
-        let result = parse_type_info(&data).unwrap();
+        let result = parse_type_info(&data, 932).unwrap();
         assert!(result.is_empty());
     }
 
@@ -1061,15 +1060,36 @@ mod tests {
         data.extend_from_slice(&[0x68, 0x0B]); // ctrl_type
         data.extend_from_slice(&[0x00, 0x00]); // padding
         data.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]); // index
-        data.extend_from_slice(b"Btn1"); // ASCII name (valid Shift-JIS)
+        data.extend_from_slice(b"Btn1"); // ASCII name
         data.push(0x00); // NUL terminator
         data.push(0x00); // alignment
 
-        let result = parse_type_info(&data).unwrap();
+        let result = parse_type_info(&data, 932).unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].name, "Btn1");
         assert_eq!(result[0].type_code, 0x0B68);
         assert_eq!(result[0].index, 0);
+    }
+
+    #[test]
+    fn type_info_names_are_read_in_the_code_page() {
+        // One entry named `name`, in bytes of a code page.
+        let type_info = |name: &[u8]| {
+            let mut data = vec![0u8; 32];
+            data[0..4].copy_from_slice(&TYPEINFO_MAGIC.to_le_bytes());
+            data[12..16].copy_from_slice(&1u32.to_le_bytes());
+            data.extend_from_slice(&[0x64, 0x0D, 0, 0, 0, 0, 0, 0]);
+            data.extend_from_slice(name);
+            data.extend_from_slice(&[0, 0]);
+            data
+        };
+        let name =
+            |data: &[u8], code_page| parse_type_info(data, code_page).unwrap()[0].name.clone();
+        // 詳細 in 932, Café in 1252, Заголовок in 1251.
+        assert_eq!(name(&type_info(&[0x8F, 0xDA, 0x8D, 0xD7]), 932), "詳細");
+        assert_eq!(name(&type_info(b"Caf\xE9"), 1252), "Café");
+        let russian = [0xC7, 0xE0, 0xE3, 0xEE, 0xEB, 0xEE, 0xE2, 0xEE, 0xEA];
+        assert_eq!(name(&type_info(&russian), 1251), "Заголовок");
     }
 
     // -- Integration tests with real files -----------------------------------
