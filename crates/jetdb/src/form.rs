@@ -552,9 +552,7 @@ pub fn read_form_properties_in(
                 .unwrap_or_else(|| format!("Control_{i}"));
 
             // Match with TypeInfo by name, fallback to index.
-            let type_code = type_info_controls
-                .iter()
-                .find(|c| c.name == blob_name)
+            let type_code = type_info_by_name(&type_info_controls, &blob_name)
                 .or_else(|| type_info_controls.get(i))
                 .map(|c| c.type_code)
                 .unwrap_or(0);
@@ -573,6 +571,14 @@ pub fn read_form_properties_in(
         properties: form_props,
         controls,
     })
+}
+
+/// The control of TypeInfo named `name`. Access does not tell names apart by
+/// case, and TypeInfo can keep an old spelling of a name, such as `H_Code`
+/// for the control the Blob and SaveAsText name `H_code`.
+fn type_info_by_name<'a>(controls: &'a [ControlInfo], name: &str) -> Option<&'a ControlInfo> {
+    let name = name.to_lowercase();
+    controls.iter().find(|c| c.name.to_lowercase() == name)
 }
 
 // ---------------------------------------------------------------------------
@@ -1001,6 +1007,20 @@ mod tests {
     }
 
     // -- TypeInfo parser unit tests ------------------------------------------
+
+    #[test]
+    fn type_info_is_found_by_name_of_any_case() {
+        let control = |name: &str, type_code| ControlInfo {
+            name: name.to_string(),
+            type_code,
+            index: 0,
+        };
+        let controls = [control("Label7", 0x0C64), control("H_Code", 0x136F)];
+        let found = |name| type_info_by_name(&controls, name).map(|c| c.type_code);
+        assert_eq!(found("H_code"), Some(0x136F));
+        assert_eq!(found("h_code"), Some(0x136F));
+        assert_eq!(found("Sex"), None);
+    }
 
     #[test]
     fn parse_type_info_too_short() {
