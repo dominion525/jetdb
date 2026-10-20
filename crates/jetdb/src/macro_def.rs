@@ -927,19 +927,7 @@ fn parse_xml_tree(xml: &str) -> Result<MacroXmlElement, FileError> {
 
     loop {
         match reader.read_event() {
-            Ok(Event::Start(e)) => {
-                if stack.len() == MAX_XML_DEPTH {
-                    return Err(FileError::InvalidMacroData {
-                        reason: format!("macro XML nested deeper than {MAX_XML_DEPTH} elements"),
-                    });
-                }
-                stack.push(MacroXmlElement {
-                    name: e.name().as_ref().to_string(),
-                    attributes: read_attrs(&e)?,
-                    text: String::new(),
-                    children: Vec::new(),
-                });
-            }
+            Ok(Event::Start(e)) => open_element(&mut stack, &e)?,
             Ok(Event::Empty(e)) => {
                 let element = MacroXmlElement {
                     name: e.name().as_ref().to_string(),
@@ -965,19 +953,7 @@ fn parse_xml_tree(xml: &str) -> Result<MacroXmlElement, FileError> {
             // Entity and character references (`&lt;`, `&#60;`) arrive as
             // separate events rather than inside the surrounding text.
             Ok(Event::GeneralRef(r)) => {
-                let resolved = match r.resolve_char_ref() {
-                    Ok(Some(ch)) => ch.to_string(),
-                    Ok(None) => quick_xml::escape::resolve_xml_entity(&r)
-                        .ok_or_else(|| FileError::InvalidMacroData {
-                            reason: format!("unknown entity in macro XML: &{};", &*r),
-                        })?
-                        .to_string(),
-                    Err(e) => {
-                        return Err(FileError::InvalidMacroData {
-                            reason: format!("invalid character reference in macro XML: {e}"),
-                        })
-                    }
-                };
+                let resolved = resolve_reference(&r)?;
                 if let Some(top) = stack.last_mut() {
                     top.text.push_str(&resolved);
                 }
@@ -1006,6 +982,42 @@ fn parse_xml_tree(xml: &str) -> Result<MacroXmlElement, FileError> {
         .ok_or_else(|| FileError::InvalidMacroData {
             reason: "empty macro XML document".to_string(),
         })
+}
+
+/// Opens the element `e` on `stack`, the elements being read; an error when
+/// that would nest them deeper than [`MAX_XML_DEPTH`].
+fn open_element(
+    stack: &mut Vec<MacroXmlElement>,
+    e: &quick_xml::events::BytesStart<'_>,
+) -> Result<(), FileError> {
+    if stack.len() == MAX_XML_DEPTH {
+        return Err(FileError::InvalidMacroData {
+            reason: format!("macro XML nested deeper than {MAX_XML_DEPTH} elements"),
+        });
+    }
+    stack.push(MacroXmlElement {
+        name: e.name().as_ref().to_string(),
+        attributes: read_attrs(e)?,
+        text: String::new(),
+        children: Vec::new(),
+    });
+    Ok(())
+}
+
+/// The text of the entity or character reference `r`, such as `&lt;` or
+/// `&#60;`.
+fn resolve_reference(r: &quick_xml::events::BytesRef<'_>) -> Result<String, FileError> {
+    match r.resolve_char_ref() {
+        Ok(Some(ch)) => Ok(ch.to_string()),
+        Ok(None) => quick_xml::escape::resolve_xml_entity(r)
+            .map(str::to_string)
+            .ok_or_else(|| FileError::InvalidMacroData {
+                reason: format!("unknown entity in macro XML: &{};", &**r),
+            }),
+        Err(e) => Err(FileError::InvalidMacroData {
+            reason: format!("invalid character reference in macro XML: {e}"),
+        }),
+    }
 }
 
 fn read_attrs(e: &quick_xml::events::BytesStart<'_>) -> Result<Vec<(String, String)>, FileError> {
