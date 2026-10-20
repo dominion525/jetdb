@@ -903,7 +903,15 @@ fn decode_utf16le_lossy(bytes: &[u8]) -> String {
 // Internal: XML -> element tree -> statements
 // ---------------------------------------------------------------------------
 
-/// Parses `xml` into an element tree and returns its document element.
+/// How deep the elements of macro XML may nest. The statements, and the
+/// copies and drops of the tree, recur on each level, and a file can nest
+/// them deep enough to use up the stack, which is 1 MB in Wasm: about 2,000
+/// levels of statement groups do there. Macros Access makes nest a few
+/// levels.
+const MAX_XML_DEPTH: usize = 256;
+
+/// Parses `xml` into an element tree and returns its document element; an
+/// error when its elements nest deeper than [`MAX_XML_DEPTH`].
 fn parse_xml_tree(xml: &str) -> Result<MacroXmlElement, FileError> {
     use quick_xml::events::Event;
     use quick_xml::Reader;
@@ -919,14 +927,7 @@ fn parse_xml_tree(xml: &str) -> Result<MacroXmlElement, FileError> {
 
     loop {
         match reader.read_event() {
-            Ok(Event::Start(e)) => {
-                stack.push(MacroXmlElement {
-                    name: e.name().as_ref().to_string(),
-                    attributes: read_attrs(&e)?,
-                    text: String::new(),
-                    children: Vec::new(),
-                });
-            }
+            Ok(Event::Start(e)) => open_element(&mut stack, &e)?,
             Ok(Event::Empty(e)) => {
                 let element = MacroXmlElement {
                     name: e.name().as_ref().to_string(),
@@ -952,19 +953,7 @@ fn parse_xml_tree(xml: &str) -> Result<MacroXmlElement, FileError> {
             // Entity and character references (`&lt;`, `&#60;`) arrive as
             // separate events rather than inside the surrounding text.
             Ok(Event::GeneralRef(r)) => {
-                let resolved = match r.resolve_char_ref() {
-                    Ok(Some(ch)) => ch.to_string(),
-                    Ok(None) => quick_xml::escape::resolve_xml_entity(&r)
-                        .ok_or_else(|| FileError::InvalidMacroData {
-                            reason: format!("unknown entity in macro XML: &{};", &*r),
-                        })?
-                        .to_string(),
-                    Err(e) => {
-                        return Err(FileError::InvalidMacroData {
-                            reason: format!("invalid character reference in macro XML: {e}"),
-                        })
-                    }
-                };
+                let resolved = resolve_reference(&r)?;
                 if let Some(top) = stack.last_mut() {
                     top.text.push_str(&resolved);
                 }
@@ -993,6 +982,42 @@ fn parse_xml_tree(xml: &str) -> Result<MacroXmlElement, FileError> {
         .ok_or_else(|| FileError::InvalidMacroData {
             reason: "empty macro XML document".to_string(),
         })
+}
+
+/// Opens the element `e` on `stack`, the elements being read; an error when
+/// that would nest them deeper than [`MAX_XML_DEPTH`].
+fn open_element(
+    stack: &mut Vec<MacroXmlElement>,
+    e: &quick_xml::events::BytesStart<'_>,
+) -> Result<(), FileError> {
+    if stack.len() == MAX_XML_DEPTH {
+        return Err(FileError::InvalidMacroData {
+            reason: format!("macro XML nested deeper than {MAX_XML_DEPTH} elements"),
+        });
+    }
+    stack.push(MacroXmlElement {
+        name: e.name().as_ref().to_string(),
+        attributes: read_attrs(e)?,
+        text: String::new(),
+        children: Vec::new(),
+    });
+    Ok(())
+}
+
+/// The text of the entity or character reference `r`, such as `&lt;` or
+/// `&#60;`.
+fn resolve_reference(r: &quick_xml::events::BytesRef<'_>) -> Result<String, FileError> {
+    match r.resolve_char_ref() {
+        Ok(Some(ch)) => Ok(ch.to_string()),
+        Ok(None) => quick_xml::escape::resolve_xml_entity(r)
+            .map(str::to_string)
+            .ok_or_else(|| FileError::InvalidMacroData {
+                reason: format!("unknown entity in macro XML: &{};", &**r),
+            }),
+        Err(e) => Err(FileError::InvalidMacroData {
+            reason: format!("invalid character reference in macro XML: {e}"),
+        }),
+    }
 }
 
 fn read_attrs(e: &quick_xml::events::BytesStart<'_>) -> Result<Vec<(String, String)>, FileError> {
@@ -1190,6 +1215,37 @@ mod tests {
 
     fn statements(xml: &str) -> Vec<MacroStatement> {
         statements_of(&parse_xml_tree(xml).unwrap())
+    }
+
+    /// A macro whose elements nest `depth` levels: the document element,
+    /// its `Statements`, and `X` elements in them.
+    fn nested_xml(depth: usize) -> String {
+        let inner = depth - 2;
+        format!(
+            "<UserInterfaceMacro xmlns=\"ns\"><Statements>{}{}</Statements></UserInterfaceMacro>",
+            "<X>".repeat(inner),
+            "</X>".repeat(inner)
+        )
+    }
+
+    #[test]
+    fn elements_nest_up_to_the_limit() {
+        // Within the limit, the tree gives its statements: the elements are
+        // unknown statements copied with the tree in them.
+        let tree = parse_xml_tree(&nested_xml(MAX_XML_DEPTH)).unwrap();
+        assert_eq!(statements_of(&tree).len(), 1);
+        let deeper = parse_xml_tree(&nested_xml(MAX_XML_DEPTH + 1));
+        assert!(
+            matches!(&deeper, Err(FileError::InvalidMacroData { reason }) if reason.contains("deeper")),
+            "{deeper:?}"
+        );
+    }
+
+    #[test]
+    fn deep_nesting_is_an_error_rather_than_a_stack_overflow() {
+        // 100,000 levels, which would use up the stack building the
+        // statements of the tree and dropping it.
+        assert!(parse_xml_tree(&nested_xml(100_000)).is_err());
     }
 
     fn action(name: &str, arguments: &[(&str, &str)]) -> MacroStatement {
