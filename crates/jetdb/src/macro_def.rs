@@ -903,7 +903,15 @@ fn decode_utf16le_lossy(bytes: &[u8]) -> String {
 // Internal: XML -> element tree -> statements
 // ---------------------------------------------------------------------------
 
-/// Parses `xml` into an element tree and returns its document element.
+/// How deep the elements of macro XML may nest. The statements, and the
+/// copies and drops of the tree, recur on each level, and a file can nest
+/// them deep enough to use up the stack, which is 1 MB in Wasm: about 2,000
+/// levels of statement groups do there. Macros Access makes nest a few
+/// levels.
+const MAX_XML_DEPTH: usize = 256;
+
+/// Parses `xml` into an element tree and returns its document element; an
+/// error when its elements nest deeper than [`MAX_XML_DEPTH`].
 fn parse_xml_tree(xml: &str) -> Result<MacroXmlElement, FileError> {
     use quick_xml::events::Event;
     use quick_xml::Reader;
@@ -920,6 +928,11 @@ fn parse_xml_tree(xml: &str) -> Result<MacroXmlElement, FileError> {
     loop {
         match reader.read_event() {
             Ok(Event::Start(e)) => {
+                if stack.len() == MAX_XML_DEPTH {
+                    return Err(FileError::InvalidMacroData {
+                        reason: format!("macro XML nested deeper than {MAX_XML_DEPTH} elements"),
+                    });
+                }
                 stack.push(MacroXmlElement {
                     name: e.name().as_ref().to_string(),
                     attributes: read_attrs(&e)?,
@@ -1190,6 +1203,37 @@ mod tests {
 
     fn statements(xml: &str) -> Vec<MacroStatement> {
         statements_of(&parse_xml_tree(xml).unwrap())
+    }
+
+    /// A macro whose elements nest `depth` levels: the document element,
+    /// its `Statements`, and `X` elements in them.
+    fn nested_xml(depth: usize) -> String {
+        let inner = depth - 2;
+        format!(
+            "<UserInterfaceMacro xmlns=\"ns\"><Statements>{}{}</Statements></UserInterfaceMacro>",
+            "<X>".repeat(inner),
+            "</X>".repeat(inner)
+        )
+    }
+
+    #[test]
+    fn elements_nest_up_to_the_limit() {
+        // Within the limit, the tree gives its statements: the elements are
+        // unknown statements copied with the tree in them.
+        let tree = parse_xml_tree(&nested_xml(MAX_XML_DEPTH)).unwrap();
+        assert_eq!(statements_of(&tree).len(), 1);
+        let deeper = parse_xml_tree(&nested_xml(MAX_XML_DEPTH + 1));
+        assert!(
+            matches!(&deeper, Err(FileError::InvalidMacroData { reason }) if reason.contains("deeper")),
+            "{deeper:?}"
+        );
+    }
+
+    #[test]
+    fn deep_nesting_is_an_error_rather_than_a_stack_overflow() {
+        // 100,000 levels, which would use up the stack building the
+        // statements of the tree and dropping it.
+        assert!(parse_xml_tree(&nested_xml(100_000)).is_err());
     }
 
     fn action(name: &str, arguments: &[(&str, &str)]) -> MacroStatement {
