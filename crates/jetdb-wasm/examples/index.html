@@ -6,7 +6,9 @@
     scripts/build-wasm-package.sh
     node scripts/serve-wasm-example.mjs
   then open http://localhost:8080/examples/ and choose a .mdb or .accdb file.
-  The file is read in the browser and is not sent anywhere.
+  The file is read in the browser and is not sent anywhere. Once it is open,
+  Call runs any method of Database on it, with an argument and options as
+  JSON, and shows what the method returns.
 -->
 <html lang="en">
   <head>
@@ -32,6 +34,12 @@
       }
       dd {
         margin-left: 1rem;
+      }
+      #output {
+        background: #f4f4f4;
+        padding: 0.5rem;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
       }
     </style>
   </head>
@@ -59,10 +67,85 @@
       <dd><ul id="tables"></ul></dd>
     </dl>
 
+    <!-- Calls a method of the open database and shows what it returns. -->
+    <section id="call" hidden>
+      <h2>Call</h2>
+      <label
+        >Method
+        <select id="method"></select
+      ></label>
+      <label>Argument <input id="argument" /></label>
+      <label>Options (JSON) <input id="options" /></label>
+      <button id="run">Run</button>
+      <pre id="output"></pre>
+    </section>
+
     <script type="module">
       import init, { Database } from "../pkg/web/jetdb_wasm.js";
 
       const $ = (id) => document.getElementById(id);
+
+      // Each method of Database but open, with what it takes: the name of
+      // its argument, if any, and whether it takes options.
+      const METHODS = [
+        ["version"],
+        ["tables", null, true],
+        ["columns", "table"],
+        ["indexes", "table"],
+        ["rows", "table", true],
+        ["csv", "table", true],
+        ["ddl", "dialect", true],
+        ["relationships", null, true],
+        ["properties", "name", true],
+        ["queries", null, true],
+        ["querySql", "name"],
+        ["modules"],
+        ["moduleSource", "name"],
+        ["forms"],
+        ["formControls", "name", true],
+        ["formStream", "name", true],
+        ["formProperties", "name", true],
+        ["macros", null, true],
+        ["macro", "name"],
+        ["embeddedMacros", "form", true],
+        ["dataMacros", "table"],
+        ["dataMacrosText", "table"],
+      ];
+
+      // The database open on the page, kept for the calls until the next one
+      // is opened.
+      let db;
+
+      $("method").replaceChildren(
+        ...METHODS.map(([name]) => new Option(name, name)),
+      );
+      const showParameters = () => {
+        const [, argument, options] = METHODS[$("method").selectedIndex];
+        $("argument").disabled = !argument;
+        $("argument").placeholder = argument ?? "";
+        $("options").disabled = !options;
+        $("options").placeholder = options ? '{"system": true}' : "";
+      };
+      $("method").addEventListener("change", showParameters);
+      showParameters();
+
+      // A value as JSON, with the bytes of a Uint8Array shown by their number
+      // and the first 16 in hex, and a BigInt with n after it.
+      const json = (value) =>
+        JSON.stringify(
+          value,
+          (_, v) => {
+            if (typeof v === "bigint") return `${v}n`;
+            if (v instanceof Uint8Array) {
+              const head = [...v.slice(0, 16)]
+                .map((b) => b.toString(16).padStart(2, "0"))
+                .join(" ");
+              return `Uint8Array(${v.length}) ${head}`;
+            }
+            return v;
+          },
+          2,
+        );
 
       try {
         await init();
@@ -74,29 +157,52 @@
       $("open").addEventListener("click", async () => {
         $("error").textContent = "";
         $("result").hidden = true;
+        $("call").hidden = true;
+        $("output").textContent = "";
         const file = $("file").files[0];
         if (!file) {
           $("error").textContent = "Choose a database file first.";
           return;
         }
+        // Free the copy of the database opened before in the Wasm memory.
+        db?.free();
+        db = undefined;
         try {
           const bytes = new Uint8Array(await file.arrayBuffer());
           const password = $("password").value || undefined;
-          const db = Database.open(bytes, password);
-          // Free the copy of the file in the Wasm memory even when reading fails.
+          const opened = Database.open(bytes, password);
           try {
-            $("version").textContent = db.version();
+            $("version").textContent = opened.version();
             $("tables").replaceChildren(
-              ...db.tables({ system: $("system").checked }).map((name) => {
+              ...opened.tables({ system: $("system").checked }).map((name) => {
                 const li = document.createElement("li");
                 li.textContent = name;
                 return li;
               }),
             );
-          } finally {
-            db.free();
+          } catch (e) {
+            opened.free();
+            throw e;
           }
+          db = opened;
           $("result").hidden = false;
+          $("call").hidden = false;
+        } catch (e) {
+          $("error").textContent = e.message;
+        }
+      });
+
+      $("run").addEventListener("click", () => {
+        $("error").textContent = "";
+        $("output").textContent = "";
+        const [name, argument, options] = METHODS[$("method").selectedIndex];
+        try {
+          const args = argument ? [$("argument").value] : [];
+          const text = $("options").value.trim();
+          if (options && text) args.push(JSON.parse(text));
+          const value = db[name](...args);
+          $("output").textContent =
+            typeof value === "string" ? value : json(value);
         } catch (e) {
           $("error").textContent = e.message;
         }

@@ -70,7 +70,7 @@ cargo metadata --format-version 1 --filter-platform wasm32-unknown-unknown | jq 
 
 ブラウザ用テストには Node.js も必要。パッケージのビルドとテストには jq と npm も必要。wasmtime は https://wasmtime.dev/ を参照（macOS では `brew install wasmtime`）。
 
-CI の Wasm パッケージのジョブでは、`scripts/test-wasm-browser.sh` も実行する。開発者向けページ `crates/jetdb-wasm/examples/index.html` を Playwright で Chromium、Firefox、WebKit 上で操作する。`scripts/quality-check.sh` では実行しない。手元で実行するときは、パッケージをビルドし、`crates/jetdb-wasm/tests/browser/package-lock.json` で固定した版の Playwright 用のブラウザを先に入れる:
+CI の Wasm パッケージのジョブでは、`scripts/test-wasm-browser.sh` も実行する。開発者向けページ `crates/jetdb-wasm/examples/index.html` を Playwright で Chromium、Firefox、WebKit 上で操作する。ページはファイルを開き、`Database` のどのメソッドも呼べる。テストは、ページが全メソッドを載せていることを確かめ、それぞれをテストデータで呼ぶ。`scripts/quality-check.sh` では実行しない。手元で実行するときは、パッケージをビルドし、`crates/jetdb-wasm/tests/browser/package-lock.json` で固定した版の Playwright 用のブラウザを先に入れる:
 
 ```bash
 npm ci --prefix crates/jetdb-wasm/tests/browser
