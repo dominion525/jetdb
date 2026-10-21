@@ -253,9 +253,7 @@ fn run_controls(args: &FormControlsArgs, password: Option<&str>) -> Result<(), S
     .map_err(|e| e.to_string())?;
 
     for (index, ctrl) in form_props.controls.iter().enumerate() {
-        let type_name = jetdb::control_type_name(ctrl.type_code)
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| format!("0x{:04X}", ctrl.type_code));
+        let type_name = jetdb::control_type_label(ctrl.type_code);
         println!("{}\t{}\t{}", ctrl.name, type_name, index);
     }
 
@@ -285,9 +283,7 @@ fn run_props(args: &FormPropsArgs, password: Option<&str>) -> Result<(), String>
 
     for ctrl in &form_props.controls {
         println!();
-        let type_label = jetdb::control_type_name(ctrl.type_code)
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| format!("0x{:04X}", ctrl.type_code));
+        let type_label = jetdb::control_type_label(ctrl.type_code);
         println!("  Control: {} ({})", ctrl.name, type_label);
         print_properties(&ctrl.properties);
     }

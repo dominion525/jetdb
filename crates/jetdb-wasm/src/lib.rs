@@ -14,7 +14,7 @@ use std::io::Cursor;
 use jetdb::ddl::{self, with_calculated_column_types, DdlDialect};
 use jetdb::format::{index_flags, index_type, ColumnType, ObjectType};
 use jetdb::{
-    calculated_column_types_in, control_type_name, data_macros_to_text, embedded_macro_to_text,
+    calculated_column_types_in, control_type_label, data_macros_to_text, embedded_macro_to_text,
     entry_properties, find_table, list_forms_in, list_macros_in, query_to_sql, read_access_storage,
     read_catalog, read_complex_column, read_data_macros_in, read_embedded_macros_in,
     read_form_properties_in, read_form_stream_in, read_macro_in, read_object_properties,
@@ -257,7 +257,7 @@ pub fn number_position(number: f64) -> Option<RowPosition> {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ControlEntry {
     pub name: String,
-    /// The type name (see [`control_type`]).
+    /// The type name (see [`control_type_label`]).
     pub type_name: String,
     pub type_code: u16,
     /// The place of the control in the list, from 0.
@@ -272,18 +272,12 @@ fn controls_of(design: jetdb::FormProperties) -> Vec<ControlEntry> {
         .into_iter()
         .zip(0..)
         .map(|(c, index)| ControlEntry {
-            type_name: control_type(c.type_code),
+            type_name: control_type_label(c.type_code),
             name: c.name,
             type_code: c.type_code,
             index,
         })
         .collect()
-}
-
-/// The name of the control type `code`, or the code as `0x....` for a type
-/// jetdb does not know, as `jetdb form controls` shows it.
-fn control_type(code: u16) -> String {
-    control_type_name(code).map_or_else(|| format!("0x{code:04X}"), str::to_string)
 }
 
 /// A value of a row, in the JavaScript type it becomes.
@@ -787,7 +781,7 @@ impl Database {
                 .into_iter()
                 .map(|c| Control {
                     name: c.name,
-                    type_name: control_type(c.type_code),
+                    type_name: control_type_label(c.type_code),
                     type_code: c.type_code,
                     properties: properties(c.properties),
                 })
@@ -1915,7 +1909,7 @@ mod tests {
                     .into_iter()
                     .zip(0..)
                     .map(|(c, index)| ControlEntry {
-                        type_name: control_name_of_cli(c.type_code),
+                        type_name: control_type_label(c.type_code),
                         name: c.name,
                         type_code: c.type_code,
                         index,
@@ -1930,13 +1924,6 @@ mod tests {
                 other => panic!("{other:?}"),
             });
         (got, expected)
-    }
-
-    /// The type name jetdb form controls prints for `code`.
-    fn control_name_of_cli(code: u16) -> String {
-        control_type_name(code)
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| format!("0x{code:04X}"))
     }
 
     #[test]
@@ -2075,9 +2062,7 @@ mod tests {
             assert_eq!(design.controls.len(), read.controls.len(), "{name}");
             for (control, read) in design.controls.iter().zip(&read.controls) {
                 assert_eq!(control.name, read.name);
-                let type_name = control_type_name(read.type_code)
-                    .map_or_else(|| format!("0x{:04X}", read.type_code), str::to_string);
-                assert_eq!(control.type_name, type_name);
+                assert_eq!(control.type_name, control_type_label(read.type_code));
                 assert_eq!(control.type_code, read.type_code);
                 assert_eq!(names(&control.properties), read_names(&read.properties));
             }
