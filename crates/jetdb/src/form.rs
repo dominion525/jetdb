@@ -444,6 +444,12 @@ pub fn control_type_name(type_code: u16) -> Option<&'static str> {
     }
 }
 
+/// The known control type name for `type_code`, or the code as `0x....` for
+/// a type jetdb does not know, as `jetdb form controls` shows it.
+pub fn control_type_label(type_code: u16) -> String {
+    control_type_name(type_code).map_or_else(|| format!("0x{type_code:04X}"), str::to_string)
+}
+
 impl BlobProperty {
     /// Return the known property name, or `None` for unknown IDs: a text
     /// value is named by [`prop_id_name`], an integer or Yes/No value by
@@ -2216,6 +2222,12 @@ mod tests {
         ] {
             assert_eq!(control_type_name(code), expected, "0x{code:04X}");
         }
+    }
+
+    #[test]
+    fn control_type_label_names_or_numbers() {
+        assert_eq!(control_type_label(0x126D), "TextBox");
+        assert_eq!(control_type_label(0x0099), "0x0099");
     }
 
     #[test]
