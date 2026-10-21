@@ -1,6 +1,6 @@
 //! The design of forms and reports saved in the Access 2000 format.
 //!
-//! Its Blob starts with the version byte [`VERSION`] and holds the design as
+//! Its Blob starts with the version byte `0x13` and holds the design as
 //! a tree, unlike the property entries of Access 2002 and later:
 //!
 //! - 8 bytes of header, then the form or report itself as an entry
