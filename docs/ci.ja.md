@@ -94,10 +94,10 @@ cargo install cargo-audit
 
 ### 5. cargo doc — ドキュメントビルド
 
-ワークスペース全体の API ドキュメントを生成する。リンク切れや doc comment の構文エラーを検出できる。
+ワークスペース全体の API ドキュメントを生成する。リンク切れや doc comment の構文エラーを検出できる。公開の説明から非公開の項目へのリンクなど、警告があっても失敗にする。
 
 ```bash
-cargo doc --workspace
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace
 ```
 
 生成されたドキュメントは `target/doc/jetdb/index.html` に出力される。
@@ -168,7 +168,7 @@ scripts/quality-check.sh
 2. `cargo clippy -- -D warnings` — コード品質のチェック
 3. Wasm — WASI でライブラリのテストを、Node.js 上でブラウザ用テストを実行し、npm パッケージをビルドしてテスト
 4. `cargo audit` — セキュリティ上の問題がないか確認
-5. `cargo doc --workspace` — ドキュメントが正しく生成されるか確認
+5. `cargo doc --workspace` — ドキュメントが警告なしで正しく生成されるか確認
 6. `cargo llvm-cov --workspace` — テストカバレッジを計測
 7. `rust-code-analysis-cli` — コードの複雑度を計測
 

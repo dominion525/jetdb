@@ -94,10 +94,10 @@ cargo install cargo-audit
 
 ### 5. cargo doc — Documentation Build
 
-Generate API documentation for the entire workspace. Detects broken links and doc comment syntax errors.
+Generate API documentation for the entire workspace. Detects broken links and doc comment syntax errors. Warnings fail it, such as public documentation linking to a private item.
 
 ```bash
-cargo doc --workspace
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace
 ```
 
 Generated documentation is output to `target/doc/jetdb/index.html`.
@@ -168,7 +168,7 @@ The quality check script runs checks in the following order:
 2. `cargo clippy -- -D warnings` — Check code quality
 3. Wasm — Run the library tests on WASI and the browser tests on Node.js, and build and test the npm package
 4. `cargo audit` — Check for security issues
-5. `cargo doc --workspace` — Verify documentation builds correctly
+5. `cargo doc --workspace` — Verify documentation builds correctly, without warnings
 6. `cargo llvm-cov --workspace` — Measure test coverage
 7. `rust-code-analysis-cli` — Measure code complexity
 
