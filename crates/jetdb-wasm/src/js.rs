@@ -1334,7 +1334,6 @@ fn cell_value(cell: Cell) -> JsValue {
     }
 }
 
-/// Sets a property on an object made here, which cannot fail.
 /// An object `{ name, type }`, as `queries`, `modules` and `forms` give one
 /// for each query, module, and form or report.
 fn name_and_type(name: &str, type_name: &str) -> Object {
@@ -1344,6 +1343,7 @@ fn name_and_type(name: &str, type_name: &str) -> Object {
     object
 }
 
+/// Sets a property on an object made here, which cannot fail.
 fn set(object: &Object, key: &str, value: JsValue) {
     Reflect::set(object, &JsValue::from_str(key), &value).expect("set a property");
 }
