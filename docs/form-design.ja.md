@@ -219,85 +219,250 @@ jetdb は、種類ごとの表（409 組）で、プロパティに Access 2002 
 
 ### prop_id マッピング
 
-判明済みの prop_id は名前で表示し、未知のものは `0xXXXX` 形式で数値表示する。名前は値の種類ごとに付ける。文字列の値には下の 1 つ目の表の名前を、整数とはい/いいえの値には 2 つ目の表の名前を付ける。値がそれ以外の種類の ID は、その場所では別のプロパティなので数値で表示する。たとえば 0x0068 は、フォームでは OnKeyDown だが、キー操作のイベントを持たないラベルでは色を持つ。名前は、データにあるものについて、Access の SaveAsText の出力と突き合わせて確かめた。突き合わせたのは、`Sports.accdb`（ruddj/SportsAdmin）のフォームとレポート 116 個と、`testdata/V2007/controlPropertyTestV2007.accdb`・`propertyIdTestV2007.accdb` とその Access 2000 形式版（`testdata/V2000/`）のフォームとレポートで、後者は SaveAsText の出力を表 `tblGenExport` に持っている。どの値も、その名前のプロパティと一致した。
+判明済みの prop_id は名前で表示し、未知のものは `0xXXXX` 形式で数値表示する。名前は値の種類ごとに付ける。文字列の値には下の 1 つ目の表の名前を、数値とはい/いいえの値（値を持たないはい/いいえ、`NotDefault` を含む）には 2 つ目の表の名前を、バイト列と GUID には 3 つ目の表の名前を付ける。値がそれ以外の種類の ID は、その場所では別のプロパティなので数値で表示する。たとえば 0x0068 は、フォームでは OnKeyDown だが、キー操作のイベントを持たないラベルでは色を持つ。
+
+名前は、`Sports.accdb`（ruddj/SportsAdmin）、`testdata/V2007/controlPropertyTestV2007.accdb` と `propertyIdTestV2007.accdb`、その Access 2000 形式版（`testdata/V2000/`）のフォームとレポートで、その ID のすべての値を持つ SaveAsText の項目がそれ 1 つだけのものである。値を持たないはい/いいえは、それを持つどのブロックでも、SaveAsText が `NotDefault` と書く項目で決める。名前は 0x01C4 までの ID にだけ付ける。Microsoft 365 の Access は、Anchor やレイアウトのものなど、それより大きい ID を、`Sports.accdb` を作った Access より 1 つ大きく書くため。
+
+用途は、Microsoft の Access の Office VBA リファレンスの日本語版の、フォーム・レポート・コントロールのいずれかのプロパティのページから取った。プロパティ ウィンドウでの日本語の名前がページにあるものはその名前を、無いものはページの最初の文を書く。英語版は [MicrosoftDocs/VBA-Docs](https://github.com/MicrosoftDocs/VBA-Docs)（CC BY 4.0）にある。リファレンスに説明の無い項目は、そう書く。
+
+文字列の値の名前:
 
 | ID | プロパティ名 | 用途 |
 |--------|--------------|------|
-| 0x0011 | Caption | コントロール表示テキスト |
-| 0x0012 | ColumnWidths | コンボボックス列幅 |
-| 0x0014 | Name | コントロール名 |
-| 0x0016 | EventProcPrefix | イベントプロシージャ名の接頭辞 |
+| 0x0007 | Picture | ピクチャ |
+| 0x0011 | Caption | 標題 |
+| 0x0012 | ColumnWidths | ColumnWidths プロパティを使用して、複数列コンボ ボックス内の各列の幅を指定します。 |
+| 0x0014 | Name | フィールド名 |
+| 0x0016 | EventProcPrefix | イベント プロシージャ名のプレフィックス部分を取得または設定します。 |
 | 0x0017 | DefaultValue | 既定値 |
-| 0x001B | ControlSource | フィールドバインド先 |
-| 0x0022 | FontName | フォント名（コントロールレベル） |
-| 0x0026 | Format | 表示書式 |
-| 0x004C | OLEClass | オブジェクトフレームの OLE クラス |
-| 0x004D | OnOpen | 開く時 |
-| 0x004E | OnClose | 閉じる時 |
-| 0x0056 | AfterUpdate | 更新後処理 |
-| 0x005B | RowSource | コンボボックスデータソース (SQL) |
-| 0x005D | RowSourceType | データソース種別 (Table/Query) |
+| 0x001B | ControlSource | コントロールソース |
+| 0x0022 | FontName | フォント名 |
+| 0x0026 | Format | 書式 |
+| 0x0031 | LinkChildFields | リンク子フィールド |
+| 0x0032 | LinkMasterFields | リンク親フィールド |
+| 0x003D | ValidationText | エラーメッセージ |
+| 0x0048 | InputMask | 定型入力 |
+| 0x004C | OLEClass | OLE |
+| 0x004D | OnOpen | Sets or returns the value of the On Open box in the Properties window of a form or report. 読み取り/書き込みが可能な String です。 |
+| 0x004E | OnClose | フォームまたはレポートの [プロパティ ウィンドウ] にある [閉じるとき] ボックスの値を設定または返します。 |
+| 0x004F | OnDelete | レコード削除時 |
+| 0x0050 | OnFormat | フォーマット時 |
+| 0x0052 | OnPrint | 印刷時 |
+| 0x0053 | OnPage | レポートのプロパティ ウィンドウの [ページ内] ボックスの値を設定または返します。 |
+| 0x0054 | OnRetreat | 戻り時 |
+| 0x0055 | BeforeUpdate | 更新前処理 |
+| 0x0056 | AfterUpdate | AfterUpdate イベントは、コントロールまたはレコードで変更されたデータが更新された直後に発生します。 |
+| 0x0057 | OnCurrent | レコード移動時 |
+| 0x005B | RowSource | 値集合ソース |
+| 0x005D | RowSourceType | 値集合タイプ |
 | 0x0068 | OnKeyDown | キークリック時 |
 | 0x0069 | OnKeyUp | キー解放時 |
 | 0x006A | OnKeyPress | キー入力時 |
 | 0x006B | OnMouseDown | マウスボタンクリック時 |
-| 0x006C | OnMouseUp | マウスボタン解放時 |
+| 0x006C | OnMouseUp | Sets or returns the value of the On Mouse Up box in the Properties window. 読み取り/書き込みが可能な String です。 |
 | 0x006D | OnMouseMove | マウスボタン移動時 |
+| 0x006E | OnTimer | タイマー時 |
+| 0x0070 | OnActivate | アクティブ時 |
+| 0x0071 | OnDeactivate | 非アクティブ時 |
+| 0x0072 | OnChange | 変更時 |
 | 0x0073 | OnGotFocus | フォーカス取得後 |
-| 0x0074 | OnLostFocus | フォーカス喪失後 |
-| 0x0079 | OnNoData | レポートのデータなし時 |
+| 0x0074 | OnLostFocus | フォーカス喪失時 |
+| 0x0075 | OnResize | サイズ変更時 |
+| 0x0076 | OnUpdated | Sets or returns the value of the On Updated box in the Properties window of a form or report. 読み取り/書き込みが可能な String です。 |
+| 0x0077 | OnError | フォームまたはレポートの [プロパティ ウィンドウ] の [エラー時] ボックスの値を設定または返します。 |
+| 0x0078 | OnNotInList | リスト外入力時 |
+| 0x0079 | OnNoData | 空データ時 |
+| 0x007A | BeforeInsert | BeforeInsert イベントが発生したときに実行するマクロ、イベント プロシージャ、またはユーザー定義関数を示す文字列型 ( String ) の値を設定します。 |
+| 0x007B | AfterInsert | AfterInsert イベントが発生したときに実行するマクロ、イベント プロシージャ、またはユーザー定義関数を示す文字列型 ( String ) の値を設定します。 |
+| 0x007C | BeforeDelConfirm | BeforeDelConfirm イベントが発生したときに実行されるマクロ、イベント プロシージャ、またはユーザー定義関数を示す文字列を返すか設定します。 |
+| 0x007D | AfterDelConfirm | AfterDelConfirm イベントが発生したときに実行されるマクロ、イベント プロシージャ、またはユーザー定義関数を示す文字列を返すか設定します。 |
 | 0x007E | OnClick | クリック時 |
 | 0x007F | OnLoad | 読み込み時 |
-| 0x0084 | SourceObject | サブフォームに表示するフォーム・レポート |
+| 0x0080 | OnUnload | 読み込み解除時 |
+| 0x0084 | SourceObject | ソースオブジェクト |
 | 0x0087 | StatusBarText | ステータスバーテキスト |
-| 0x009C | RecordSource | フォーム/レポートのデータソース |
-| 0x00A0 | DatasheetFontName | データシートビューのフォント名 |
-| 0x00DA | HelpFile | ヘルプファイル |
+| 0x0091 | ValidationRule | 入力規則 |
+| 0x009C | RecordSource | レコードソース |
+| 0x00A0 | DatasheetFontName | DatasheetFontName プロパティを使用して、データシート ビューでフィールド名とデータの表示と印刷に使用するフォントを指定します。 |
+| 0x00DA | HelpFile | フォームに関連付けられているヘルプ ファイルの名前。 |
 | 0x00DE | OnEnter | フォーカス取得時 |
 | 0x00DF | OnExit | フォーカス喪失時 |
 | 0x00E0 | OnDblClick | ダブルクリック時 |
-| 0x00F5 | Filter | フィルタ条件 |
+| 0x00F0 | MenuBar | フォームに表示するカスタム メニューを指定します。 |
+| 0x00F5 | Filter | フィルター |
 | 0x010A | Tag | タグ |
-| 0x0112 | Class | オブジェクトフレームのクラス |
-| 0x0130 | ShortcutMenuBar | ショートカットメニュー |
-| 0x013D | ControlTipText | コントロールヒントテキスト |
-| 0x015A | ColumnInfo | コンボボックスやリストボックスの列の情報 |
-| 0x0161 | Toolbar | ツールバー |
+| 0x0112 | Class | クラス |
+| 0x0130 | ShortcutMenuBar | ショートカットメニューバー |
+| 0x013D | ControlTipText | ヒントテキスト |
+| 0x014B | OrderBy | 並べ替え |
+| 0x014D | OnFilter | フィルター設定時 |
+| 0x014E | OnApplyFilter | フィルター実行時 |
+| 0x0157 | HyperlinkAddress | ハイパーリンクアドレス |
+| 0x015A | ColumnInfo | Microsoft の VBA のリファレンスに無い。SaveAsText の項目名。 |
+| 0x015B | HyperlinkSubAddress | ハイパーリンクサブアドレス |
+| 0x0161 | Toolbar | フォームに表示するカスタム ツールバーを指定します。 |
+| 0x0167 | FuriganaControl | ふりがな |
+| 0x0168 | PostalAddress | PostalAddress プロパティを使用して、指定したフィールドまたはテキスト ボックスに表示される住所情報に対応する郵便番号と顧客バーコード データを指定または決定します。 |
+| 0x0177 | OnDirty | Sets or returns the value of the On Dirty box in the Properties window of a form or report. 読み取り/書き込みが可能な String です。 |
+| 0x0194 | OnUndo | 元に戻すイベントが発生したときに実行されるマクロ、イベント プロシージャ、またはユーザー定義関数を示す文字列を返すか設定します。 |
+| 0x01A9 | OnConnect | OnConnect イベントが発生したときに実行されるマクロ、イベント プロシージャ、またはユーザー定義関数を示す文字列を返すか設定します。 |
+| 0x01AA | OnDisconnect | OnDisconnect イベントが発生したときに実行するマクロ、イベント プロシージャ、またはユーザー定義関数を示す文字列型 ( String ) の値を指定します。 |
+| 0x01AB | OnPivotTableChange | Microsoft の VBA のリファレンスに無い。SaveAsText の項目名。 |
+| 0x01AC | OnQuery | Microsoft の VBA のリファレンスに無い。SaveAsText の項目名。 |
+| 0x01AD | BeforeQuery | BeforeQuery イベントが発生したときに実行するマクロ、イベント プロシージャ、またはユーザー定義関数を示す文字列型 ( String ) の値を取得または設定します。 |
+| 0x01AE | OnSelectionChange | Microsoft の VBA のリファレンスに無い。SaveAsText の項目名。 |
+| 0x01AF | OnCmdBeforeExecute | Microsoft の VBA のリファレンスに無い。SaveAsText の項目名。 |
+| 0x01B0 | OnCmdChecked | Microsoft の VBA のリファレンスに無い。SaveAsText の項目名。 |
+| 0x01B1 | OnCmdEnabled | Microsoft の VBA のリファレンスに無い。SaveAsText の項目名。 |
+| 0x01B2 | OnCmdExecute | Microsoft の VBA のリファレンスに無い。SaveAsText の項目名。 |
+| 0x01B3 | OnDataSetChange | Microsoft の VBA のリファレンスに無い。SaveAsText の項目名。 |
+| 0x01B4 | BeforeScreenTip | BeforeScreenTip イベントが発生したときに実行するマクロ、イベント プロシージャ、またはユーザー定義関数を示す文字列型 ( String ) の値を取得または設定します。 |
+| 0x01B5 | AfterFinalRender | AfterFinalRender イベントが発生したときに実行されるマクロ、イベント プロシージャ、またはユーザー定義関数を示す文字列を返すか設定します。 |
+| 0x01B6 | AfterRender | AfterRender イベントが発生したときに実行するマクロ、イベント プロシージャ、またはユーザー定義関数を示す文字列型 ( String ) の値を設定します。 |
+| 0x01B7 | AfterLayout | AfterLayout イベントが発生したときに実行されるマクロ、イベント プロシージャ、またはユーザー定義関数を示す文字列型 (String) の値を取得または設定します。 |
+| 0x01B8 | BeforeRender | BeforeRender イベントが発生したときに実行されるマクロ、イベント プロシージャ、またはユーザー定義関数を示す文字列を返すか設定します。 |
+| 0x01B9 | OnMouseWheel | Microsoft の VBA のリファレンスに無い。SaveAsText の項目名。 |
+| 0x01BA | OnViewChange | Microsoft の VBA のリファレンスに無い。SaveAsText の項目名。 |
+| 0x01BB | OnDataChange | Microsoft の VBA のリファレンスに無い。SaveAsText の項目名。 |
 
-整数とはい/いいえの値の名前は、`Sports.accdb` と、Access でプロパティを 1 つずつ設定して作った `testdata/V2007/propertyIdTestV2007.accdb` の、その ID が出てくるすべてのフォームとレポートで、値が一致する SaveAsText のキーである。名前を付けるのは、1 つのキーがすべての値に合うよう値がいろいろに変わる ID か、`propertyIdTestV2007.accdb` でそのプロパティを設定すると値が変わる ID である。名前は 0x01C4 までの ID にだけ付ける。Microsoft 365 の Access は、Anchor やレイアウトのものなど、それより大きい ID を、`Sports.accdb` を作った Access より 1 つ大きく書くため。
+数値とはい/いいえの値の名前:
 
 | ID | プロパティ名 | 用途 |
 |--------|--------------|------|
-| 0x0009 | BorderStyle | 境界線のスタイル |
-| 0x000C | Bottom | 保存されたフォームやレポートのウィンドウの下端 |
-| 0x0029 | GridX | 横方向のグリッドの間隔 |
-| 0x002A | GridY | 縦方向のグリッドの間隔 |
-| 0x0036 | Left | 保存されたフォームやレポートのウィンドウの左端 |
-| 0x006F | TimerInterval | Timer イベントの間隔（ミリ秒） |
-| 0x0081 | Right | 保存されたフォームやレポートのウィンドウの右端 |
-| 0x008D | Top | 保存されたフォームやレポートのウィンドウの上端 |
-| 0x0092 | ViewsAllowed | 許可するビュー |
+| 0x0002 | AccessKey | Microsoft の VBA のリファレンスに無い。SaveAsText の項目名。 |
+| 0x0004 | SpecialEffect | 立体表示 |
+| 0x0006 | AutoResize | サイズ自動修正 |
+| 0x0008 | BorderColor | 境界線色 |
+| 0x0009 | BorderStyle | 境界線スタイル |
+| 0x000A | BorderWidth | BorderWidth プロパティを使用して、コントロールの境界線の幅を指定します。 |
+| 0x000B | BorderLineStyle | Microsoft の VBA のリファレンスに無い。SaveAsText の項目名。 |
+| 0x000C | Bottom | Microsoft の VBA のリファレンスに無い。SaveAsText の項目名。 |
+| 0x000D | BoundColumn | 連結列 |
+| 0x000E | CanGrow | 印刷時拡張 |
+| 0x000F | RepeatSection | セクション繰り返し |
+| 0x0010 | CanShrink | 印刷時縮小 |
+| 0x0013 | RecordSelectors | RecordSelectors プロパティを使用して、フォームでフォーム ビューにレコード セレクターを表示するかどうかを指定します。 |
+| 0x0019 | Enabled | 使用可能 |
+| 0x001C | BackColor | 背景色 |
+| 0x001D | BackStyle | BackStyle プロパティを使用して、コントロールを透過的にするかどうかを指定します。 |
+| 0x001E | AllowFilters | AllowFilters プロパティを使用して、フォーム内のレコードをフィルター処理できるかどうかを指定します。 |
+| 0x0021 | FontItalic | フォント斜体 |
+| 0x0023 | FontSize | フォントサイズ |
+| 0x0024 | FontUnderline | フォント下線 |
+| 0x0025 | FontWeight | フォント太さ |
+| 0x0029 | GridX | GridX プロパティを (GridY プロパティと共に) 使用して、フォーム デザイン ビューでの配置グリッドの水平方向と垂直方向の分割を指定します。 |
+| 0x002A | GridY | GridY プロパティを (GridX プロパティと共に) 使用して、フォーム デザイン ビューで配置グリッドの水平方向と垂直方向の分割を指定します。 |
+| 0x002C | Height | 高さ |
+| 0x002D | AllowUpdating | Microsoft の VBA のリファレンスに無い。SaveAsText の項目名。 |
+| 0x002E | Transparent | Transparent プロパティを使用して、コマンド ボタンを単色か透明にするかを指定します。 |
+| 0x0036 | Left | 左位置 |
+| 0x0037 | LineSlant | 線傾斜 |
+| 0x0038 | Locked | 編集ロック |
+| 0x003A | OptionValue | オプション値 |
+| 0x003E | Modal | 作業ウィンドウ固定 |
+| 0x0043 | LimitToList | 入力チェック |
+| 0x0044 | AutoExpand | 自動展開プロパティを使うと、コンボ ボックスのテキスト ボックス部分に、入力時に入力した文字と一致するコンボ ボックス リストの値が Microsoft Access によって自動的に入力されるかどうかを指定します。 |
+| 0x0045 | HideDuplicates | 重複データ非表示 |
+| 0x0046 | ColumnCount | 列数 |
+| 0x0047 | DecimalPlaces | 小数点以下表示桁数 |
+| 0x004B | KeepTogether | 同一ページ印刷 |
+| 0x0059 | SizeMode | OLE |
+| 0x005A | PopUp | ポップアップ |
+| 0x005C | RowSourceTypeInt | Microsoft の VBA のリファレンスに無い。SaveAsText の項目名。 |
+| 0x005E | MaxButton | Microsoft の VBA のリファレンスに無い。SaveAsText の項目名。 |
+| 0x005F | MinButton | Microsoft の VBA のリファレンスに無い。SaveAsText の項目名。 |
+| 0x0061 | ControlBox | コントロールボックス |
+| 0x0065 | AutoActivate | 自動アクティブ |
+| 0x006F | TimerInterval | タイマー間隔 |
+| 0x0081 | Right | Microsoft の VBA のリファレンスに無い。SaveAsText の項目名。 |
+| 0x0082 | RunningSum | 集計実行 |
+| 0x0083 | ColumnHeads | 列見出し |
+| 0x0088 | TextAlign | 文字配置 |
+| 0x008D | Top | 上位置 |
+| 0x008F | LayoutForPrint | プリンターフォント |
+| 0x0090 | FastLaserPrinting | 高速レーザー印刷 |
+| 0x0092 | ViewsAllowed | ビュー設定 |
 | 0x0093 | DefaultView | 既定のビュー |
+| 0x0094 | Visible | 可視 |
+| 0x0095 | DisplayWhen | 表示対象 |
 | 0x0096 | Width | 幅 |
-| 0x0098 | ScrollBars | 表示するスクロールバー |
-| 0x009E | ItemSuffix | 次のコントロール名に使う番号 |
-| 0x00A1 | DatasheetFontHeight | データシートのフォントサイズ |
-| 0x00DB | HelpContextId | ヘルプのコンテキスト ID |
-| 0x0105 | TabIndex | タブの順番 |
-| 0x0135 | PictureAlignment | ピクチャの配置 |
-| 0x013E | DatasheetGridlinesBehavior | データシートの枠線の表示 |
-| 0x013F | DatasheetGridlinesColor | データシートの枠線の色 |
-| 0x01A6 | AllowDatasheetView | データシート ビューを許可する（はい/いいえ） |
-| 0x01C4 | FilterOnLoad | 読み込み時にフィルターを適用する（はい/いいえ） |
+| 0x0097 | ForceNewPage | 改ページ |
+| 0x0098 | ScrollBars | スクロールバー |
+| 0x009A | ListWidth | リスト幅 |
+| 0x009D | BreakLevel | Microsoft の VBA のリファレンスに無い。SaveAsText の項目名。 |
+| 0x009E | ItemSuffix | Microsoft の VBA のリファレンスに無い。SaveAsText の項目名。 |
+| 0x009F | OverlapFlags | Microsoft の VBA のリファレンスに無い。SaveAsText の項目名。 |
+| 0x00A1 | DatasheetFontHeight | DatasheetFontHeight プロパティを使用して、データシート ビューでフィールド名とデータの表示と印刷に使用するフォント ポイント サイズを指定します。 |
+| 0x00A2 | DatasheetFontWeight | DatasheetFontWeight プロパティを使用して、データシート ビューでフィールド名とデータの文字を表示および印刷するために使用するフォントの線幅を指定します。 |
+| 0x00A5 | ColumnOrder | データシート ビューで列の順序を指定するには、 ColumnOrder プロパティを使用します。 |
+| 0x00A6 | ColumnWidth | データシート ビューで列の幅を指定するには、 ColumnWidth プロパティを使用します。 |
+| 0x00A7 | ColumnHidden | ColumnHidden プロパティを使用すると、データシート ビューで指定した列を表示または非表示にできます。 |
+| 0x00A8 | RowHeight | RowHeight プロパティを使用して、データシート ビューのすべての行の高さを指定します。 |
+| 0x00C2 | TabularCharSet | Microsoft の VBA のリファレンスに無い。SaveAsText の項目名。 |
+| 0x00CC | ForeColor | 前景色 |
+| 0x00DB | HelpContextId | HelpContextID プロパティは、HelpFile プロパティ設定によって指定されたカスタム ヘルプ ファイル内のトピックのコンテキスト ID を指定します。 |
+| 0x00DC | Default | 既定のボタン |
+| 0x00DD | Cancel | キャンセルボタン |
+| 0x00F3 | TextFontFamily | Microsoft の VBA のリファレンスに無い。SaveAsText の項目名。 |
+| 0x00F4 | TabularFamily | Microsoft の VBA のリファレンスに無い。SaveAsText の項目名。 |
+| 0x0105 | TabIndex | タブ移動順 |
+| 0x0106 | TabStop | タブストップ |
+| 0x0116 | AutoCenter | 自動中央寄せ |
+| 0x0117 | NavigationButtons | NavigationButtons プロパティを使用して、ナビゲーション ボタンとレコード番号ボックスをフォーム上に表示するかどうかを指定します。 |
+| 0x011A | DateGrouping | 日付グループ化 |
+| 0x0126 | TripleState | TripleState プロパティを使用して、指定したコントロールで Null 値を表示する方法を指定します。 |
+| 0x012F | CloseButton | 閉じるボタン |
+| 0x0132 | DatasheetForeColor | Visual Basic の DatasheetForeColor プロパティを使用すると、Access データベース内のデータシート ビューのテーブル、クエリ、またはフォームのすべてのテキストの色を指定または決定できます。 |
+| 0x0135 | PictureAlignment | ピクチャ配置 |
+| 0x0139 | PictureTiling | ピクチャ全体表示 |
+| 0x013A | DividingLines | DividingLines プロパティを使用すると、フォームのセクションを区切るか、連続したフォームに表示されるレコードを区切るかを指定します。 |
+| 0x013E | DatasheetGridlinesBehavior | DatasheetGridlinesBehavior プロパティを使用して、データシート ビューに表示するグリッド線を指定します。 |
+| 0x013F | DatasheetGridlinesColor | データシート内の目盛線の色を指定するには、 DatasheetGridlinesColor プロパティを使用します。 |
+| 0x0146 | AllowAdditions | 追加の許可 |
+| 0x0149 | OldBorderStyle | このプロパティを使用して、フォームまたはコントロールの BorderStyle プロパティの未編集の値を設定または返します。 |
+| 0x0150 | OrderByOn | 並べ替え適用 |
+| 0x0154 | AllowAutoCorrect | AllowAutoCorrect プロパティを使用して、指定したコントロールがユーザーによって行われたエントリを自動的に修正するかどうかを指定します。 |
+| 0x0155 | PictureType | ピクチャタイプ |
+| 0x015C | MultiRow | 複数行タブ |
+| 0x015E | TabFixedHeight | タブ コントロールのタブの高さを指定または決定するには、 TabFixedHeight プロパティを使用します。 |
+| 0x015F | TabFixedWidth | タブ コントロールのタブの幅を指定または決定するには、 TabFixedWidth プロパティを使用します。 |
+| 0x0163 | Vertical | 縦書き |
+| 0x0165 | IMEHold | Hold |
+| 0x016C | RecSrcDt | Microsoft の VBA のリファレンスに無い。SaveAsText の項目名。8 バイトの日時。SaveAsText ではバイナリのブロックに書かれる。 |
+| 0x0170 | KeyboardLanguage | 構文 式。 |
+| 0x0175 | AllowDesignChanges | Microsoft の VBA のリファレンスに無い。SaveAsText の項目名。 |
+| 0x017B | IMESentenceMode | IME |
+| 0x0180 | LeftMargin | 左余白 |
+| 0x0181 | TopMargin | 上余白 |
+| 0x0182 | LineSpacing | LineSpacing プロパティを使用して、ラベル コントロールまたはテキスト ボックス コントロール内に表示される情報の場所を指定または決定します。 |
+| 0x0183 | SubdatasheetHeight | サブデータシートの高さ |
+| 0x0184 | RightMargin | TopMargin、LeftMargin、および BottomMargin プロパティとともに、テキスト ボックス コントロール内に表示される情報の場所を指定します。 |
+| 0x0185 | BottomMargin | LeftMargin、RightMargin、および TopMargin プロパティとともに、テキスト ボックス コントロール内に表示される情報の場所を指定します。 |
+| 0x018C | IsHyperlink | IsHyperlink プロパティを使用して、テキスト ボックスに含まれるデータがハイパーリンクであるかどうかを指定または決定します。 |
+| 0x01A6 | AllowDatasheetView | 指定したフォームをデータシート ビューで表示できるかどうかを示す ブール型 (Boolean) の値を取得または設定します。 |
+| 0x01BE | AsianLineBreak | 禁則処理 |
+| 0x01C2 | GroupTable | Microsoft の VBA のリファレンスに無い。SaveAsText の項目名。 |
+| 0x01C4 | FilterOnLoad | フォームの読み込み時に Filter プロパティで指定されたフィルターを適用するかどうかを取得または設定します。 |
+
+バイト列と GUID の値の名前:
+
+| ID | プロパティ名 | 用途 |
+|--------|--------------|------|
+| 0x0063 | ObjectPalette | ObjectPalette プロパティは、Picture プロパティを使用して指定されたコントロールに読み込まれるビットマップまたはその他のグラフィックを作成するために使用されるアプリケーションのパレットを指定します。 |
+| 0x0064 | PaintPalette | PaintPalette プロパティを使用して、フォームで使用するパレットを指定します。 |
+| 0x00AB | OleData | Microsoft の VBA のリファレンスに無い。SaveAsText の項目名。 |
+| 0x00BC | PictureData | PictureData プロパティを使用して、Picture プロパティをサポートする別のオブジェクトにピクチャをコピーします。 |
+| 0x00BD | PrtMip | Visual Basic の PrtMip プロパティを使用して、[ 印刷 ] ダイアログ ボックスでフォームまたはレポートに対して指定されたデバイス モード情報を設定または返します。 |
+| 0x00BE | PrtDevMode | [印刷] ダイアログ ボックスでフォームまたはレポートに対して指定された印刷デバイス モード情報を設定または返すには、PrtDevMode プロパティを使用します。 |
+| 0x00BF | PrtDevNames | PrtDevNames プロパティを使用して、フォームまたはレポートの [印刷] ダイアログ ボックスで選択されたプリンターに関する情報を設定または返します。 |
+| 0x0178 | GUID | Microsoft の VBA のリファレンスに無い。SaveAsText の項目名。16 バイトの GUID。SaveAsText ではバイナリのブロックに書かれる。 |
+| 0x0179 | NameMap | Microsoft の VBA のリファレンスに無い。SaveAsText の項目名。 |
 
 頻出する未知 ID:
 
 | ID | 出現コンテキスト（推定） |
 |--------|------|
 | 0x0000 | コントロール末尾に頻出 |
-| 0x0013 | フォームレベルのはい/いいえ。値を持たない（`NotDefault`） |
-| 0x001D | コントロール内 |
-| 0x0178 | GUID（全コントロールに出現） |
 | 0x0268 | 色系プロパティ |
 | 0x0274 | 色系プロパティ |
 | 0x01CA〜0x01D2 | コントロール内の整数（連番で出現） |
