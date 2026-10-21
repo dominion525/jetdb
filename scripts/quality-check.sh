@@ -155,7 +155,8 @@ fi
 
 # --- 5. Doc ---
 header "Doc"
-doc_output=$(cargo doc --workspace 2>&1) && {
+# Warnings, such as public documentation linking to a private item, fail it.
+doc_output=$(RUSTDOCFLAGS="-D warnings" cargo doc --workspace 2>&1) && {
     printf " $(pass)\n"
 } || {
     printf " $(fail)\n"

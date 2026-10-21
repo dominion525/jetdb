@@ -49,7 +49,7 @@ pub struct Database {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Column {
     pub name: String,
-    /// The type name, such as `Long` or `Text` (see [`type_name`]). For a
+    /// The type name, such as `Long` or `Text` (see `type_name`). For a
     /// calculated column, the type of its result, which its values have.
     pub type_name: String,
     /// The size as Access shows it: in characters for a Text column, such as
@@ -116,7 +116,7 @@ pub struct RelationshipColumn {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Query {
     pub name: String,
-    /// The type name, such as `Select` or `MakeTable` (see [`query_type_name`]).
+    /// The type name, such as `Select` or `MakeTable` (see `query_type_name`).
     pub type_name: &'static str,
 }
 
@@ -125,7 +125,7 @@ pub struct Query {
 pub struct Module {
     pub name: String,
     /// `Standard`, `Class`, or `Document` for the module of a form or report
-    /// (see [`module_type_name`]).
+    /// (see `module_type_name`).
     pub type_name: &'static str,
 }
 

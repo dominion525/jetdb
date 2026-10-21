@@ -77,7 +77,7 @@ impl ReadResult {
 /// alongside the row, introduced in Access 2010). When the table has a
 /// column marked [`ColumnDef::is_calculated`], one extra `MSysObjects.LvProp`
 /// read finds each calculated column's result type -- see
-/// [`read_calculated_value`]'s doc comment for the byte format. Tables
+/// `read_calculated_value`'s doc comment for the byte format. Tables
 /// without calculated columns skip that read. System tables (`MSys*`) always
 /// skip it: [`crate::prop::read_object_properties`] itself reads
 /// `MSysObjects` via this same function, so the lookup must never run while
