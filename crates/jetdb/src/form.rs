@@ -978,7 +978,7 @@ fn entry_value(type_code: u32, bytes: &[u8]) -> BlobValue {
         ),
         0x08 => <[u8; 8]>::try_from(bytes)
             .map_or_else(|_| binary(), |b| BlobValue::Double(f64::from_le_bytes(b))),
-        0x09 if bytes.len() == 16 => BlobValue::Guid(format_guid(bytes)),
+        0x09 if bytes.len() == 16 => BlobValue::Guid(crate::data::format_guid(bytes)),
         0x0A | 0x0C => BlobValue::Text(
             encoding::decode_utf16le(bytes)
                 .unwrap_or_else(|_| String::from_utf8_lossy(bytes).into_owned()),
@@ -1022,30 +1022,6 @@ fn variable_data_end(start: usize, len: u32, limit: usize) -> Option<usize> {
 /// from `start`, limited to the given range.
 fn parse_section_props(data: &[u8], start: usize, end: usize) -> Vec<BlobProperty> {
     parse_group(data, start, end).0
-}
-
-/// Format 16 bytes as a GUID string `{xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}`.
-pub(crate) fn format_guid(bytes: &[u8]) -> String {
-    if bytes.len() < 16 {
-        return format!("({} bytes)", bytes.len());
-    }
-    let d1 = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
-    let d2 = u16::from_le_bytes([bytes[4], bytes[5]]);
-    let d3 = u16::from_le_bytes([bytes[6], bytes[7]]);
-    format!(
-        "{{{:08x}-{:04x}-{:04x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}}}",
-        d1,
-        d2,
-        d3,
-        bytes[8],
-        bytes[9],
-        bytes[10],
-        bytes[11],
-        bytes[12],
-        bytes[13],
-        bytes[14],
-        bytes[15]
-    )
 }
 
 // ---------------------------------------------------------------------------
@@ -1794,7 +1770,7 @@ mod tests {
         let (props, _) = parse_blob(&make_blob(&entry(0x0178, 0x09, &guid_bytes))).unwrap();
         assert_eq!(props.len(), 1);
         match &props[0].value {
-            BlobValue::Guid(s) => assert_eq!(s, "{8d64a650-62e7-4903-9733-0d8ce84978bf}"),
+            BlobValue::Guid(s) => assert_eq!(s, "{8D64A650-62E7-4903-9733-0D8CE84978BF}"),
             other => panic!("expected Guid, got {:?}", other),
         }
     }

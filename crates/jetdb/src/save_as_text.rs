@@ -141,13 +141,13 @@ fn hex_bytes(line: &str) -> Vec<u8> {
 }
 
 /// The GUID `bytes` holds, as jetdb writes one: its first three fields
-/// little-endian, in lower case. Written here apart from the library, so that
+/// little-endian, in upper case. Written here apart from the library, so that
 /// the GUIDs jetdb reads are checked against SaveAsText on their own.
 fn guid(bytes: &[u8]) -> Option<String> {
     let b: [u8; 16] = bytes.try_into().ok()?;
-    let hex = |range: &[u8]| range.iter().map(|x| format!("{x:02x}")).collect::<String>();
+    let hex = |range: &[u8]| range.iter().map(|x| format!("{x:02X}")).collect::<String>();
     Some(format!(
-        "{{{:08x}-{:04x}-{:04x}-{}-{}}}",
+        "{{{:08X}-{:04X}-{:04X}-{}-{}}}",
         u32::from_le_bytes([b[0], b[1], b[2], b[3]]),
         u16::from_le_bytes([b[4], b[5]]),
         u16::from_le_bytes([b[6], b[7]]),

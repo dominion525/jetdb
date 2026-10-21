@@ -19,8 +19,9 @@
 //!   to 0xFC, the length byte 0xFF being followed by a length of 2 bytes. Of
 //!   0x80 to 0xBC, only 0x9C to 0xA0 have been seen; 0xBD to 0xBF hold text.
 
+use crate::data::format_guid;
 use crate::encoding;
-use crate::form::{format_guid, BlobProperty, BlobValue, ControlProperties};
+use crate::form::{BlobProperty, BlobValue, ControlProperties};
 
 /// The first byte of the Blob of a form or report in the Access 2000 format.
 pub(crate) const VERSION: u8 = 0x13;
