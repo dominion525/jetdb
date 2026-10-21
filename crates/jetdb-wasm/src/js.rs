@@ -646,12 +646,7 @@ impl JsDatabase {
         let queries = self.inner.queries(include_system).map_err(to_js_error)?;
         Ok(queries
             .iter()
-            .map(|q| {
-                let object = Object::new();
-                set(&object, "name", q.name.as_str().into());
-                set(&object, "type", q.type_name.into());
-                object
-            })
+            .map(|q| name_and_type(&q.name, q.type_name))
             .collect())
     }
 
@@ -674,12 +669,7 @@ impl JsDatabase {
         let modules = self.inner.modules().map_err(to_js_error)?;
         Ok(modules
             .iter()
-            .map(|m| {
-                let object = Object::new();
-                set(&object, "name", m.name.as_str().into());
-                set(&object, "type", m.type_name.into());
-                object
-            })
+            .map(|m| name_and_type(&m.name, m.type_name))
             .collect())
     }
 
@@ -702,12 +692,7 @@ impl JsDatabase {
         let forms = self.inner.forms().map_err(to_js_error)?;
         Ok(forms
             .iter()
-            .map(|f| {
-                let object = Object::new();
-                set(&object, "name", f.name.as_str().into());
-                set(&object, "type", f.type_name.into());
-                object
-            })
+            .map(|f| name_and_type(&f.name, f.type_name))
             .collect())
     }
 
@@ -1350,6 +1335,15 @@ fn cell_value(cell: Cell) -> JsValue {
 }
 
 /// Sets a property on an object made here, which cannot fail.
+/// An object `{ name, type }`, as `queries`, `modules` and `forms` give one
+/// for each query, module, and form or report.
+fn name_and_type(name: &str, type_name: &str) -> Object {
+    let object = Object::new();
+    set(&object, "name", name.into());
+    set(&object, "type", type_name.into());
+    object
+}
+
 fn set(object: &Object, key: &str, value: JsValue) {
     Reflect::set(object, &JsValue::from_str(key), &value).expect("set a property");
 }
