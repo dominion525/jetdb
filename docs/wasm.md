@@ -127,7 +127,7 @@ A property is named by its name, or by its number as `0x....` for one jetdb does
 | `dataMacros(table)` | The data macros of a table |
 | `dataMacrosText(table)` | The SaveAsText text of all the data macros of a table, as `jetdb macro data` prints it |
 
-A macro has where it is (`source`), its statements (`statements`), the XML Access keeps for it (`xml`, empty for a macro saved before Access 2010), and its SaveAsText text (`text`), as `jetdb macro show` and `jetdb macro embedded` print it. `text` is null for a data macro, whose text `dataMacrosText` gives for its table.
+A macro has where it is (`source`), its statements (`statements`), the XML Access keeps for it (`xml`, empty for a macro saved before Access 2010), and its SaveAsText text (`text`), as `jetdb macro show` and `jetdb macro embedded` print it. `text` is null for a data macro, whose text `dataMacrosText` gives for its table, for a named macro whose grid of actions could not be read, and for an embedded macro stored without XML.
 
 A statement is an action with its arguments, a comment, an `If` block, a group, a submacro, a record block of a data macro, or an element jetdb does not interpret, kept as it is.
 

@@ -127,7 +127,7 @@ do {
 | `dataMacros(table)` | テーブルのデータマクロ |
 | `dataMacrosText(table)` | テーブルのすべてのデータマクロの SaveAsText 形式のテキスト。`jetdb macro data` と同じ |
 
-マクロは、どこのマクロか（`source`）、文（`statements`）、Access が持つ XML（`xml`。Access 2010 より前に保存されたマクロでは空）、SaveAsText 形式のテキスト（`text`。`jetdb macro show` と `jetdb macro embedded` と同じ）を持ちます。データマクロの `text` は null で、テーブルごとのテキストは `dataMacrosText` で取ります。
+マクロは、どこのマクロか（`source`）、文（`statements`）、Access が持つ XML（`xml`。Access 2010 より前に保存されたマクロでは空）、SaveAsText 形式のテキスト（`text`。`jetdb macro show` と `jetdb macro embedded` と同じ）を持ちます。`text` は、データマクロ（テーブルごとのテキストは `dataMacrosText` で取ります）、アクションの表を読めなかった名前付きマクロ、XML なしで保存された埋め込みマクロでは null です。
 
 文は、アクションとその引数、コメント、`If` のブロック、グループ、サブマクロ、データマクロのレコードのブロック、jetdb が解釈しない要素（そのまま残す）のどれかです。
 
