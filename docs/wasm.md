@@ -146,11 +146,12 @@ A value in a row, or of a property, is a JavaScript value by the type of its col
 | Yes/No | `boolean` |
 | Short Text, Long Text, Replication ID (GUID), Currency, Decimal | `string`, so that no digits are lost |
 | Date/Time | `string`, such as `2021-06-14`, or `2021-06-14 22:45:12` when the time is not midnight |
-| Date/Time Extended | `string` with all its digits, such as `2021-06-14 22:45:12.3456789` |
-| Binary, OLE Object | `Uint8Array` |
+| Date/Time Extended | `string` with all its digits, such as `2021-06-14 22:45:12.3456789`, or a `Uint8Array` of the stored bytes when they cannot be read as a date and time |
+| Binary, OLE Object, and a type jetdb does not know | `Uint8Array` |
 | Multiple values | An array of the values |
 | Attachment | An array of files, each with its name, type and content |
 | Long Text with the history of versions | An array of the versions, oldest first |
+| A complex column of a kind jetdb does not know | `number`, the ID of its values in a hidden table |
 | NULL | `null` |
 
 ## Errors
