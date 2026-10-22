@@ -133,6 +133,7 @@ fn main() -> Result<(), jetdb::FileError> {
 - RC4 暗号化データベースの復号、およびパスワード保護された .accdb ファイルの復号 (Agile, RC4 CryptoAPI, Standard/NonStandard AES)
 - Jet3 (データベースのコードページ。1252 や 932 など) / Jet4 以降 (UTF-16LE、圧縮テキスト) のエンコーディング処理
 - WebAssembly 上での動作（ブラウザ用の `wasm32-unknown-unknown` を含む。`PageReader::open_reader` でメモリ上のバイト列から開く）
+- ブラウザと Node.js の JavaScript からの読み取り（`crates/jetdb-wasm` の `jetdb-wasm` パッケージ。API は [docs/wasm.ja.md](docs/wasm.ja.md)）
 
 ## 制限事項
 
