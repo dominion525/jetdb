@@ -50,7 +50,7 @@ db.free();
 | Macros | `macros`, `macro`, `embeddedMacros`, `dataMacros`, `dataMacrosText` |
 | Object properties | `properties` |
 
-Values come as JavaScript values: numbers, bigints, booleans, strings (for text, dates, money and other values that a number would round), `Uint8Array` for binary data, and arrays for attachments and multiple values. A method that fails throws a `JetdbError`, whose `code` tells what went wrong, such as `PASSWORD_REQUIRED` or `TABLE_NOT_FOUND`.
+Values come as JavaScript values: numbers, bigints, booleans, strings (for text, dates, money and other values that a number would round), `Uint8Array` for binary data, and arrays for attachments and multiple values. A method that fails throws an `Error` named `JetdbError`, whose `code` tells what went wrong, such as `PASSWORD_REQUIRED` or `TABLE_NOT_FOUND`.
 
 The package includes TypeScript types. See [the JavaScript API](https://github.com/dominion525/jetdb/blob/main/docs/wasm.md) for each method and its options.
 

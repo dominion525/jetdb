@@ -156,7 +156,7 @@ do {
 
 ## エラー
 
-失敗したメソッドは `JetdbError` を投げます。何が起きたかは `code` でわかります。
+失敗したメソッドは、`name` が `JetdbError` の `Error` を投げます。何が起きたかは `code` でわかります。`JetdbError` はこのエラーの TypeScript の型で、パッケージがエクスポートするクラスではありません。そのため、`instanceof` ではなく、`name` と `code` で見分けます。
 
 | コード | 意味 |
 |------|---------|
@@ -172,7 +172,7 @@ do {
 try {
   db.rows("Customers");
 } catch (e) {
-  if (e.code === "TABLE_NOT_FOUND") {
+  if (e.name === "JetdbError" && e.code === "TABLE_NOT_FOUND") {
     // ...
   }
 }

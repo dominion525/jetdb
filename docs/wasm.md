@@ -156,7 +156,7 @@ A value in a row, or of a property, is a JavaScript value by the type of its col
 
 ## Errors
 
-A method that fails throws a `JetdbError`, whose `code` tells what went wrong:
+A method that fails throws an `Error` whose `name` is `JetdbError` and whose `code` tells what went wrong. `JetdbError` is the TypeScript type of this error, not a class the package exports, so tell it by `name` and `code`, not by `instanceof`:
 
 | Code | Meaning |
 |------|---------|
@@ -172,7 +172,7 @@ A method that fails throws a `JetdbError`, whose `code` tells what went wrong:
 try {
   db.rows("Customers");
 } catch (e) {
-  if (e.code === "TABLE_NOT_FOUND") {
+  if (e.name === "JetdbError" && e.code === "TABLE_NOT_FOUND") {
     // ...
   }
 }
