@@ -1,12 +1,12 @@
 Microsoft Access のデータベースファイル (.mdb / .accdb) を読み取るための pure Rust ライブラリです。
-ODBC ドライバや C ライブラリへの依存がないため、Windows がなくても macOS や Linux 上で
-Access データベースの中身をそのまま読み取れます。Access 97 (Jet3) から Access 2019 (ACE17) まで対応しています。
+ODBC ドライバや C ライブラリは要りません。macOS や Linux など、Rust の動くどの環境でも
+Access データベースを直接読み取れます。Access 97 (Jet3) から Access 2019 (ACE17) まで対応しています。
 
 # Quick Start
 
 ```toml
 [dependencies]
-jetdb = { git = "https://github.com/dominion525/jetdb" }
+jetdb = "0.3"
 ```
 
 ```rust,no_run
@@ -31,7 +31,7 @@ jetdb の API は、Access データベースのページベースの内部構�
 PageReader::open → read_catalog → read_table_def → read_table_rows → Value
 ```
 
-1. [`PageReader::open`] でデータベースファイルを開きます。ファイルヘッダーからエンジンバージョンを自動判定し、必要に応じて RC4 復号の準備も行います。
+1. [`PageReader::open`] でデータベースファイルを開きます。ファイルヘッダーからエンジンバージョンを自動判定し、必要に応じて RC4 復号の準備も行います。パスワード保護された .accdb ファイルは、代わりに [`PageReader::open_with_password`] で開きます。
 2. [`read_catalog`] でシステムカタログ (MSysObjects) を読み取り、データベース内のオブジェクト一覧を [`CatalogEntry`] のベクタとして返します。
 3. [`read_table_def`] でテーブル定義ページ (TDEF) を解析し、カラムやインデックスの情報を含む [`TableDef`] を返します。
 4. [`read_table_rows`] でデータページを走査し、各行の値を [`Value`] enum として返します。
@@ -308,6 +308,25 @@ fn main() -> Result<(), jetdb::FileError> {
 
 方言は [`ddl::Sqlite`]、[`ddl::Postgres`]、[`ddl::Mysql`]、[`ddl::Access`] から選べます。
 
+## パスワード保護されたデータベース
+
+パスワード保護された .accdb ファイル（Agile Encryption、RC4 CryptoAPI、Standard AES・NonStandard AES で暗号化されたもの）は、[`PageReader::open_with_password`] で開きます。
+
+```rust,no_run
+use jetdb::{PageReader, table_names};
+
+fn main() -> Result<(), jetdb::FileError> {
+    let mut reader = PageReader::open_with_password("protected.accdb", Some("secret"))?;
+    let names = table_names(&mut reader)?;
+    for name in &names {
+        println!("{name}");
+    }
+    Ok(())
+}
+```
+
+暗号化されていないファイルでは、`open_with_password` は `open` と同じに動きます（パスワードは使いません）。
+
 ## メモリから開く（WebAssembly）
 
 [`PageReader::open_reader`] は、ファイルパスの代わりに `std::io::Cursor<Vec<u8>>` のようなメモリ上の入力からデータベースを開きます。WebAssembly で使うときはこの方法で開きます。ファイルシステムの無いブラウザ用ターゲット `wasm32-unknown-unknown` でも動作します。パスワード保護されたファイルは [`PageReader::open_reader_with_password`] を使います。
@@ -347,4 +366,4 @@ Jet3 (Access 97) のファイルは、文字列をデータベースのコード
 
 - 読み取り専用です（書き込みには対応していません）
 - インデックスを使った検索は非対応です（順次スキャンのみ）
-- パスワード保護されたデータベースは非対応です
+- パスワード保護された .accdb ファイルは [`PageReader::open_with_password`] で開く必要があります（Agile Encryption、RC4 CryptoAPI、Standard AES・NonStandard AES）
