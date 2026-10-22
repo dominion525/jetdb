@@ -165,7 +165,7 @@ do {
 | `UNSUPPORTED_ENCRYPTION` | jetdb が読めない方式で暗号化されている |
 | `TABLE_NOT_FOUND`、`QUERY_NOT_FOUND`、`MODULE_NOT_FOUND`、`FORM_NOT_FOUND`、`MACRO_NOT_FOUND`、`OBJECT_NOT_FOUND` | その名前のオブジェクトが無い |
 | `INVALID_FILE` | Access のデータベースでないか、壊れている。何が悪いかはメッセージにある |
-| `INVALID_ARGUMENT` | メソッドに違う種類の引数が渡された。または、種類の違うオブジェクトが同じ名前で、どれかを選ぶ `type` のオプションが無い |
+| `INVALID_ARGUMENT` | メソッドに正しくない引数やオプションが渡された（型が違う、決まった値のどれでもない、など）。または、種類の違うオブジェクトが同じ名前で、どれかを選ぶ `type` のオプションが無い |
 | `IO` | バイト列の読み取りに失敗した |
 
 ```js

@@ -487,8 +487,10 @@ export interface Rows {
  *   that name.
  * - `INVALID_FILE`: not an Access database, or a broken one; the message
  *   says what is wrong.
- * - `INVALID_ARGUMENT`: a method was called with an argument of the wrong
- *   kind.
+ * - `INVALID_ARGUMENT`: a method was called with an argument or option that
+ *   is not valid, such as a value of the wrong type or one outside its
+ *   list, or with a name that objects of different types share and no
+ *   `type` option to choose one.
  * - `IO`: reading the bytes failed.
  */
 export type ErrorCode =
