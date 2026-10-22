@@ -14,6 +14,7 @@ use jetdb::{
     read_catalog, read_relationships, relationship_flags, CatalogEntry, ColumnDef,
     IndexColumnOrder, IndexDef, PageReader, Relationship, TableDef,
 };
+use unicode_width::UnicodeWidthStr;
 
 // ---------------------------------------------------------------------------
 // CLI definition
@@ -294,6 +295,12 @@ fn format_col_attrs(col: &ColumnDef) -> String {
     attrs.join("  ")
 }
 
+/// `s` followed by spaces up to `width` columns of a terminal, where a wide
+/// character, such as a Japanese one, takes two.
+fn padded(s: &str, width: usize) -> String {
+    format!("{s}{}", " ".repeat(width.saturating_sub(s.width())))
+}
+
 fn print_table_schema(tdef: &TableDef, rels: &[Relationship], args: &SchemaArgs) {
     println!("Table: {}", tdef.name);
     println!();
@@ -307,20 +314,23 @@ fn print_table_schema(tdef: &TableDef, rels: &[Relationship], args: &SchemaArgs)
         .iter()
         .map(|c| format_col_type(c, tdef.shown_size(c)))
         .collect();
-    let name_width = tdef.columns.iter().map(|c| c.name.len()).max().unwrap_or(0);
-    let type_width = col_types.iter().map(|s| s.len()).max().unwrap_or(0);
+    let name_width = tdef
+        .columns
+        .iter()
+        .map(|c| c.name.width())
+        .max()
+        .unwrap_or(0);
+    let type_width = col_types.iter().map(|s| s.width()).max().unwrap_or(0);
 
     for (col, col_type) in tdef.columns.iter().zip(&col_types) {
         let attrs = format_col_attrs(col);
         if attrs.is_empty() {
-            println!("    {:<nw$}  {col_type}", col.name, nw = name_width);
+            println!("    {}  {col_type}", padded(&col.name, name_width));
         } else {
             println!(
-                "    {:<nw$}  {:<tw$}  {attrs}",
-                col.name,
-                col_type,
-                nw = name_width,
-                tw = type_width,
+                "    {}  {}  {attrs}",
+                padded(&col.name, name_width),
+                padded(col_type, type_width),
             );
         }
     }
@@ -339,26 +349,24 @@ fn print_table_schema(tdef: &TableDef, rels: &[Relationship], args: &SchemaArgs)
 
             let idx_name_width = visible_indexes
                 .iter()
-                .map(|i| i.name.len())
+                .map(|i| i.name.width())
                 .max()
                 .unwrap_or(0);
             let cols_strs: Vec<String> = visible_indexes
                 .iter()
                 .map(|idx| format_index_columns(idx, tdef))
                 .collect();
-            let cols_width = cols_strs.iter().map(|s| s.len()).max().unwrap_or(0);
+            let cols_width = cols_strs.iter().map(|s| s.width()).max().unwrap_or(0);
 
             for (idx, cols_str) in visible_indexes.iter().zip(&cols_strs) {
                 let flags_str = format_index_flags(idx);
                 if flags_str.is_empty() {
-                    println!("    {:<w$}  {cols_str}", idx.name, w = idx_name_width);
+                    println!("    {}  {cols_str}", padded(&idx.name, idx_name_width));
                 } else {
                     println!(
-                        "    {:<w$}  {:<cw$}  {flags_str}",
-                        idx.name,
-                        cols_str,
-                        w = idx_name_width,
-                        cw = cols_width,
+                        "    {}  {}  {flags_str}",
+                        padded(&idx.name, idx_name_width),
+                        padded(cols_str, cols_width),
                     );
                 }
             }
@@ -376,18 +384,17 @@ fn print_table_schema(tdef: &TableDef, rels: &[Relationship], args: &SchemaArgs)
             println!();
             println!("  Relationships:");
 
-            let rel_name_width = table_rels.iter().map(|r| r.name.len()).max().unwrap_or(0);
+            let rel_name_width = table_rels.iter().map(|r| r.name.width()).max().unwrap_or(0);
 
             for rel in &table_rels {
                 let mapping = format_relationship_mapping(rel);
                 let flags_str = format_relationship_flags(rel);
                 if flags_str.is_empty() {
-                    println!("    {:<w$}  {mapping}", rel.name, w = rel_name_width);
+                    println!("    {}  {mapping}", padded(&rel.name, rel_name_width));
                 } else {
                     println!(
-                        "    {:<w$}  {mapping}  {flags_str}",
-                        rel.name,
-                        w = rel_name_width,
+                        "    {}  {mapping}  {flags_str}",
+                        padded(&rel.name, rel_name_width)
                     );
                 }
             }
@@ -543,6 +550,13 @@ mod tests {
             lv_prop: None,
             lv_extra: None,
         }
+    }
+
+    #[test]
+    fn padded_counts_a_wide_character_as_two_columns() {
+        assert_eq!(padded("ID", 4), "ID  ");
+        assert_eq!(padded("氏名", 6), "氏名  ");
+        assert_eq!(padded("氏名索引", 4), "氏名索引");
     }
 
     // should_show tests
