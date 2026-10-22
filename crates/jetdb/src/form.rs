@@ -292,90 +292,272 @@ pub fn read_form_type_info_in(
 /// The same ID can hold a value of another type where the property does not
 /// apply, as a different property: 0x0068 is `OnKeyDown` on a form, but holds
 /// a color on a label, which has no key events. [`BlobProperty::name`] names
-/// a text value by this table, and an integer or Yes/No value by
-/// [`number_prop_id_name`].
+/// a text value by this table, a number or Yes/No value by
+/// [`number_prop_id_name`], and bytes or a GUID by [`bytes_prop_id_name`].
+///
+/// Each name is the SaveAsText key, and the only one, that holds every value
+/// of the ID in the forms and reports of Sports.accdb (ruddj/SportsAdmin) and
+/// of the databases made by testdata/form-generators, in both formats.
 pub fn prop_id_name(prop_id: u16) -> Option<&'static str> {
-    match prop_id {
-        0x0011 => Some("Caption"),
-        0x0012 => Some("ColumnWidths"),
-        0x0014 => Some("Name"),
-        0x0016 => Some("EventProcPrefix"),
-        0x0017 => Some("DefaultValue"),
-        0x001B => Some("ControlSource"),
-        0x0022 => Some("FontName"),
-        0x0026 => Some("Format"),
-        0x004C => Some("OLEClass"),
-        0x004D => Some("OnOpen"),
-        0x004E => Some("OnClose"),
-        0x0056 => Some("AfterUpdate"),
-        0x005B => Some("RowSource"),
-        0x005D => Some("RowSourceType"),
-        0x0068 => Some("OnKeyDown"),
-        0x0069 => Some("OnKeyUp"),
-        0x006A => Some("OnKeyPress"),
-        0x006B => Some("OnMouseDown"),
-        0x006C => Some("OnMouseUp"),
-        0x006D => Some("OnMouseMove"),
-        0x0073 => Some("OnGotFocus"),
-        0x0074 => Some("OnLostFocus"),
-        0x0079 => Some("OnNoData"),
-        0x007E => Some("OnClick"),
-        0x007F => Some("OnLoad"),
-        0x0084 => Some("SourceObject"),
-        0x0087 => Some("StatusBarText"),
-        0x009C => Some("RecordSource"),
-        0x00A0 => Some("DatasheetFontName"),
-        0x00DA => Some("HelpFile"),
-        0x00DE => Some("OnEnter"),
-        0x00DF => Some("OnExit"),
-        0x00E0 => Some("OnDblClick"),
-        0x00F5 => Some("Filter"),
-        0x010A => Some("Tag"),
-        0x0112 => Some("Class"),
-        0x0130 => Some("ShortcutMenuBar"),
-        0x013D => Some("ControlTipText"),
-        0x015A => Some("ColumnInfo"),
-        0x0161 => Some("Toolbar"),
-        _ => None,
-    }
+    name_in(TEXT_NAMES, prop_id)
 }
 
-/// Return the known name of the property `prop_id` whose value is an integer
-/// or Yes/No, or `None`.
+/// The names of the text values, sorted by ID.
+const TEXT_NAMES: &[(u16, &str)] = &[
+    (0x0007, "Picture"),
+    (0x0011, "Caption"),
+    (0x0012, "ColumnWidths"),
+    (0x0014, "Name"),
+    (0x0016, "EventProcPrefix"),
+    (0x0017, "DefaultValue"),
+    (0x001B, "ControlSource"),
+    (0x0022, "FontName"),
+    (0x0026, "Format"),
+    (0x0031, "LinkChildFields"),
+    (0x0032, "LinkMasterFields"),
+    (0x003D, "ValidationText"),
+    (0x0048, "InputMask"),
+    (0x004C, "OLEClass"),
+    (0x004D, "OnOpen"),
+    (0x004E, "OnClose"),
+    (0x004F, "OnDelete"),
+    (0x0050, "OnFormat"),
+    (0x0052, "OnPrint"),
+    (0x0053, "OnPage"),
+    (0x0054, "OnRetreat"),
+    (0x0055, "BeforeUpdate"),
+    (0x0056, "AfterUpdate"),
+    (0x0057, "OnCurrent"),
+    (0x005B, "RowSource"),
+    (0x005D, "RowSourceType"),
+    (0x0068, "OnKeyDown"),
+    (0x0069, "OnKeyUp"),
+    (0x006A, "OnKeyPress"),
+    (0x006B, "OnMouseDown"),
+    (0x006C, "OnMouseUp"),
+    (0x006D, "OnMouseMove"),
+    (0x006E, "OnTimer"),
+    (0x0070, "OnActivate"),
+    (0x0071, "OnDeactivate"),
+    (0x0072, "OnChange"),
+    (0x0073, "OnGotFocus"),
+    (0x0074, "OnLostFocus"),
+    (0x0075, "OnResize"),
+    (0x0076, "OnUpdated"),
+    (0x0077, "OnError"),
+    (0x0078, "OnNotInList"),
+    (0x0079, "OnNoData"),
+    (0x007A, "BeforeInsert"),
+    (0x007B, "AfterInsert"),
+    (0x007C, "BeforeDelConfirm"),
+    (0x007D, "AfterDelConfirm"),
+    (0x007E, "OnClick"),
+    (0x007F, "OnLoad"),
+    (0x0080, "OnUnload"),
+    (0x0084, "SourceObject"),
+    (0x0087, "StatusBarText"),
+    (0x0091, "ValidationRule"),
+    (0x009C, "RecordSource"),
+    (0x00A0, "DatasheetFontName"),
+    (0x00DA, "HelpFile"),
+    (0x00DE, "OnEnter"),
+    (0x00DF, "OnExit"),
+    (0x00E0, "OnDblClick"),
+    (0x00F0, "MenuBar"),
+    (0x00F5, "Filter"),
+    (0x010A, "Tag"),
+    (0x0112, "Class"),
+    (0x0130, "ShortcutMenuBar"),
+    (0x013D, "ControlTipText"),
+    (0x014B, "OrderBy"),
+    (0x014D, "OnFilter"),
+    (0x014E, "OnApplyFilter"),
+    (0x0157, "HyperlinkAddress"),
+    (0x015A, "ColumnInfo"),
+    (0x015B, "HyperlinkSubAddress"),
+    (0x0161, "Toolbar"),
+    (0x0167, "FuriganaControl"),
+    (0x0168, "PostalAddress"),
+    (0x0177, "OnDirty"),
+    (0x0194, "OnUndo"),
+    (0x01A9, "OnConnect"),
+    (0x01AA, "OnDisconnect"),
+    (0x01AB, "OnPivotTableChange"),
+    (0x01AC, "OnQuery"),
+    (0x01AD, "BeforeQuery"),
+    (0x01AE, "OnSelectionChange"),
+    (0x01AF, "OnCmdBeforeExecute"),
+    (0x01B0, "OnCmdChecked"),
+    (0x01B1, "OnCmdEnabled"),
+    (0x01B2, "OnCmdExecute"),
+    (0x01B3, "OnDataSetChange"),
+    (0x01B4, "BeforeScreenTip"),
+    (0x01B5, "AfterFinalRender"),
+    (0x01B6, "AfterRender"),
+    (0x01B7, "AfterLayout"),
+    (0x01B8, "BeforeRender"),
+    (0x01B9, "OnMouseWheel"),
+    (0x01BA, "OnViewChange"),
+    (0x01BB, "OnDataChange"),
+];
+
+/// Return the known name of the property `prop_id` whose value is a number or
+/// a Yes/No, with or without a value (NotDefault), or `None`.
 ///
-/// Each name is the SaveAsText key whose values agree with every value of the
-/// ID in the forms and reports of Sports.accdb (ruddj/SportsAdmin), where the
-/// values vary, so that one key fits them all, or that changes the value of
-/// the ID when it is set in testdata/V2007/propertyIdTestV2007.accdb, and
-/// agrees with its values there and in Sports.accdb. Only IDs up to 0x01C4 are
-/// named: Access for Microsoft 365 writes the IDs above, such as those of
+/// Each name is the SaveAsText key, and the only one, that holds every value
+/// of the ID, as for [`prop_id_name`]; a Yes/No without a value is held by a
+/// key written as NotDefault in each block that has it. Only IDs up to 0x01C4
+/// are named: Access for Microsoft 365 writes the IDs above, such as those of
 /// the anchors and the layout, one higher than the Access that made
 /// Sports.accdb.
 pub fn number_prop_id_name(prop_id: u16) -> Option<&'static str> {
-    match prop_id {
-        0x0009 => Some("BorderStyle"),
-        0x000C => Some("Bottom"),
-        0x0029 => Some("GridX"),
-        0x002A => Some("GridY"),
-        0x0036 => Some("Left"),
-        0x006F => Some("TimerInterval"),
-        0x0081 => Some("Right"),
-        0x008D => Some("Top"),
-        0x0092 => Some("ViewsAllowed"),
-        0x0093 => Some("DefaultView"),
-        0x0096 => Some("Width"),
-        0x0098 => Some("ScrollBars"),
-        0x009E => Some("ItemSuffix"),
-        0x00A1 => Some("DatasheetFontHeight"),
-        0x00DB => Some("HelpContextId"),
-        0x0105 => Some("TabIndex"),
-        0x0135 => Some("PictureAlignment"),
-        0x013E => Some("DatasheetGridlinesBehavior"),
-        0x013F => Some("DatasheetGridlinesColor"),
-        0x01A6 => Some("AllowDatasheetView"),
-        0x01C4 => Some("FilterOnLoad"),
-        _ => None,
-    }
+    name_in(NUMBER_NAMES, prop_id)
+}
+
+/// The names of the number and Yes/No values, sorted by ID.
+const NUMBER_NAMES: &[(u16, &str)] = &[
+    (0x0002, "AccessKey"),
+    (0x0004, "SpecialEffect"),
+    (0x0006, "AutoResize"),
+    (0x0008, "BorderColor"),
+    (0x0009, "BorderStyle"),
+    (0x000A, "BorderWidth"),
+    (0x000B, "BorderLineStyle"),
+    (0x000C, "Bottom"),
+    (0x000D, "BoundColumn"),
+    (0x000E, "CanGrow"),
+    (0x000F, "RepeatSection"),
+    (0x0010, "CanShrink"),
+    (0x0013, "RecordSelectors"),
+    (0x0019, "Enabled"),
+    (0x001C, "BackColor"),
+    (0x001D, "BackStyle"),
+    (0x001E, "AllowFilters"),
+    (0x0021, "FontItalic"),
+    (0x0023, "FontSize"),
+    (0x0024, "FontUnderline"),
+    (0x0025, "FontWeight"),
+    (0x0029, "GridX"),
+    (0x002A, "GridY"),
+    (0x002C, "Height"),
+    (0x002D, "AllowUpdating"),
+    (0x002E, "Transparent"),
+    (0x0036, "Left"),
+    (0x0037, "LineSlant"),
+    (0x0038, "Locked"),
+    (0x003A, "OptionValue"),
+    (0x003E, "Modal"),
+    (0x0043, "LimitToList"),
+    (0x0044, "AutoExpand"),
+    (0x0045, "HideDuplicates"),
+    (0x0046, "ColumnCount"),
+    (0x0047, "DecimalPlaces"),
+    (0x004B, "KeepTogether"),
+    (0x0059, "SizeMode"),
+    (0x005A, "PopUp"),
+    (0x005C, "RowSourceTypeInt"),
+    (0x005E, "MaxButton"),
+    (0x005F, "MinButton"),
+    (0x0061, "ControlBox"),
+    (0x0065, "AutoActivate"),
+    (0x006F, "TimerInterval"),
+    (0x0081, "Right"),
+    (0x0082, "RunningSum"),
+    (0x0083, "ColumnHeads"),
+    (0x0088, "TextAlign"),
+    (0x008D, "Top"),
+    (0x008F, "LayoutForPrint"),
+    (0x0090, "FastLaserPrinting"),
+    (0x0092, "ViewsAllowed"),
+    (0x0093, "DefaultView"),
+    (0x0094, "Visible"),
+    (0x0095, "DisplayWhen"),
+    (0x0096, "Width"),
+    (0x0097, "ForceNewPage"),
+    (0x0098, "ScrollBars"),
+    (0x009A, "ListWidth"),
+    (0x009D, "BreakLevel"),
+    (0x009E, "ItemSuffix"),
+    (0x009F, "OverlapFlags"),
+    (0x00A1, "DatasheetFontHeight"),
+    (0x00A2, "DatasheetFontWeight"),
+    (0x00A5, "ColumnOrder"),
+    (0x00A6, "ColumnWidth"),
+    (0x00A7, "ColumnHidden"),
+    (0x00A8, "RowHeight"),
+    (0x00C2, "TabularCharSet"),
+    (0x00CC, "ForeColor"),
+    (0x00DB, "HelpContextId"),
+    (0x00DC, "Default"),
+    (0x00DD, "Cancel"),
+    (0x00F3, "TextFontFamily"),
+    (0x00F4, "TabularFamily"),
+    (0x0105, "TabIndex"),
+    (0x0106, "TabStop"),
+    (0x0116, "AutoCenter"),
+    (0x0117, "NavigationButtons"),
+    (0x011A, "DateGrouping"),
+    (0x0126, "TripleState"),
+    (0x012F, "CloseButton"),
+    (0x0132, "DatasheetForeColor"),
+    (0x0135, "PictureAlignment"),
+    (0x0139, "PictureTiling"),
+    (0x013A, "DividingLines"),
+    (0x013E, "DatasheetGridlinesBehavior"),
+    (0x013F, "DatasheetGridlinesColor"),
+    (0x0146, "AllowAdditions"),
+    (0x0149, "OldBorderStyle"),
+    (0x0150, "OrderByOn"),
+    (0x0154, "AllowAutoCorrect"),
+    (0x0155, "PictureType"),
+    (0x015C, "MultiRow"),
+    (0x015E, "TabFixedHeight"),
+    (0x015F, "TabFixedWidth"),
+    (0x0163, "Vertical"),
+    (0x0165, "IMEHold"),
+    (0x016C, "RecSrcDt"),
+    (0x0170, "KeyboardLanguage"),
+    (0x0175, "AllowDesignChanges"),
+    (0x017B, "IMESentenceMode"),
+    (0x0180, "LeftMargin"),
+    (0x0181, "TopMargin"),
+    (0x0182, "LineSpacing"),
+    (0x0183, "SubdatasheetHeight"),
+    (0x0184, "RightMargin"),
+    (0x0185, "BottomMargin"),
+    (0x018C, "IsHyperlink"),
+    (0x01A6, "AllowDatasheetView"),
+    (0x01BE, "AsianLineBreak"),
+    (0x01C2, "GroupTable"),
+    (0x01C4, "FilterOnLoad"),
+];
+
+/// Return the known name of the property `prop_id` whose value is bytes or a
+/// GUID, or `None`: each is the SaveAsText key whose binary value holds the
+/// same bytes, as for [`number_prop_id_name`].
+pub fn bytes_prop_id_name(prop_id: u16) -> Option<&'static str> {
+    name_in(BYTES_NAMES, prop_id)
+}
+
+/// The names of the bytes and GUID values, sorted by ID.
+const BYTES_NAMES: &[(u16, &str)] = &[
+    (0x0063, "ObjectPalette"),
+    (0x0064, "PaintPalette"),
+    (0x00AB, "OleData"),
+    (0x00BC, "PictureData"),
+    (0x00BD, "PrtMip"),
+    (0x00BE, "PrtDevMode"),
+    (0x00BF, "PrtDevNames"),
+    (0x0178, "GUID"),
+    (0x0179, "NameMap"),
+];
+
+/// The name of `prop_id` in `table`, sorted by ID.
+fn name_in(table: &[(u16, &'static str)], prop_id: u16) -> Option<&'static str> {
+    table
+        .binary_search_by_key(&prop_id, |&(id, _)| id)
+        .ok()
+        .map(|i| table[i].1)
 }
 
 /// Return the known control type name for a given TypeInfo type_code, or `None`.
@@ -457,10 +639,12 @@ impl BlobProperty {
     pub fn name(&self) -> Option<&'static str> {
         match self.value {
             BlobValue::Text(_) => prop_id_name(self.prop_id),
-            BlobValue::Bool(_) | BlobValue::Short(_) | BlobValue::Long(_) => {
-                number_prop_id_name(self.prop_id)
-            }
-            _ => None,
+            BlobValue::Bool(_)
+            | BlobValue::NotDefault
+            | BlobValue::Short(_)
+            | BlobValue::Long(_)
+            | BlobValue::Double(_) => number_prop_id_name(self.prop_id),
+            BlobValue::Binary(_) | BlobValue::Guid(_) => bytes_prop_id_name(self.prop_id),
         }
     }
 
@@ -1547,7 +1731,7 @@ mod tests {
             let id = if id > 0x01C4 { id + 1 } else { id };
             assert!(by_version[1].holds(id, key), "{id:#06x} {key}");
         }
-        assert!(low.named() >= 60, "{}", low.named());
+        assert!(low.named() >= 217, "{}", low.named());
     }
 
     #[test]
@@ -1815,11 +1999,31 @@ mod tests {
             property(0x01C4, BlobValue::Bool(false)).name(),
             Some("FilterOnLoad")
         );
-        assert_eq!(property(0x0036, BlobValue::NotDefault).name(), None);
+        // A Yes/No without a value, a double, and bytes are named too.
+        assert_eq!(
+            property(0x013A, BlobValue::NotDefault).name(),
+            Some("DividingLines")
+        );
+        assert_eq!(
+            property(0x016C, BlobValue::Double(36450.5)).name(),
+            Some("RecSrcDt")
+        );
+        assert_eq!(
+            property(0x0178, BlobValue::Guid(String::new())).name(),
+            Some("GUID")
+        );
         assert_eq!(
             property(0x0036, BlobValue::Text("x".to_string())).name(),
             None
         );
+    }
+
+    #[test]
+    fn name_tables_are_sorted_by_id_without_repeats() {
+        // name_in looks names up by binary search.
+        for table in [TEXT_NAMES, NUMBER_NAMES, BYTES_NAMES] {
+            assert!(table.windows(2).all(|w| w[0].0 < w[1].0));
+        }
     }
 
     #[test]
@@ -2560,6 +2764,15 @@ mod tests {
             let mut check_named =
                 |properties: &[BlobProperty], saved: &HashMap<String, String>, at: &str| {
                     for p in properties {
+                        // Values SaveAsText writes on a line of their own;
+                        // those in its binary blocks are checked by
+                        // every_value_is_one_save_as_text_writes.
+                        if matches!(
+                            p.value,
+                            BlobValue::Binary(_) | BlobValue::Guid(_) | BlobValue::Double(_)
+                        ) {
+                            continue;
+                        }
                         let Some(key) = p.name() else { continue };
                         if report && at == "(itself)" && matches!(key, "Right" | "Bottom") {
                             continue;

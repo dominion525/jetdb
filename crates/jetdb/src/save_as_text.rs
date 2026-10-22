@@ -238,17 +238,17 @@ fn holds_bare(bare: &str, value: &BlobValue) -> bool {
 pub(crate) enum Kind {
     Text,
     Number,
-    NotDefault,
     Bytes,
 }
 
 fn kind(value: &BlobValue) -> Kind {
     match value {
         BlobValue::Text(_) => Kind::Text,
-        BlobValue::NotDefault => Kind::NotDefault,
-        BlobValue::Short(_) | BlobValue::Long(_) | BlobValue::Bool(_) | BlobValue::Double(_) => {
-            Kind::Number
-        }
+        BlobValue::NotDefault
+        | BlobValue::Short(_)
+        | BlobValue::Long(_)
+        | BlobValue::Bool(_)
+        | BlobValue::Double(_) => Kind::Number,
         BlobValue::Binary(_) | BlobValue::Guid(_) => Kind::Bytes,
     }
 }

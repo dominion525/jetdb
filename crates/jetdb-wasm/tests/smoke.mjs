@@ -354,11 +354,12 @@ function checkForms(Database, build) {
   const value = (properties, name) => properties.find((p) => p.name === name).value;
   assert.equal(value(design.properties, "RecordSource"), "jp_クエリ_02", build);
   assert.equal(design.properties.find((p) => p.name === "RecordSource").id, 0x9c, build);
-  assert.equal(design.properties.find((p) => p.name === "0x013A").id, 0x13a, build);
-  assert.equal(value(design.properties, "0x013A"), "NotDefault", build);
+  // A property jetdb does not name is given by its number.
+  assert.equal(design.properties.find((p) => p.name === "0x0250").id, 0x250, build);
+  assert.equal(value(design.properties, "DividingLines"), "NotDefault", build);
   assert.equal(value(design.properties, "DefaultView"), 5, build);
   assert.equal(value(design.properties, "DatasheetGridlinesColor"), 0xe8e8e8, build);
-  assert.ok(value(design.properties, "0x0179") instanceof Uint8Array, build);
+  assert.ok(value(design.properties, "NameMap") instanceof Uint8Array, build);
   assert.equal(design.controls.length, 21, build);
   assert.deepEqual(
     { name: design.controls[0].name, type: design.controls[0].type, typeCode: design.controls[0].typeCode },

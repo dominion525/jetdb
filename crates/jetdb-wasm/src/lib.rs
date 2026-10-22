@@ -2076,15 +2076,17 @@ mod tests {
         let value = |name| form_property(&design.properties, name);
         assert_eq!(*value("RecordSource"), Cell::String("jp_クエリ_02".into()));
         // A Yes/No property stored without a value, as SaveAsText writes NotDefault.
-        assert_eq!(*value("0x013A"), Cell::String("NotDefault".into()));
+        assert_eq!(*value("DividingLines"), Cell::String("NotDefault".into()));
         assert_eq!(*value("DefaultView"), Cell::Number(5.0));
         // A color as the number Access writes.
         assert_eq!(
             *value("DatasheetGridlinesColor"),
             Cell::Number(f64::from(0x00E8_E8E8))
         );
-        assert!(matches!(value("0x0178"), Cell::String(s) if s.starts_with('{')));
-        assert!(matches!(value("0x0179"), Cell::Bytes(b) if b.len() == 384));
+        assert!(matches!(value("GUID"), Cell::String(s) if s.starts_with('{')));
+        assert!(matches!(value("NameMap"), Cell::Bytes(b) if b.len() == 384));
+        // A property jetdb does not name is given by its number.
+        assert_eq!(*value("0x0250"), Cell::Bool(true));
         assert!(matches!(
             db.form_properties("NoSuchForm", None),
             Err(PropertiesError::File(FileError::FormNotFound { .. }))
