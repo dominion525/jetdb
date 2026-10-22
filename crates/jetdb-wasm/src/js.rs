@@ -468,8 +468,8 @@ export interface Rows {
     skipped: number;
     /**
      * Where the rows after these start, to give as the `start` option of the
-     * next call, or null when there are no more rows. It is a position in the
-     * file, not a count of rows.
+     * next call of the same table, or null when there are no more rows. It is
+     * a position among the pages of the table, not a count of rows.
      */
     next: number | null;
 }
@@ -487,8 +487,10 @@ export interface Rows {
  *   that name.
  * - `INVALID_FILE`: not an Access database, or a broken one; the message
  *   says what is wrong.
- * - `INVALID_ARGUMENT`: a method was called with an argument of the wrong
- *   kind.
+ * - `INVALID_ARGUMENT`: a method was called with an argument or option that
+ *   is not valid, such as a value of the wrong type or one outside its
+ *   list, or with a name that objects of different types share and no
+ *   `type` option to choose one.
  * - `IO`: reading the bytes failed.
  */
 export type ErrorCode =

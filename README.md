@@ -133,6 +133,7 @@ For more examples, such as reading forms and reports, macros and object properti
 - Decrypt RC4-encrypted databases and password-protected .accdb files (Agile, RC4 CryptoAPI, Standard/NonStandard AES)
 - Handle Jet3 (the code page of the database, such as 1252 or 932) and Jet4+ (UTF-16LE, compressed text) encodings
 - Run on WebAssembly, including the browser target (`wasm32-unknown-unknown`), by opening a database from bytes in memory with `PageReader::open_reader`
+- Read databases from JavaScript in the browser and Node.js with the `jetdb-wasm` package in `crates/jetdb-wasm`; see [docs/wasm.md](docs/wasm.md) for its API
 
 ## Limitations
 
