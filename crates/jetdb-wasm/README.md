@@ -16,12 +16,14 @@ In a browser, or with a bundler that builds for the browser, initialize the modu
 import init, { Database } from "jetdb-wasm";
 
 await init();
-const file = document.querySelector("input[type=file]").files[0];
-const db = Database.open(new Uint8Array(await file.arrayBuffer()));
-for (const table of db.tables()) {
-  console.log(table, db.columns(table).map((c) => c.name));
-}
-db.free();
+document.querySelector("input[type=file]").addEventListener("change", async (event) => {
+  const file = event.target.files[0];
+  const db = Database.open(new Uint8Array(await file.arrayBuffer()));
+  for (const table of db.tables()) {
+    console.log(table, db.columns(table).map((c) => c.name));
+  }
+  db.free();
+});
 ```
 
 In Node.js, and in a bundle built for the server, the module is ready when it is imported, and has no default export to call:
