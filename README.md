@@ -24,7 +24,7 @@ cargo install jetdb-cli
 
 ```toml
 [dependencies]
-jetdb = "0.2"
+jetdb = "0.3"
 ```
 
 ## CLI Usage
@@ -57,9 +57,18 @@ jetdb queries show database.mdb SelectQuery
 jetdb vba list database.mdb
 jetdb vba show database.mdb Module1
 
+# List forms and reports / show the controls and the design properties of one
+jetdb form list database.accdb
+jetdb form controls database.accdb Form1
+jetdb form props database.accdb Form1
+
 # List named macros / show a macro as SaveAsText text
 jetdb macro list database.accdb
 jetdb macro show database.accdb AutoExec
+
+# Show the embedded macros of a form or report / the data macros of a table
+jetdb macro embedded database.accdb Form1
+jetdb macro data database.accdb Table1
 
 # Show object properties
 jetdb prop database.mdb Table1
@@ -95,7 +104,7 @@ fn main() -> Result<(), jetdb::FileError> {
 }
 ```
 
-For detailed API documentation and more examples, run `cargo doc --open` or see [docs.rs/jetdb](https://docs.rs/jetdb).
+For more examples, such as reading forms and reports, macros and object properties, see [docs/lib.md](docs/lib.md). For detailed API documentation, run `cargo doc --open` or see [docs.rs/jetdb](https://docs.rs/jetdb).
 
 ## Supported Versions
 
@@ -112,10 +121,14 @@ For detailed API documentation and more examples, run `cargo doc --open` or see 
 ## Features
 
 - Read table metadata (columns, indexes, relationships)
-- Read row data with Rust type mapping (Text, Long, Double, Timestamp, Money, Memo, OLE, GUID, etc.)
+- Read row data with Rust type mapping (Text, Long, Double, Timestamp, Money, Memo, OLE, GUID, etc.), all at once or one row at a time
+- Read complex columns: attachments, multiple values, and the history of versions
+- Write table data as CSV
 - Generate DDL for SQLite, PostgreSQL, MySQL, and Access SQL
 - Recover SQL from saved queries
 - Extract VBA module source code
+- Read the design of forms and reports: their properties, and the sections and controls with theirs
+- Read macros: named macros, macros embedded in forms and reports, and data macros, also as the text of SaveAsText
 - Read object properties (LvProp)
 - Decrypt RC4-encrypted databases and password-protected .accdb files (Agile, RC4 CryptoAPI, Standard/NonStandard AES)
 - Handle Jet3 (the code page of the database, such as 1252 or 932) and Jet4+ (UTF-16LE, compressed text) encodings
