@@ -24,7 +24,7 @@ cargo install jetdb-cli
 
 ```toml
 [dependencies]
-jetdb = "0.2"
+jetdb = "0.3"
 ```
 
 ## CLI の使い方
@@ -57,9 +57,18 @@ jetdb queries show database.mdb SelectQuery
 jetdb vba list database.mdb
 jetdb vba show database.mdb Module1
 
+# フォームとレポートの一覧を表示する・コントロールとデザインのプロパティを確認する
+jetdb form list database.accdb
+jetdb form controls database.accdb Form1
+jetdb form props database.accdb Form1
+
 # 名前付きマクロの一覧を表示する・SaveAsText 形式のテキストで確認する
 jetdb macro list database.accdb
 jetdb macro show database.accdb AutoExec
+
+# フォームやレポートの埋め込みマクロ・テーブルのデータマクロを確認する
+jetdb macro embedded database.accdb Form1
+jetdb macro data database.accdb Table1
 
 # オブジェクトプロパティを表示する
 jetdb prop database.mdb Table1
@@ -95,7 +104,7 @@ fn main() -> Result<(), jetdb::FileError> {
 }
 ```
 
-詳しい API ドキュメントやコード例は `cargo doc --open` で確認できます。[docs.rs/jetdb](https://docs.rs/jetdb) でも閲覧できます。
+フォームとレポート、マクロ、オブジェクトプロパティの読み取りなど、ほかのコード例は [docs/lib.ja.md](docs/lib.ja.md) にあります。詳しい API ドキュメントは `cargo doc --open` で確認できます。[docs.rs/jetdb](https://docs.rs/jetdb) でも閲覧できます。
 
 ## 対応バージョン
 
@@ -112,10 +121,14 @@ fn main() -> Result<(), jetdb::FileError> {
 ## できること
 
 - テーブルの一覧や定義（カラム、インデックス、リレーションシップ）の読み取り
-- 行データの読み取りと Rust の型への変換（Text, Long, Double, Timestamp, Money, Memo, OLE, GUID など）
+- 行データの読み取りと Rust の型への変換（Text, Long, Double, Timestamp, Money, Memo, OLE, GUID など）。まとめても 1 行ずつでも読める
+- コンプレックスカラム（添付ファイル、複数値、版の履歴）の読み取り
+- テーブルのデータの CSV への書き出し
 - SQLite・PostgreSQL・MySQL・Access SQL 向けの DDL 生成
 - 保存済みクエリからの SQL 復元
 - VBA モジュールのソースコード抽出
+- フォームとレポートのデザインの読み取り（プロパティと、セクションやコントロールごとのプロパティ）
+- マクロの読み取り（名前付きマクロ、フォームやレポートの埋め込みマクロ、データマクロ。SaveAsText 形式のテキストにもできる）
 - オブジェクトプロパティ（LvProp）の読み取り
 - RC4 暗号化データベースの復号、およびパスワード保護された .accdb ファイルの復号 (Agile, RC4 CryptoAPI, Standard/NonStandard AES)
 - Jet3 (データベースのコードページ。1252 や 932 など) / Jet4 以降 (UTF-16LE、圧縮テキスト) のエンコーディング処理
