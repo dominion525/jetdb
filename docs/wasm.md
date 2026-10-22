@@ -6,9 +6,9 @@ jetdb-wasm is jetdb built as WebAssembly, for reading Microsoft Access databases
 
 ## Loading the Module
 
-The package holds two builds and chooses one through the `exports` field of its package.json: an ES module for browsers and bundlers, and CommonJS for Node.js.
+The package holds two builds and chooses one through the `exports` field of its package.json: CommonJS for Node.js, chosen by the `node` condition, and an ES module for everything else, such as browsers and bundlers that build for the browser.
 
-In a browser or with a bundler, call the default export once before using `Database`. It fetches and compiles the Wasm file next to the module:
+With the ES module, call the default export once before using `Database`. It fetches and compiles the Wasm file next to the module:
 
 ```js
 import init, { Database } from "jetdb-wasm";
@@ -16,7 +16,7 @@ import init, { Database } from "jetdb-wasm";
 await init();
 ```
 
-In Node.js, the module loads its Wasm file when it is imported, and `Database` is ready to use:
+With the CommonJS build, in Node.js and in a bundle a bundler builds for the server, such as for server-side rendering, the module loads its Wasm file when it is imported, and `Database` is ready to use. This build has no default export to call:
 
 ```js
 import { Database } from "jetdb-wasm";

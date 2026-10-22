@@ -6,9 +6,9 @@ jetdb-wasm は、jetdb を WebAssembly にしたもので、Microsoft Access の
 
 ## モジュールの読み込み
 
-パッケージは 2 つのビルドを持ち、package.json の `exports` で 1 つを選びます。ブラウザとバンドラー向けの ES モジュールと、Node.js 向けの CommonJS です。
+パッケージは 2 つのビルドを持ち、package.json の `exports` で 1 つを選びます。`node` の条件で選ばれる Node.js 向けの CommonJS と、それ以外（ブラウザや、ブラウザ向けにビルドするバンドラーなど）向けの ES モジュールです。
 
-ブラウザやバンドラーでは、`Database` を使う前に、既定のエクスポートを 1 回呼びます。モジュールの隣にある Wasm のファイルを取ってきて、コンパイルします。
+ES モジュールでは、`Database` を使う前に、既定のエクスポートを 1 回呼びます。モジュールの隣にある Wasm のファイルを取ってきて、コンパイルします。
 
 ```js
 import init, { Database } from "jetdb-wasm";
@@ -16,7 +16,7 @@ import init, { Database } from "jetdb-wasm";
 await init();
 ```
 
-Node.js では、読み込んだときに Wasm のファイルが読まれるので、`Database` はそのまま使えます。
+CommonJS のビルドでは、読み込んだときに Wasm のファイルが読まれるので、`Database` はそのまま使えます。Node.js と、サーバー側の描画のようにバンドラーがサーバー向けにビルドするものが、このビルドを使います。このビルドには、呼ぶための既定のエクスポートがありません。
 
 ```js
 import { Database } from "jetdb-wasm";

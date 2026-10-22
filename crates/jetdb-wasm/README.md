@@ -10,7 +10,7 @@ npm install jetdb-wasm
 
 ## Usage
 
-In a browser or with a bundler, initialize the module once before opening a database:
+In a browser, or with a bundler that builds for the browser, initialize the module once before opening a database:
 
 ```js
 import init, { Database } from "jetdb-wasm";
@@ -24,7 +24,7 @@ for (const table of db.tables()) {
 db.free();
 ```
 
-In Node.js, the module is ready when it is imported:
+In Node.js, and in a bundle built for the server, the module is ready when it is imported, and has no default export to call:
 
 ```js
 import { readFileSync } from "node:fs";
