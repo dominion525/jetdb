@@ -74,3 +74,15 @@ pub use prop::{
 pub use query::{query_to_sql, read_queries, read_queries_in, QueryDef, QueryType};
 pub use storage::{read_access_storage, AccessStorage};
 pub use vba::{read_vba_project, read_vba_project_in, VbaModule, VbaModuleType, VbaProject};
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn docs_lib_md_is_the_crate_documentation() {
+        // docs/lib.md, read on GitHub, is a copy of lib_doc.md.
+        assert_eq!(
+            include_str!("../../../docs/lib.md"),
+            include_str!("lib_doc.md")
+        );
+    }
+}

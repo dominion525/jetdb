@@ -1,13 +1,12 @@
 A pure Rust library for reading Microsoft Access database files (.mdb / .accdb).
-Since it has no dependency on ODBC drivers or C libraries, you can read
-Access databases directly on macOS or Linux without needing Windows.
-Supports Access 97 (Jet3) through Access 2019 (ACE17).
+No ODBC drivers or C libraries required — read Access databases directly on macOS, Linux,
+or any platform Rust supports. Covers Access 97 (Jet3) through Access 2019 (ACE17).
 
 # Quick Start
 
 ```toml
 [dependencies]
-jetdb = { git = "https://github.com/dominion525/jetdb" }
+jetdb = "0.3"
 ```
 
 ```rust,no_run
@@ -25,21 +24,21 @@ fn main() -> Result<(), jetdb::FileError> {
 
 # Data Flow
 
-The jetdb API is designed around the page-based internal structure of Access databases.
-To read data, call the functions in the following order:
+The jetdb API mirrors the page-based internal structure of Access databases.
+To read data, call functions in the following order:
 
 ```text
 PageReader::open → read_catalog → read_table_def → read_table_rows → Value
 ```
 
-1. [`PageReader::open`] opens the database file. It automatically detects the engine version from the file header and prepares RC4 decryption if needed.
-2. [`read_catalog`] reads the system catalog (MSysObjects) and returns the list of objects in the database as a vector of [`CatalogEntry`].
+1. [`PageReader::open`] opens the database file. It automatically detects the engine version from the file header and prepares RC4 decryption if needed. For password-protected .accdb files, use [`PageReader::open_with_password`] instead.
+2. [`read_catalog`] reads the system catalog (MSysObjects) and returns a list of database objects as a vector of [`CatalogEntry`].
 3. [`read_table_def`] parses the table definition page (TDEF) and returns a [`TableDef`] containing column and index information.
 4. [`read_table_rows`] scans the data pages and returns each row's values as [`Value`] enums.
 
 # Reading Table Data
 
-This is the most basic use case. Here is a complete example from opening a file to retrieving row data.
+This is the most common use case. Here is a complete example from opening a file to retrieving row data:
 
 ```rust,no_run
 use jetdb::{PageReader, read_catalog, read_table_def, read_table_rows, Value};
@@ -51,12 +50,12 @@ fn main() -> Result<(), jetdb::FileError> {
     let catalog = read_catalog(&mut reader)?;
     let entry = catalog.iter()
         .find(|e| e.name == "Customers")
-        .expect("Table not found");
+        .expect("table not found");
 
     // Read the table definition
     let table_def = read_table_def(&mut reader, &entry.name, entry.table_page)?;
 
-    // Display column names
+    // Print column names
     for col in &table_def.columns {
         print!("{}\t", col.name);
     }
@@ -81,38 +80,38 @@ fn main() -> Result<(), jetdb::FileError> {
 }
 ```
 
-The `skipped_rows` field in [`ReadResult`] contains the number of rows that were skipped due to errors during reading.
-Calling the `warn_skipped(table)` method logs a warning via `log::warn!` when there are skipped rows. Internal metadata reads (catalog, queries, relationships, properties, VBA) automatically emit this warning.
+The `skipped_rows` field of [`ReadResult`] indicates how many rows were skipped due to read errors.
+Call `warn_skipped(table)` to emit a `log::warn!` message when any rows were skipped. Internal metadata readers (catalog, queries, relationships, properties, VBA) call this automatically.
 
 # The Value Type
 
-The [`Value`] enum corresponds to each Access data type.
+The [`Value`] enum maps to Access data types:
 
 | Value Variant | Access Type | Notes |
-|---------------|-------------|-------|
-| `Null` | (NULL value for any type) | |
+|--------------|-------------|-------|
+| `Null` | (NULL for any type) | |
 | `Bool(bool)` | Yes/No | |
 | `Byte(u8)` | Byte | |
 | `Int(i16)` | Integer | |
 | `Long(i32)` | Long Integer | |
-| `BigInt(i64)` | Large Number | ACE16 and later |
+| `BigInt(i64)` | Large Number | ACE16+ |
 | `Float(f32)` | Single | |
 | `Double(f64)` | Double | |
-| `Text(String)` | Text / Memo | Memo is long text |
+| `Text(String)` | Text / Memo | Memo for long text |
 | `Binary(Vec<u8>)` | Binary / OLE Object | |
 | `Money(String)` | Currency | Fixed-point string (4 decimal places) |
 | `Numeric(String)` | Decimal | Variable-scale string |
-| `Timestamp(f64)` | Date/Time | Days elapsed since 1899-12-30 |
+| `Timestamp(f64)` | Date/Time | Days since 1899-12-30 |
 | `Guid(String)` | Replication ID | `{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}` format |
 
 `Money` and `Numeric` are returned as strings to preserve precision.
-`Timestamp` returns the Access internal OLE Date format as-is (a floating-point number of days relative to the epoch 1899-12-30).
+`Timestamp` is the raw OLE Date value (a floating-point day count from 1899-12-30).
 
-# Additional Features
+# Other Features
 
 ## Listing Table Names
 
-When you only need the names of user-created tables, [`table_names`] is convenient.
+Use [`table_names`] when you only need the names of user-created tables.
 System tables and hidden tables are automatically excluded.
 
 ```rust,no_run
@@ -151,9 +150,9 @@ fn main() -> Result<(), jetdb::FileError> {
 }
 ```
 
-## Restoring Saved Query SQL
+## Saved Query SQL Recovery
 
-[`read_queries`] reads saved query definitions, and [`query_to_sql`] restores them to SQL strings.
+Use [`read_queries`] to read saved query definitions and [`query_to_sql`] to reconstruct the SQL.
 
 ```rust,no_run
 use jetdb::{PageReader, read_queries, query_to_sql};
@@ -171,7 +170,7 @@ fn main() -> Result<(), jetdb::FileError> {
 
 ## Relationships
 
-[`read_relationships`] retrieves foreign key definitions between tables.
+Use [`read_relationships`] to retrieve foreign key definitions between tables.
 
 ```rust,no_run
 use jetdb::{PageReader, read_relationships};
@@ -263,8 +262,8 @@ fn main() -> Result<(), jetdb::FileError> {
 
 ## VBA Source Code
 
-[`read_vba_project`] extracts VBA module source code.
-For databases that do not contain VBA, an empty [`VbaProject`] is returned.
+Use [`read_vba_project`] to extract VBA module source code.
+For databases without VBA, an empty [`VbaProject`] is returned.
 
 ```rust,no_run
 use jetdb::{PageReader, read_vba_project};
@@ -282,7 +281,7 @@ fn main() -> Result<(), jetdb::FileError> {
 
 ## DDL Generation
 
-The [`ddl`] module generates DDL in SQLite / PostgreSQL / MySQL / Access SQL from table definitions.
+The [`ddl`] module generates DDL for SQLite, PostgreSQL, MySQL, or Access SQL from table definitions.
 
 ```rust,no_run
 use jetdb::{PageReader, read_catalog, read_table_def, read_relationships};
@@ -307,7 +306,26 @@ fn main() -> Result<(), jetdb::FileError> {
 }
 ```
 
-Available dialects are [`ddl::Sqlite`], [`ddl::Postgres`], [`ddl::Mysql`], and [`ddl::Access`].
+Available dialects: [`ddl::Sqlite`], [`ddl::Postgres`], [`ddl::Mysql`], [`ddl::Access`].
+
+## Password-Protected Databases
+
+Use [`PageReader::open_with_password`] to open password-protected .accdb files, encrypted with Agile Encryption, RC4 CryptoAPI, or Standard or NonStandard AES.
+
+```rust,no_run
+use jetdb::{PageReader, table_names};
+
+fn main() -> Result<(), jetdb::FileError> {
+    let mut reader = PageReader::open_with_password("protected.accdb", Some("secret"))?;
+    let names = table_names(&mut reader)?;
+    for name in &names {
+        println!("{name}");
+    }
+    Ok(())
+}
+```
+
+For non-encrypted files, `open_with_password` works the same as `open` (the password is ignored).
 
 ## Opening from Memory (WebAssembly)
 
@@ -328,7 +346,8 @@ The source must satisfy [`file::DataSource`] (`Read + Seek + Send + Sync + Unwin
 # Error Handling
 
 All public functions return `Result<T,` [`FileError`]`>`.
-[`FileError`] is an enum with variants for I/O errors, format violations, object-not-found conditions, and more. It can be propagated directly with the `?` operator.
+[`FileError`] is an enum with variants for I/O errors, format errors, and missing objects,
+and can be propagated with the `?` operator.
 
 # Supported Versions
 
@@ -346,6 +365,6 @@ A Jet3 (Access 97) file stores text in the code page of the database, such as 12
 
 # Limitations
 
-- Read-only (writing is not supported)
-- Index-based lookups are not supported (sequential scan only)
-- Password-protected databases are not supported
+- Read-only (no write support)
+- No index-based lookups (full table scan only)
+- Password-protected .accdb files require [`PageReader::open_with_password`] (Agile Encryption, RC4 CryptoAPI, Standard/NonStandard AES)

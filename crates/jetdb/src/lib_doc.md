@@ -6,7 +6,7 @@ or any platform Rust supports. Covers Access 97 (Jet3) through Access 2019 (ACE1
 
 ```toml
 [dependencies]
-jetdb = "0.2"
+jetdb = "0.3"
 ```
 
 ```rust,no_run
@@ -310,7 +310,7 @@ Available dialects: [`ddl::Sqlite`], [`ddl::Postgres`], [`ddl::Mysql`], [`ddl::A
 
 ## Password-Protected Databases
 
-Use [`PageReader::open_with_password`] to open .accdb files encrypted with Agile Encryption (Access 2007+).
+Use [`PageReader::open_with_password`] to open password-protected .accdb files, encrypted with Agile Encryption, RC4 CryptoAPI, or Standard or NonStandard AES.
 
 ```rust,no_run
 use jetdb::{PageReader, table_names};
@@ -367,4 +367,4 @@ A Jet3 (Access 97) file stores text in the code page of the database, such as 12
 
 - Read-only (no write support)
 - No index-based lookups (full table scan only)
-- Password-protected .accdb files require [`PageReader::open_with_password`] (Agile Encryption)
+- Password-protected .accdb files require [`PageReader::open_with_password`] (Agile Encryption, RC4 CryptoAPI, Standard/NonStandard AES)
