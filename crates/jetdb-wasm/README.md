@@ -58,6 +58,7 @@ The package includes TypeScript types. See [the JavaScript API](https://github.c
 
 - Read-only: jetdb does not write to Access files.
 - The whole file is held in memory.
+- In an Access 97 (Jet3) file, jetdb does not read the forms, reports and VBA.
 
 ## License
 
