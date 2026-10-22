@@ -105,16 +105,15 @@ fn print_properties(props: &ObjectProperties, object_type: Option<ObjectType>) {
         let name_width = map
             .properties
             .iter()
-            .map(|p| p.name.len())
+            .map(|p| unicode_width::UnicodeWidthStr::width(p.name.as_str()))
             .max()
             .unwrap_or(0);
 
         for prop in &map.properties {
             let display_value = format_value(&prop.value);
             println!(
-                "    {:<width$}  {display_value}",
-                prop.name,
-                width = name_width
+                "    {}  {display_value}",
+                crate::padded(&prop.name, name_width)
             );
         }
     }
