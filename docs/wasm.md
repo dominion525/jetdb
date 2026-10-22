@@ -31,7 +31,7 @@ const db = Database.open(bytes, "password");
 console.log(db.version()); // "JET3", "JET4", "ACE12", "ACE14", "ACE15", "ACE16" or "ACE17"
 ```
 
-A `Database` holds the bytes of the file in the memory of the Wasm module. Call `db.free()` when it is no longer needed, or open it with `using`, which frees it at the end of its block:
+A `Database` holds the bytes of the file in the memory of the Wasm module. Call `db.free()` when it is no longer needed, or, where JavaScript supports `using`, open it with `using`, which frees it at the end of its block:
 
 ```js
 {
@@ -127,7 +127,7 @@ A property is named by its name, or by its number as `0x....` for one jetdb does
 | `dataMacros(table)` | The data macros of a table |
 | `dataMacrosText(table)` | The SaveAsText text of all the data macros of a table, as `jetdb macro data` prints it |
 
-A macro has where it is (`source`), its statements (`statements`), the XML Access keeps for it (`xml`, empty for a macro saved before Access 2010), and its SaveAsText text (`text`), as `jetdb macro show` and `jetdb macro embedded` print it. `text` is null for a data macro, whose text `dataMacrosText` gives for its table, for a named macro whose grid of actions could not be read, and for an embedded macro stored without XML.
+A macro has where it is (`source`), its statements (`statements`), the XML Access keeps for it (`xml`, empty for a macro saved before Access 2010), and its SaveAsText text (`text`), as `jetdb macro show` and `jetdb macro embedded` print it. `text` is null for a data macro, whose text `dataMacrosText` gives for its table, for a named macro whose grid of actions could not be read, and for an embedded macro stored without XML. For a data macro, `xml` is the whole XML document it was stored in, which may hold other data macros of the table too.
 
 A statement is an action with its arguments, a comment, an `If` block, a group, a submacro, a record block of a data macro, or an element jetdb does not interpret, kept as it is.
 
@@ -145,10 +145,10 @@ A value in a row, or of a property, is a JavaScript value by the type of its col
 | Large Number (BigInt) | `bigint` |
 | Yes/No | `boolean` |
 | Short Text, Long Text, Replication ID (GUID), Currency, Decimal | `string`, so that no digits are lost |
-| Date/Time | `string`, such as `2021-06-14`, or `2021-06-14 22:45:12` when the time is not midnight |
+| Date/Time | `string`, such as `2021-06-14`, or `2021-06-14 22:45:12` when the time is not midnight, rounded to the second as Access shows it |
 | Date/Time Extended | `string` with all its digits, such as `2021-06-14 22:45:12.3456789`, or a `Uint8Array` of the stored bytes when they cannot be read as a date and time |
 | Binary, OLE Object, and a type jetdb does not know | `Uint8Array` |
-| Multiple values | An array of the values |
+| Multiple values | An array of the values, empty when there are none |
 | Attachment | An array of files, each with its name, type and content |
 | Long Text with the history of versions | An array of the versions, oldest first |
 | A complex column of a kind jetdb does not know | `number`, the ID of its values in a hidden table |

@@ -31,7 +31,7 @@ const db = Database.open(bytes, "password");
 console.log(db.version()); // "JET3"、"JET4"、"ACE12"、"ACE14"、"ACE15"、"ACE16"、"ACE17" のどれか
 ```
 
-`Database` は、ファイルのバイト列を Wasm のモジュールのメモリに持ちます。使い終わったら `db.free()` を呼ぶか、`using` で開いて、ブロックの終わりで解放します。
+`Database` は、ファイルのバイト列を Wasm のモジュールのメモリに持ちます。使い終わったら `db.free()` を呼びます。`using` が使える環境では、`using` で開くと、ブロックの終わりで解放されます。
 
 ```js
 {
@@ -115,7 +115,7 @@ do {
 
 フォームとレポートが同じ名前のときは、`formControls`、`formProperties`、`formStream`、`embeddedMacros` に `{ type: "Form" }` か `{ type: "Report" }` を渡します。渡さないと `INVALID_ARGUMENT` を投げます。
 
-プロパティの名前は、jetdb が知らないものは番号の `0x....` になり、番号は `id` に入ります。値を持たずに保存された Yes/No のプロパティ（既定でないほうの値に設定されたもの）の値は、SaveAsText と同じく `NotDefault` です。色は、`0x00BBGGRR` の数か、システムの色では負の数です。
+プロパティの名前は、jetdb が知らないものでは番号の `0x....` になります。番号は、どのプロパティでも `id` に入ります。値を持たずに保存された Yes/No のプロパティ（既定でないほうの値に設定されたもの）の値は、SaveAsText と同じく `NotDefault` です。色は、`0x00BBGGRR` の数か、システムの色では負の数です。
 
 ## マクロ
 
@@ -127,7 +127,7 @@ do {
 | `dataMacros(table)` | テーブルのデータマクロ |
 | `dataMacrosText(table)` | テーブルのすべてのデータマクロの SaveAsText 形式のテキスト。`jetdb macro data` と同じ |
 
-マクロは、どこのマクロか（`source`）、文（`statements`）、Access が持つ XML（`xml`。Access 2010 より前に保存されたマクロでは空）、SaveAsText 形式のテキスト（`text`。`jetdb macro show` と `jetdb macro embedded` と同じ）を持ちます。`text` は、データマクロ（テーブルごとのテキストは `dataMacrosText` で取ります）、アクションの表を読めなかった名前付きマクロ、XML なしで保存された埋め込みマクロでは null です。
+マクロは、どこのマクロか（`source`）、文（`statements`）、Access が持つ XML（`xml`。Access 2010 より前に保存されたマクロでは空）、SaveAsText 形式のテキスト（`text`。`jetdb macro show` と `jetdb macro embedded` と同じ）を持ちます。`text` は、データマクロ（テーブルごとのテキストは `dataMacrosText` で取ります）、アクションの表を読めなかった名前付きマクロ、XML なしで保存された埋め込みマクロでは null です。データマクロの `xml` は、そのマクロが保存されていた XML 文書全体で、同じテーブルのほかのデータマクロも含むことがあります。
 
 文は、アクションとその引数、コメント、`If` のブロック、グループ、サブマクロ、データマクロのレコードのブロック、jetdb が解釈しない要素（そのまま残す）のどれかです。
 
@@ -145,10 +145,10 @@ do {
 | 大きい数値（BigInt） | `bigint` |
 | Yes/No型 | `boolean` |
 | 短いテキスト、長いテキスト、レプリケーション ID型（GUID）、通貨型、十進型 | `string`（桁を失わないため） |
-| 日付/時刻型 | `string`。`2021-06-14`、時刻が 0 時でなければ `2021-06-14 22:45:12` |
+| 日付/時刻型 | `string`。`2021-06-14`、時刻が 0 時でなければ `2021-06-14 22:45:12`。Access の表示と同じく秒に丸める |
 | 拡張した日付/時刻 | すべての桁を持つ `string`。`2021-06-14 22:45:12.3456789` など。日時として読めないときは、保存されたバイト列の `Uint8Array` |
 | バイナリ型、OLE オブジェクト型、jetdb が知らない型 | `Uint8Array` |
-| 複数の値を持つ列 | 値の配列 |
+| 複数の値を持つ列 | 値の配列（値が無ければ空） |
 | 添付ファイル | ファイルの配列。それぞれ、名前、種類、中身を持つ |
 | 履歴を持つ長いテキスト | 版の配列（古い順） |
 | jetdb が知らない種類のコンプレックスカラム | `number`（隠しテーブルにある値の ID） |
