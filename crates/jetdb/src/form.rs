@@ -635,8 +635,8 @@ pub fn control_type_label(type_code: u16) -> String {
 
 impl BlobProperty {
     /// Return the known property name, or `None` for unknown IDs: a text
-    /// value is named by [`prop_id_name`], an integer or Yes/No value by
-    /// [`number_prop_id_name`], and other values not at all.
+    /// value is named by [`prop_id_name`], a number or Yes/No value by
+    /// [`number_prop_id_name`], and bytes or a GUID by [`bytes_prop_id_name`].
     pub fn name(&self) -> Option<&'static str> {
         match self.value {
             BlobValue::Text(_) => prop_id_name(self.prop_id),

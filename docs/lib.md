@@ -279,6 +279,77 @@ fn main() -> Result<(), jetdb::FileError> {
 }
 ```
 
+## Forms and Reports
+
+Use [`list_forms`] to list the forms and reports, and [`read_form_properties_of_type`] to read the design of one: the properties of the form or report itself, and those of each section and control.
+A property is named by [`BlobProperty::display_name`], which gives `0xXXXX` for a property whose name is not known, and its value ([`BlobValue`]) prints as text.
+
+```rust,no_run
+use jetdb::{PageReader, control_type_label, list_forms, read_form_properties_of_type};
+
+fn main() -> Result<(), jetdb::FileError> {
+    let mut reader = PageReader::open("database.accdb")?;
+    for entry in list_forms(&mut reader)? {
+        let form = read_form_properties_of_type(&mut reader, &entry.name, entry.object_type)?;
+        println!("{:?} {}", form.object_type, form.form_name);
+        for p in &form.properties {
+            println!("  {} = {}", p.display_name(), p.value);
+        }
+        for control in &form.controls {
+            println!("  {} ({})", control.name, control_type_label(control.type_code));
+        }
+    }
+    Ok(())
+}
+```
+
+[`read_form_type_info`] reads the names and types of the controls from the TypeInfo stream, and [`read_form_stream`] the raw bytes of a stream ([`StreamKind`]).
+
+## Macros
+
+Macros of three kinds are read as [`MacroDef`]: named macros with [`list_macros`] and [`read_macro`], the macros embedded in the events of a form or report with [`read_embedded_macros`], and the data macros of a table with [`read_data_macros`].
+A [`MacroDef`] holds the statements of the macro ([`MacroStatement`]), the XML it was read from, and the macro grid of a named or embedded macro.
+
+```rust,no_run
+use jetdb::{MacroStatement, PageReader, list_macros, read_macro};
+
+fn main() -> Result<(), jetdb::FileError> {
+    let mut reader = PageReader::open("database.accdb")?;
+    for entry in list_macros(&mut reader)? {
+        let def = read_macro(&mut reader, &entry.name)?;
+        println!("{}", entry.name);
+        for statement in &def.statements {
+            if let MacroStatement::Action { name, .. } = statement {
+                println!("  {name}");
+            }
+        }
+    }
+    Ok(())
+}
+```
+
+[`data_macros_to_text`] and [`embedded_macro_to_text`] give the text `Application.SaveAsText` writes for data macros and an embedded macro.
+
+## Object Properties
+
+Use [`read_object_properties`] to read the properties of an object, such as the description or the format of a table and its columns. They come in groups ([`PropertyMap`]): one for the object itself, and one for each column.
+
+```rust,no_run
+use jetdb::{PageReader, read_object_properties};
+
+fn main() -> Result<(), jetdb::FileError> {
+    let mut reader = PageReader::open("database.mdb")?;
+    let props = read_object_properties(&mut reader, "Customers")?;
+    for map in &props.maps {
+        println!("{:?} {}", map.map_type, map.name);
+        for p in &map.properties {
+            println!("  {} = {:?}", p.name, p.value);
+        }
+    }
+    Ok(())
+}
+```
+
 ## DDL Generation
 
 The [`ddl`] module generates DDL for SQLite, PostgreSQL, MySQL, or Access SQL from table definitions.
