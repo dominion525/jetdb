@@ -144,7 +144,7 @@ A value in a row, or of a property, is a JavaScript value by the type of its col
 | Byte, Integer, Long Integer, Single, Double | `number`. A Single is the shortest decimal that gives back the stored value, as Access shows it |
 | Large Number (BigInt) | `bigint` |
 | Yes/No | `boolean` |
-| Text, Memo, GUID, Currency, Decimal | `string`, so that no digits are lost |
+| Short Text, Long Text, Replication ID (GUID), Currency, Decimal | `string`, so that no digits are lost |
 | Date/Time | `string`, such as `2021-06-14`, or `2021-06-14 22:45:12` when the time is not midnight |
 | Date/Time Extended | `string` with all its digits, such as `2021-06-14 22:45:12.3456789` |
 | Binary, OLE Object | `Uint8Array` |
