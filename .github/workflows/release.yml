@@ -248,4 +248,10 @@ jobs:
             echo "jetdb-wasm $version is on npm; not publishing"
             exit 0
           fi
-          npm publish
+          # A prerelease, as the GitHub release marks one, does not become the
+          # version npm installs by default.
+          if [[ "$version" == *-* ]]; then
+            npm publish --tag next
+          else
+            npm publish
+          fi
