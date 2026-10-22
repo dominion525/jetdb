@@ -113,7 +113,7 @@ An attachment column gives the names of its files in the CSV.
 | `formProperties(name, options)` | The design: the properties of the form or report, and those of each section and control |
 | `formStream(name, options)` | The bytes of a stream of the form or report: `blob` (the design, the default), `typeinfo`, `propdata` or `blobdelta`, given as the `stream` option |
 
-When a form and a report share the name, give `{ type: "Form" }` or `{ type: "Report" }`.
+When a form and a report share the name, give `{ type: "Form" }` or `{ type: "Report" }` to `formControls`, `formProperties`, `formStream` and `embeddedMacros`; without it, they throw `INVALID_ARGUMENT`.
 
 A property is named by its name, or by its number as `0x....` for one jetdb does not know, and keeps its number as `id`. A Yes/No property stored without a value, set to the value that is not its default, has the value `NotDefault`, as SaveAsText writes it. A color is a number, `0x00BBGGRR`, or negative for a system color.
 
@@ -133,7 +133,7 @@ A statement is an action with its arguments, a comment, an `If` block, a group, 
 
 ## Object Properties
 
-`properties(name, options)` gives the properties Access keeps for an object, such as the description or the format: those of the object itself (`object`), those of each column of a table (`columns`), and additional groups (`additional`). When objects of different types share the name, such as a table and a form both named `Customers`, give the type as `{ type: "Table" }`.
+`properties(name, options)` gives the properties Access keeps for an object, such as the description or the format: those of the object itself (`object`), those of each column of a table (`columns`), and additional groups (`additional`). When objects of different types share the name, such as a table and a form both named `Customers`, give the type as `{ type: "Table" }`; without it, the method throws `INVALID_ARGUMENT`.
 
 ## Values
 
@@ -164,7 +164,7 @@ A method that fails throws a `JetdbError`, whose `code` tells what went wrong:
 | `UNSUPPORTED_ENCRYPTION` | The file is encrypted in a way jetdb cannot read |
 | `TABLE_NOT_FOUND`, `QUERY_NOT_FOUND`, `MODULE_NOT_FOUND`, `FORM_NOT_FOUND`, `MACRO_NOT_FOUND`, `OBJECT_NOT_FOUND` | No object of that name |
 | `INVALID_FILE` | Not an Access database, or a broken one; the message says what is wrong |
-| `INVALID_ARGUMENT` | A method was called with an argument of the wrong kind |
+| `INVALID_ARGUMENT` | A method was called with an argument of the wrong kind, or with a name that objects of different types share and no `type` option to choose one |
 | `IO` | Reading the bytes failed |
 
 ```js

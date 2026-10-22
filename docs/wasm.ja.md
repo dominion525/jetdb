@@ -113,7 +113,7 @@ do {
 | `formProperties(name, options)` | デザイン。フォームやレポート自身のプロパティと、セクションやコントロールごとのプロパティ |
 | `formStream(name, options)` | フォームやレポートのストリームのバイト列。`stream` オプションで、`blob`（デザイン、既定）、`typeinfo`、`propdata`、`blobdelta` を選ぶ |
 
-フォームとレポートが同じ名前のときは、`{ type: "Form" }` か `{ type: "Report" }` を渡します。
+フォームとレポートが同じ名前のときは、`formControls`、`formProperties`、`formStream`、`embeddedMacros` に `{ type: "Form" }` か `{ type: "Report" }` を渡します。渡さないと `INVALID_ARGUMENT` を投げます。
 
 プロパティの名前は、jetdb が知らないものは番号の `0x....` になり、番号は `id` に入ります。値を持たずに保存された Yes/No のプロパティ（既定でないほうの値に設定されたもの）の値は、SaveAsText と同じく `NotDefault` です。色は、`0x00BBGGRR` の数か、システムの色では負の数です。
 
@@ -133,7 +133,7 @@ do {
 
 ## オブジェクトのプロパティ
 
-`properties(name, options)` は、説明や書式など、Access がオブジェクトについて持つプロパティを返します。オブジェクト自身のもの（`object`）、テーブルの列ごとのもの（`columns`）、追加のまとまり（`additional`）です。`Customers` という名前のテーブルとフォームのように、種類の違うオブジェクトが同じ名前のときは、`{ type: "Table" }` のように種類を渡します。
+`properties(name, options)` は、説明や書式など、Access がオブジェクトについて持つプロパティを返します。オブジェクト自身のもの（`object`）、テーブルの列ごとのもの（`columns`）、追加のまとまり（`additional`）です。`Customers` という名前のテーブルとフォームのように、種類の違うオブジェクトが同じ名前のときは、`{ type: "Table" }` のように種類を渡します。渡さないと `INVALID_ARGUMENT` を投げます。
 
 ## 値
 
@@ -164,7 +164,7 @@ do {
 | `UNSUPPORTED_ENCRYPTION` | jetdb が読めない方式で暗号化されている |
 | `TABLE_NOT_FOUND`、`QUERY_NOT_FOUND`、`MODULE_NOT_FOUND`、`FORM_NOT_FOUND`、`MACRO_NOT_FOUND`、`OBJECT_NOT_FOUND` | その名前のオブジェクトが無い |
 | `INVALID_FILE` | Access のデータベースでないか、壊れている。何が悪いかはメッセージにある |
-| `INVALID_ARGUMENT` | メソッドに違う種類の引数が渡された |
+| `INVALID_ARGUMENT` | メソッドに違う種類の引数が渡された。または、種類の違うオブジェクトが同じ名前で、どれかを選ぶ `type` のオプションが無い |
 | `IO` | バイト列の読み取りに失敗した |
 
 ```js
