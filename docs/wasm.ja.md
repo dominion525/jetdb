@@ -8,7 +8,7 @@ jetdb-wasm は、jetdb を WebAssembly にしたもので、Microsoft Access の
 
 パッケージは 2 つのビルドを持ち、package.json の `exports` で 1 つを選びます。`node` の条件で選ばれる Node.js 向けの CommonJS と、それ以外（ブラウザや、ブラウザ向けにビルドするバンドラーなど）向けの ES モジュールです。
 
-ES モジュールでは、`Database` を使う前に、既定のエクスポートを 1 回呼びます。モジュールの隣にある Wasm のファイルを取ってきて、コンパイルします。
+ES モジュールでは、`Database` を使う前に、既定のエクスポートを 1 回呼びます。モジュールの隣にある Wasm のファイルを取得して、コンパイルします。
 
 ```js
 import init, { Database } from "jetdb-wasm";
@@ -16,7 +16,7 @@ import init, { Database } from "jetdb-wasm";
 await init();
 ```
 
-CommonJS のビルドでは、読み込んだときに Wasm のファイルが読まれるので、`Database` はそのまま使えます。Node.js と、サーバー側の描画のようにバンドラーがサーバー向けにビルドするものが、このビルドを使います。このビルドには、呼ぶための既定のエクスポートがありません。
+CommonJS のビルドでは、読み込んだときに Wasm のファイルが読まれるので、`Database` はそのまま使えます。Node.js と、サーバーサイドレンダリング（SSR）のようにバンドラーがサーバー向けにビルドするものが、このビルドを使います。このビルドには、呼ぶための既定のエクスポートがありません。
 
 ```js
 import { Database } from "jetdb-wasm";
@@ -50,7 +50,7 @@ console.log(db.version()); // "JET3"、"JET4"、"ACE12"、"ACE14"、"ACE15"、"A
 | `rows(table, options)` | 行。それぞれ、列の名前をキーにしたオブジェクト |
 | `csv(table, options)` | 行の CSV。`jetdb export` と同じ形 |
 
-`rows` は、テーブルの順の列の名前（`columns`）、行（`rows`）、読めずに除いた行の数（`skipped`）を返します。行のキーは列の順を保ちません。JavaScript は、`"2019"` のような整数に見えるキーを、ほかのキーより前に並べます。
+`rows` は、テーブルでの並び順の列名（`columns`）、行（`rows`）、読めずに除いた行の数（`skipped`）を返します。行のキーは列の順を保ちません。JavaScript は、`"2019"` のような整数に見えるキーを、ほかのキーより前に並べます。
 
 大きなテーブルを区切って読むときは、読む行の数の上限を `limit` に、前の呼び出しの `next` を `start` に渡します。最後の行まで読むと、`next` は null になります。
 
@@ -96,7 +96,7 @@ do {
 
 ## クエリ
 
-`queries(options)` は、保存済みクエリを名前の順で、種類（`Select`、`MakeTable`、`Append`、`Update`、`Delete`、`Crosstab`、`Ddl`、`Passthrough`、`Union`）と一緒に返します。`{ system: true }` で、フォームやレポートのために Access が作るものなど、システムと隠しのクエリも含めます。
+`queries(options)` は、保存済みクエリを名前の順で、種類（`Select`、`MakeTable`、`Append`、`Update`、`Delete`、`Crosstab`、`Ddl`、`Passthrough`、`Union`）と一緒に返します。`{ system: true }` で、フォームやレポートのために Access が作るものなど、システムクエリと隠しクエリも含めます。
 
 `querySql(name)` は、保存済みクエリの SQL を、Access の SQL ビューと同じ形で返します。
 
@@ -141,7 +141,7 @@ do {
 
 | Access の型 | JavaScript の値 |
 |-------------|------------------|
-| バイト型、整数型、長整数型、単精度浮動小数点型、倍精度浮動小数点型 | `number`。単精度浮動小数点型は、Access の表示と同じく、保存された値に戻るいちばん短い 10 進数 |
+| バイト型、整数型、長整数型、単精度浮動小数点型、倍精度浮動小数点型 | `number`。単精度浮動小数点型は、Access の表示と同じく、保存された値に戻るいちばん短い 10 進数。保存された値そのものは `Math.fround(value)` で得られます |
 | 大きい数値（BigInt） | `bigint` |
 | Yes/No型 | `boolean` |
 | 短いテキスト、長いテキスト、レプリケーション ID型（GUID）、通貨型、十進型 | `string`（桁を失わないため） |

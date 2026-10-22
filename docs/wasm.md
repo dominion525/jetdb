@@ -16,7 +16,7 @@ import init, { Database } from "jetdb-wasm";
 await init();
 ```
 
-With the CommonJS build, in Node.js and in a bundle a bundler builds for the server, such as for server-side rendering, the module loads its Wasm file when it is imported, and `Database` is ready to use. This build has no default export to call:
+Node.js, and a bundle built for the server, such as for server-side rendering, get the CommonJS build. It loads its Wasm file when it is imported, so `Database` is ready to use, and it has no default export to call:
 
 ```js
 import { Database } from "jetdb-wasm";
@@ -52,7 +52,7 @@ A `Database` holds the bytes of the file in the memory of the Wasm module. Call 
 
 `rows` gives the names of the columns in the order of the table (`columns`), the rows (`rows`), and the number of rows that could not be read and were left out (`skipped`). The keys of a row do not keep the order of the columns: JavaScript puts a key that looks like an integer, such as `"2019"`, before the others.
 
-To read a large table a part at a time, give the most rows to read as `limit`, and the `next` of the call before as `start`. `next` is null after the last rows:
+To read a large table a part at a time, give the largest number of rows to read as `limit`, and the `next` of the call before as `start`. `next` is null after the last rows:
 
 ```js
 let start;
@@ -115,7 +115,7 @@ An attachment column gives the names of its files in the CSV.
 
 When a form and a report share the name, give `{ type: "Form" }` or `{ type: "Report" }` to `formControls`, `formProperties`, `formStream` and `embeddedMacros`; without it, they throw `INVALID_ARGUMENT`.
 
-A property is named by its name, or by its number as `0x....` for one jetdb does not know, and keeps its number as `id`. A Yes/No property stored without a value, set to the value that is not its default, has the value `NotDefault`, as SaveAsText writes it. A color is a number, `0x00BBGGRR`, or negative for a system color.
+A property has its name as `name`, or its number as `0x....` for one jetdb does not know, and its number as `id`. A Yes/No property stored without a value, set to the value that is not its default, has the value `NotDefault`, as SaveAsText writes it. A color is a number, `0x00BBGGRR`, or negative for a system color.
 
 ## Macros
 
@@ -127,7 +127,7 @@ A property is named by its name, or by its number as `0x....` for one jetdb does
 | `dataMacros(table)` | The data macros of a table |
 | `dataMacrosText(table)` | The SaveAsText text of all the data macros of a table, as `jetdb macro data` prints it |
 
-A macro has where it is (`source`), its statements (`statements`), the XML Access keeps for it (`xml`, empty for a macro saved before Access 2010), and its SaveAsText text (`text`), as `jetdb macro show` and `jetdb macro embedded` print it. `text` is null for a data macro, whose text `dataMacrosText` gives for its table, for a named macro whose grid of actions could not be read, and for an embedded macro stored without XML. For a data macro, `xml` is the whole XML document it was stored in, which may hold other data macros of the table too.
+A macro has where it is (`source`), its statements (`statements`), the XML Access keeps for it (`xml`, empty for a macro saved before Access 2010), and its SaveAsText text (`text`), as `jetdb macro show` and `jetdb macro embedded` print it. `text` is null for a data macro, whose text `dataMacrosText` gives for its whole table; for a named macro whose grid of actions could not be read; and for an embedded macro stored without XML. For a data macro, `xml` is the whole XML document it was stored in, which may hold other data macros of the table too.
 
 A statement is an action with its arguments, a comment, an `If` block, a group, a submacro, a record block of a data macro, or an element jetdb does not interpret, kept as it is.
 
@@ -141,7 +141,7 @@ A value in a row, or of a property, is a JavaScript value by the type of its col
 
 | Access type | JavaScript value |
 |-------------|------------------|
-| Byte, Integer, Long Integer, Single, Double | `number`. A Single is the shortest decimal that gives back the stored value, as Access shows it |
+| Byte, Integer, Long Integer, Single, Double | `number`. A Single is the shortest decimal that gives back the stored value, as Access shows it; `Math.fround(value)` gives the stored value itself |
 | Large Number (BigInt) | `bigint` |
 | Yes/No | `boolean` |
 | Short Text, Long Text, Replication ID (GUID), Currency, Decimal | `string`, so that no digits are lost |
