@@ -277,7 +277,8 @@ pub fn read_form_type_info_in(
 ) -> Result<FormTypeInfo, FileError> {
     let (object_type, stream_data) =
         find_stream(&storage.entries, name, object_type, StreamKind::TypeInfo)?;
-    let controls = parse_type_info(&stream_data, storage.code_page)?;
+    let names = blob_names(&storage.entries, name, object_type);
+    let (controls, _) = type_info_named(&stream_data, storage.code_page, &names)?;
 
     Ok(FormTypeInfo {
         form_name: name.to_string(),
@@ -723,31 +724,29 @@ pub fn read_form_properties_in(
         });
     }
 
+    let (form_props, control_prop_groups) = parse_blob(&blob_data)?;
+    let names: Vec<String> = control_prop_groups
+        .iter()
+        .filter_map(|(_, props)| name_in_blob(props))
+        .collect();
+
     // Try to get TypeInfo for control name/type mapping; not fatal if missing.
     // It is that of the object the Blob is of, even when a report shares the
     // name of a form.
     let type_info_controls =
         match find_stream(entries, name, Some(object_type), StreamKind::TypeInfo) {
-            Ok((_, ti_data)) => parse_type_info(&ti_data, storage.code_page).unwrap_or_default(),
+            Ok((_, ti_data)) => type_info_named(&ti_data, storage.code_page, &names)
+                .map(|(controls, _)| controls)
+                .unwrap_or_default(),
             Err(_) => Vec::new(),
         };
-
-    let (form_props, control_prop_groups) = parse_blob(&blob_data)?;
 
     // Merge control property groups with TypeInfo data.
     let controls = control_prop_groups
         .into_iter()
         .enumerate()
         .map(|(i, (blob_type, props))| {
-            // Find control name from Blob's Name property (0x14).
-            let blob_name = props
-                .iter()
-                .find(|p| p.prop_id == 0x0014)
-                .and_then(|p| match &p.value {
-                    BlobValue::Text(s) => Some(s.clone()),
-                    _ => None,
-                })
-                .unwrap_or_else(|| format!("Control_{i}"));
+            let blob_name = name_in_blob(&props).unwrap_or_else(|| format!("Control_{i}"));
 
             // Match with TypeInfo by name, else the type in the Blob. Not by
             // index: TypeInfo can list the controls in another order.
@@ -768,6 +767,76 @@ pub fn read_form_properties_in(
         properties: form_props,
         controls,
     })
+}
+
+/// The name of a control of the Blob, its Name property (0x14).
+fn name_in_blob(props: &[BlobProperty]) -> Option<String> {
+    props
+        .iter()
+        .find(|p| p.prop_id == 0x0014)
+        .and_then(|p| match &p.value {
+            BlobValue::Text(s) => Some(s.clone()),
+            _ => None,
+        })
+}
+
+/// The names of the controls of the Blob of the object `name` of
+/// `object_type`, empty when it has none that can be read.
+fn blob_names(
+    entries: &[storage::StorageEntry],
+    name: &str,
+    object_type: FormObjectType,
+) -> Vec<String> {
+    let Ok((_, blob)) = find_stream(entries, name, Some(object_type), StreamKind::Blob) else {
+        return Vec::new();
+    };
+    if blob.first() == Some(&crate::form2000::VERSION) {
+        let controls = crate::form2000::read(&blob).map_or_else(Vec::new, |(_, c)| c);
+        return controls.into_iter().map(|c| c.name).collect();
+    }
+    parse_blob(&blob).map_or_else(
+        |_| Vec::new(),
+        |(_, groups)| groups.iter().filter_map(|(_, p)| name_in_blob(p)).collect(),
+    )
+}
+
+/// The code pages of Windows a name of TypeInfo can be written in, after
+/// that of the header of the database.
+const ANSI_CODE_PAGES: [u16; 14] = [
+    874, 932, 936, 949, 950, 1250, 1251, 1252, 1253, 1254, 1255, 1256, 1257, 1258,
+];
+
+/// The controls of the TypeInfo `data`, and the code page their names are
+/// read in. The names are bytes in the code page of the Access that saved
+/// the object, which the file does not tell: the Russian names of
+/// Strings.mdb are in 1251, while its header has 1252. They are read in the
+/// code page, of `code_page` (that of the header) and then
+/// [`ANSI_CODE_PAGES`], in which the most names that are not ASCII are among
+/// `names`, those of the Blob, regardless of case; in `code_page` when none
+/// is.
+fn type_info_named(
+    data: &[u8],
+    code_page: u16,
+    names: &[String],
+) -> Result<(Vec<ControlInfo>, u16), FileError> {
+    let names: Vec<String> = names.iter().map(|n| n.to_lowercase()).collect();
+    let matched = |controls: &[ControlInfo]| {
+        controls
+            .iter()
+            .filter(|c| !c.name.is_ascii() && names.contains(&c.name.to_lowercase()))
+            .count()
+    };
+    let mut best = (parse_type_info(data, code_page)?, code_page);
+    let mut most = matched(&best.0);
+    for cp in ANSI_CODE_PAGES {
+        let controls = parse_type_info(data, cp)?;
+        let n = matched(&controls);
+        if n > most {
+            most = n;
+            best = (controls, cp);
+        }
+    }
+    Ok(best)
 }
 
 /// The control of TypeInfo named `name`. Access does not tell names apart by
@@ -857,10 +926,8 @@ const ACTIVEX_TAIL: usize = 36;
 /// - Entries: ctrl_type(u16) + padding(u16) + index(u32) + name(NUL) + align(0x00)
 ///   (see [`ACTIVEX_TAIL`] for the bytes an ActiveX control has after them)
 ///
-/// The names are bytes in a code page, read in `code_page`, that of the
-/// header of the database. The code page they are written in is that of
-/// the Access that saved the form, which the file does not tell: the
-/// Russian names of Strings.mdb are in 1251, while its header has 1252.
+/// The names are bytes in a code page, read in `code_page` (see
+/// [`type_info_named`]).
 fn parse_type_info(data: &[u8], code_page: u16) -> Result<Vec<ControlInfo>, FileError> {
     let entry_count = type_info_count(data)?;
     let mut controls = Vec::with_capacity(entry_count);
@@ -1400,6 +1467,45 @@ mod tests {
         assert_eq!(name(&type_info(b"Caf\xE9"), 1252), "Café");
         let russian = [0xC7, 0xE0, 0xE3, 0xEE, 0xEB, 0xEE, 0xE2, 0xEE, 0xEA];
         assert_eq!(name(&type_info(&russian), 1251), "Заголовок");
+
+        // The header says 1252, and the Blob names the control in another
+        // case: 1251 is the code page in which the name is among the names.
+        let names = |n: &[&str]| n.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let (controls, code_page) =
+            type_info_named(&type_info(&russian), 1252, &names(&["ЗАГОЛОВОК"])).unwrap();
+        assert_eq!((controls[0].name.as_str(), code_page), ("Заголовок", 1251));
+        // No name among them, or no name but ASCII: the code page of the header.
+        let (_, code_page) =
+            type_info_named(&type_info(&russian), 1252, &names(&["Detail"])).unwrap();
+        assert_eq!(code_page, 1252);
+        let (_, code_page) = type_info_named(&type_info(b"Detail"), 1252, &[]).unwrap();
+        assert_eq!(code_page, 1252);
+    }
+
+    #[test]
+    fn type_info_names_are_those_of_the_blob_in_another_code_page() {
+        // The header of Strings.mdb has 1252, and its forms name controls in
+        // Russian, in 1251.
+        let path = skip_if_missing!("saveastext/Strings/Strings.mdb");
+        let mut reader = PageReader::open(&path).unwrap();
+        let mut russian = 0;
+        for entry in list_forms(&mut reader).unwrap() {
+            let ti =
+                read_form_type_info_of_type(&mut reader, &entry.name, entry.object_type).unwrap();
+            let read =
+                read_form_properties_of_type(&mut reader, &entry.name, entry.object_type).unwrap();
+            for c in &ti.controls {
+                let name = c.name.to_lowercase();
+                assert!(
+                    read.controls.iter().any(|b| b.name.to_lowercase() == name),
+                    "{} {}",
+                    entry.name,
+                    c.name
+                );
+                russian += usize::from(!c.name.is_ascii());
+            }
+        }
+        assert!(russian >= 100, "{russian}");
     }
 
     // -- Integration tests with real files -----------------------------------

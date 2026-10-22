@@ -93,7 +93,7 @@ Each entry:
     With parentheses → actual control name
 ```
 
-The names are in the code page of the Access that saved the form, which the file does not keep. jetdb reads them in the code page in the header of the database: the Russian names of `Strings.mdb` are in 1251, while its header has 1252, so they are garbled.
+The names are in the code page of the Access that saved the form, which the file does not keep. jetdb reads them in the code page, of that in the header of the database and then those of Windows (874, 932, 936, 949, 950 and 1250 to 1258), in which the most names that are not ASCII are among the names of the controls in the Blob, which are UTF-16, regardless of case; in that of the header when none is. The Russian names of `Strings.mdb` are in 1251, while its header has 1252.
 
 Example controls included:
 - Buttons: `Btn_クライアント一覧`
