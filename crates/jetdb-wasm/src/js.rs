@@ -468,8 +468,8 @@ export interface Rows {
     skipped: number;
     /**
      * Where the rows after these start, to give as the `start` option of the
-     * next call, or null when there are no more rows. It is a position in the
-     * file, not a count of rows.
+     * next call of the same table, or null when there are no more rows. It is
+     * a position among the pages of the table, not a count of rows.
      */
     next: number | null;
 }
