@@ -279,6 +279,77 @@ fn main() -> Result<(), jetdb::FileError> {
 }
 ```
 
+## フォームとレポート
+
+[`list_forms`] でフォームとレポートの一覧を取り、[`read_form_properties_of_type`] でそのデザインを読みます。フォームやレポート自身のプロパティと、セクションやコントロールごとのプロパティが取れます。
+プロパティの名前は [`BlobProperty::display_name`] で取れます。名前のわからないプロパティは `0xXXXX` になります。値（[`BlobValue`]）は、そのまま文字列として出力できます。
+
+```rust,no_run
+use jetdb::{PageReader, control_type_label, list_forms, read_form_properties_of_type};
+
+fn main() -> Result<(), jetdb::FileError> {
+    let mut reader = PageReader::open("database.accdb")?;
+    for entry in list_forms(&mut reader)? {
+        let form = read_form_properties_of_type(&mut reader, &entry.name, entry.object_type)?;
+        println!("{:?} {}", form.object_type, form.form_name);
+        for p in &form.properties {
+            println!("  {} = {}", p.display_name(), p.value);
+        }
+        for control in &form.controls {
+            println!("  {} ({})", control.name, control_type_label(control.type_code));
+        }
+    }
+    Ok(())
+}
+```
+
+[`read_form_type_info`] は TypeInfo ストリームからコントロールの名前と種類を、[`read_form_stream`] はストリーム（[`StreamKind`]）の生のバイト列を読みます。
+
+## マクロ
+
+3 種類のマクロを、どれも [`MacroDef`] として読みます。名前付きマクロは [`list_macros`] と [`read_macro`] で、フォームやレポートのイベントに埋め込まれたマクロは [`read_embedded_macros`] で、テーブルのデータマクロは [`read_data_macros`] で読みます。
+[`MacroDef`] は、マクロの文の並び（[`MacroStatement`]）、読み取り元の XML、名前付きマクロと埋め込みマクロのマクロの表（grid）を持ちます。
+
+```rust,no_run
+use jetdb::{MacroStatement, PageReader, list_macros, read_macro};
+
+fn main() -> Result<(), jetdb::FileError> {
+    let mut reader = PageReader::open("database.accdb")?;
+    for entry in list_macros(&mut reader)? {
+        let def = read_macro(&mut reader, &entry.name)?;
+        println!("{}", entry.name);
+        for statement in &def.statements {
+            if let MacroStatement::Action { name, .. } = statement {
+                println!("  {name}");
+            }
+        }
+    }
+    Ok(())
+}
+```
+
+[`data_macros_to_text`] と [`embedded_macro_to_text`] は、`Application.SaveAsText` がデータマクロと埋め込みマクロについて書き出すテキストを作ります。
+
+## オブジェクトのプロパティ
+
+[`read_object_properties`] で、テーブルとその列の説明や書式など、オブジェクトのプロパティを読みます。プロパティは、オブジェクト自身のものと列ごとのもので、まとまり（[`PropertyMap`]）に分かれています。
+
+```rust,no_run
+use jetdb::{PageReader, read_object_properties};
+
+fn main() -> Result<(), jetdb::FileError> {
+    let mut reader = PageReader::open("database.mdb")?;
+    let props = read_object_properties(&mut reader, "Customers")?;
+    for map in &props.maps {
+        println!("{:?} {}", map.map_type, map.name);
+        for p in &map.properties {
+            println!("  {} = {:?}", p.name, p.value);
+        }
+    }
+    Ok(())
+}
+```
+
 ## DDL 生成
 
 [`ddl`] モジュールで、テーブル定義から SQLite / PostgreSQL / MySQL / Access SQL の DDL を生成できます。
