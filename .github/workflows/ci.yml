@@ -144,11 +144,12 @@ jobs:
       - run: scripts/test-wasm-package.sh
       # The image lists azure.archive.ubuntu.com first in
       # /etc/apt/apt-mirrors.txt, and apt stays on a slow node of it for many
-      # minutes (actions/runner-images#14823): fetch from the next one,
-      # archive.ubuntu.com.
-      - name: Fetch Ubuntu packages from archive.ubuntu.com
+      # minutes (actions/runner-images#14823): fetch from the mirror of
+      # kernel.org instead, and from archive.ubuntu.com, next in the list,
+      # when it fails.
+      - name: Fetch Ubuntu packages from the mirror of kernel.org
         run: |
-          sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
+          sudo sed -i 's|^.*azure\.archive\.ubuntu\.com.*$|https://mirrors.edge.kernel.org/ubuntu/|' /etc/apt/apt-mirrors.txt
           cat /etc/apt/apt-mirrors.txt
       - name: Install the browsers for the pinned Playwright
         working-directory: crates/jetdb-wasm/tests/browser
