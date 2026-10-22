@@ -51,6 +51,6 @@ done
 
 jq --arg version "$crate_version" '.version = $version' "$CRATE_DIR/package.json" \
     >"$OUT_DIR/package.json"
-cp "$PROJECT_DIR/LICENSE-MIT" "$PROJECT_DIR/LICENSE-APACHE" "$OUT_DIR/"
+cp "$PROJECT_DIR/LICENSE-MIT" "$PROJECT_DIR/LICENSE-APACHE" "$CRATE_DIR/README.md" "$OUT_DIR/"
 
 echo "built: $OUT_DIR (jetdb-wasm $crate_version)"

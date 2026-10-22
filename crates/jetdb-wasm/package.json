@@ -3,6 +3,10 @@
   "version": "0.0.0",
   "description": "Read Microsoft Access (.mdb / .accdb) databases in the browser and Node.js, with jetdb built as WebAssembly",
   "license": "MIT OR Apache-2.0",
+  "homepage": "https://github.com/dominion525/jetdb/tree/main/crates/jetdb-wasm#readme",
+  "bugs": {
+    "url": "https://github.com/dominion525/jetdb/issues"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/dominion525/jetdb.git",

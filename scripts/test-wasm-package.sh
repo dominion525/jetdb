@@ -21,6 +21,10 @@ tarball="$(cd "$work" && npm pack --silent "$CRATE_DIR/pkg")"
 cp "$CRATE_DIR/tests/smoke.mjs" "$work/"
 node "$work/smoke.mjs" "$PROJECT_DIR/testdata"
 
+# npm shows the README of the package on its page.
+test -s "$work/node_modules/jetdb-wasm/README.md"
+echo "readme ok"
+
 # tsc finds jetdb-wasm in $work/node_modules, one directory up. The node config
 # resolves the node condition of the exports, the bundler config the default.
 cp -R "$CRATE_DIR/tests/types" "$work/types"
