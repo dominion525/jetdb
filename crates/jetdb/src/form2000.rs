@@ -254,6 +254,8 @@ enum Kind {
     Text,
     /// A GUID of 16 bytes.
     Guid,
+    /// A double of 8 bytes, such as a date and time.
+    Double,
     /// Bytes as they are.
     Bytes,
 }
@@ -311,6 +313,9 @@ fn value_as(raw: &Raw, kind: Kind) -> Option<BlobValue> {
     match (raw, kind) {
         (Raw::Bytes(b), Kind::Text) => encoding::decode_utf16le(b).ok().map(BlobValue::Text),
         (Raw::Bytes(b), Kind::Guid) if b.len() == 16 => Some(BlobValue::Guid(format_guid(b))),
+        (Raw::Bytes(b), Kind::Double) => <[u8; 8]>::try_from(b.as_slice())
+            .ok()
+            .map(|b| BlobValue::Double(f64::from_le_bytes(b))),
         _ => None,
     }
 }
@@ -322,11 +327,17 @@ fn value_as(raw: &Raw, kind: Kind) -> Option<BlobValue> {
 // across the objects are those of one ID of the later format, and of no
 // other. Where the SaveAsText output of the files of the 2000 format
 // themselves (testdata/V2000/saveastext) names a property another ID holds in
-// the later format, the pair follows the name. The IDs of the later format
+// the later format, the pair follows the name. The other pairs were tied by
+// that output alone: the values of an ID of an entry type, or of the form or
+// report, are all held by one key, and by no other, and the ID of the later
+// format is the one form.rs names after that key. The IDs of the later format
 // are those of Access for Microsoft 365, one higher above 0x01C4 than in
 // files of earlier Access (see form.rs).
 
 const FORM: Table = &[
+    (0x14, 0x013A, Kind::Number),
+    (0x1C, 0x0175, Kind::Number),
+    (0x30, 0x0093, Kind::Number),
     (0x31, 0x002D, Kind::Number),
     (0x32, 0x0098, Kind::Number),
     (0x33, 0x0092, Kind::Number),
@@ -338,10 +349,16 @@ const FORM: Table = &[
     (0x61, 0x0029, Kind::Number),
     (0x62, 0x002A, Kind::Number),
     (0x63, 0x0096, Kind::Number),
+    (0x64, 0x00A8, Kind::Number),
     (0x65, 0x00A1, Kind::Number),
+    (0x66, 0x00A2, Kind::Number),
     (0x67, 0x009E, Kind::Number),
+    (0x6A, 0x0081, Kind::Number),
+    (0x6B, 0x000C, Kind::Number),
+    (0x6D, 0x0183, Kind::Number),
     (0x9C, 0x00DB, Kind::Number),
     (0x9D, 0x006F, Kind::Number),
+    (0x9E, 0x0132, Kind::Number),
     (0xA0, 0x013F, Kind::Number),
     (0xBD, 0x0080, Kind::Text),
     (0xBE, 0x007B, Kind::Text),
@@ -353,6 +370,7 @@ const FORM: Table = &[
     (0xC8, 0x014B, Kind::Text),
     (0xC9, 0x014D, Kind::Text),
     (0xCA, 0x014E, Kind::Text),
+    (0xCE, 0x016C, Kind::Double),
     (0xCF, 0x0177, Kind::Text),
     (0xD0, 0x0178, Kind::Guid),
     (0xDC, 0x009C, Kind::Text),
@@ -368,6 +386,8 @@ const FORM: Table = &[
     (0xE6, 0x00DA, Kind::Text),
     (0xE7, 0x00A0, Kind::Text),
     (0xEA, 0x00BD, Kind::Bytes),
+    (0xEB, 0x00BE, Kind::Bytes),
+    (0xEC, 0x00BF, Kind::Bytes),
     (0xED, 0x0068, Kind::Text),
     (0xEF, 0x006A, Kind::Text),
     (0xF0, 0x006B, Kind::Text),
@@ -386,12 +406,19 @@ const FORM: Table = &[
 ];
 
 const REPORT: Table = &[
+    (0x14, 0x013A, Kind::Number),
     (0x1C, 0x0175, Kind::Number),
+    (0x30, 0x0093, Kind::Number),
     (0x3A, 0x011A, Kind::Number),
     (0x3B, 0x0172, Kind::Number),
     (0x3C, 0x011B, Kind::Number),
+    (0x3D, 0x0135, Kind::Number),
     (0x61, 0x0029, Kind::Number),
     (0x62, 0x002A, Kind::Number),
+    (0x63, 0x0096, Kind::Number),
+    (0x67, 0x009E, Kind::Number),
+    (0x6A, 0x0081, Kind::Number),
+    (0x6B, 0x000C, Kind::Number),
     (0x9C, 0x00DB, Kind::Number),
     (0x9D, 0x006F, Kind::Number),
     (0x9E, 0x0132, Kind::Number),
@@ -404,6 +431,7 @@ const REPORT: Table = &[
     (0xC8, 0x014B, Kind::Text),
     (0xC9, 0x014D, Kind::Text),
     (0xCA, 0x014E, Kind::Text),
+    (0xCE, 0x016C, Kind::Double),
     (0xD0, 0x0178, Kind::Guid),
     (0xDC, 0x009C, Kind::Text),
     (0xDD, 0x0011, Kind::Text),
@@ -412,6 +440,9 @@ const REPORT: Table = &[
     (0xE4, 0x004E, Kind::Text),
     (0xE5, 0x00F0, Kind::Text),
     (0xE6, 0x00DA, Kind::Text),
+    (0xEA, 0x00BD, Kind::Bytes),
+    (0xEB, 0x00BE, Kind::Bytes),
+    (0xEC, 0x00BF, Kind::Bytes),
     (0xED, 0x0068, Kind::Text),
     (0xEF, 0x006A, Kind::Text),
     (0xF0, 0x006B, Kind::Text),
@@ -430,6 +461,22 @@ const REPORT: Table = &[
 ];
 
 const TYPE_100: Table = &[
+    (0x00, 0x0094, Kind::Number),
+    (0x02, 0x0024, Kind::Number),
+    (0x03, 0x0163, Kind::Number),
+    (0x33, 0x0149, Kind::Number),
+    (0x38, 0x00F3, Kind::Number),
+    (0x60, 0x0036, Kind::Number),
+    (0x61, 0x008D, Kind::Number),
+    (0x62, 0x0096, Kind::Number),
+    (0x63, 0x002C, Kind::Number),
+    (0x67, 0x0180, Kind::Number),
+    (0x68, 0x0181, Kind::Number),
+    (0x69, 0x0182, Kind::Number),
+    (0x6A, 0x0184, Kind::Number),
+    (0x6B, 0x0185, Kind::Number),
+    (0x9E, 0x00CC, Kind::Number),
+    (0x9F, 0x00DB, Kind::Number),
     (0xDC, 0x0014, Kind::Text),
     (0xDD, 0x0011, Kind::Text),
     (0xDE, 0x0022, Kind::Text),
@@ -447,6 +494,14 @@ const TYPE_100: Table = &[
 ];
 
 const TYPE_101: Table = &[
+    (0x00, 0x0094, Kind::Number),
+    (0x30, 0x0095, Kind::Number),
+    (0x31, 0x0004, Kind::Number),
+    (0x32, 0x001D, Kind::Number),
+    (0x33, 0x0149, Kind::Number),
+    (0x61, 0x008D, Kind::Number),
+    (0x62, 0x0096, Kind::Number),
+    (0x63, 0x002C, Kind::Number),
     (0x9D, 0x0008, Kind::Number),
     (0xDC, 0x0014, Kind::Text),
     (0xDD, 0x007E, Kind::Text),
@@ -459,6 +514,13 @@ const TYPE_101: Table = &[
 ];
 
 const TYPE_102: Table = &[
+    (0x00, 0x0094, Kind::Number),
+    (0x01, 0x0037, Kind::Number),
+    (0x30, 0x0095, Kind::Number),
+    (0x31, 0x0149, Kind::Number),
+    (0x61, 0x008D, Kind::Number),
+    (0x62, 0x0096, Kind::Number),
+    (0x63, 0x002C, Kind::Number),
     (0x9C, 0x0008, Kind::Number),
     (0xDC, 0x0014, Kind::Text),
     (0xDD, 0x010A, Kind::Text),
@@ -466,7 +528,17 @@ const TYPE_102: Table = &[
 ];
 
 const TYPE_103: Table = &[
+    (0x00, 0x0094, Kind::Number),
+    (0x32, 0x001D, Kind::Number),
+    (0x33, 0x0149, Kind::Number),
+    (0x36, 0x0059, Kind::Number),
+    (0x37, 0x0135, Kind::Number),
+    (0x60, 0x0036, Kind::Number),
+    (0x61, 0x008D, Kind::Number),
+    (0x62, 0x0096, Kind::Number),
+    (0x63, 0x002C, Kind::Number),
     (0x9D, 0x0008, Kind::Number),
+    (0x9E, 0x00DB, Kind::Number),
     (0xDC, 0x0014, Kind::Text),
     (0xDD, 0x007E, Kind::Text),
     (0xDE, 0x00E0, Kind::Text),
@@ -482,6 +554,14 @@ const TYPE_103: Table = &[
 ];
 
 const TYPE_104: Table = &[
+    (0x04, 0x0094, Kind::Number),
+    (0x35, 0x00F3, Kind::Number),
+    (0x60, 0x0036, Kind::Number),
+    (0x61, 0x008D, Kind::Number),
+    (0x62, 0x0096, Kind::Number),
+    (0x63, 0x002C, Kind::Number),
+    (0x9C, 0x00DB, Kind::Number),
+    (0x9D, 0x00CC, Kind::Number),
     (0xDC, 0x0014, Kind::Text),
     (0xDD, 0x0011, Kind::Text),
     (0xDE, 0x0087, Kind::Text),
@@ -506,6 +586,13 @@ const TYPE_104: Table = &[
 ];
 
 const TYPE_105: Table = &[
+    (0x00, 0x0094, Kind::Number),
+    (0x35, 0x0149, Kind::Number),
+    (0x61, 0x008D, Kind::Number),
+    (0x62, 0x0096, Kind::Number),
+    (0x63, 0x002C, Kind::Number),
+    (0x66, 0x00A5, Kind::Number),
+    (0x9D, 0x00DB, Kind::Number),
     (0x9E, 0x0008, Kind::Number),
     (0xDC, 0x0014, Kind::Text),
     (0xDD, 0x001B, Kind::Text),
@@ -533,6 +620,13 @@ const TYPE_105: Table = &[
 ];
 
 const TYPE_106: Table = &[
+    (0x00, 0x0094, Kind::Number),
+    (0x35, 0x0149, Kind::Number),
+    (0x61, 0x008D, Kind::Number),
+    (0x62, 0x0096, Kind::Number),
+    (0x63, 0x002C, Kind::Number),
+    (0x66, 0x00A5, Kind::Number),
+    (0x9D, 0x00DB, Kind::Number),
     (0x9E, 0x0008, Kind::Number),
     (0xDC, 0x0014, Kind::Text),
     (0xDD, 0x001B, Kind::Text),
@@ -560,6 +654,16 @@ const TYPE_106: Table = &[
 ];
 
 const TYPE_107: Table = &[
+    (0x00, 0x0094, Kind::Number),
+    (0x30, 0x0095, Kind::Number),
+    (0x31, 0x0004, Kind::Number),
+    (0x33, 0x0149, Kind::Number),
+    (0x61, 0x008D, Kind::Number),
+    (0x62, 0x0096, Kind::Number),
+    (0x63, 0x002C, Kind::Number),
+    (0x66, 0x00A5, Kind::Number),
+    (0x9D, 0x0008, Kind::Number),
+    (0x9E, 0x00DB, Kind::Number),
     (0xDC, 0x0014, Kind::Text),
     (0xDD, 0x001B, Kind::Text),
     (0xDE, 0x0087, Kind::Text),
@@ -582,7 +686,17 @@ const TYPE_107: Table = &[
 ];
 
 const TYPE_108: Table = &[
+    (0x00, 0x0094, Kind::Number),
+    (0x30, 0x0059, Kind::Number),
+    (0x32, 0x0004, Kind::Number),
+    (0x33, 0x0149, Kind::Number),
+    (0x61, 0x008D, Kind::Number),
+    (0x62, 0x0096, Kind::Number),
+    (0x63, 0x002C, Kind::Number),
+    (0x66, 0x00A5, Kind::Number),
+    (0x6A, 0x0065, Kind::Number),
     (0x9C, 0x0008, Kind::Number),
+    (0x9D, 0x00DB, Kind::Number),
     (0xDC, 0x0014, Kind::Text),
     (0xDD, 0x001B, Kind::Text),
     (0xDE, 0x0087, Kind::Text),
@@ -607,6 +721,28 @@ const TYPE_108: Table = &[
 ];
 
 const TYPE_109: Table = &[
+    (0x01, 0x0019, Kind::Number),
+    (0x0A, 0x0024, Kind::Number),
+    (0x0F, 0x0165, Kind::Number),
+    (0x10, 0x0154, Kind::Number),
+    (0x35, 0x0149, Kind::Number),
+    (0x37, 0x009F, Kind::Number),
+    (0x3C, 0x00F3, Kind::Number),
+    (0x40, 0x0170, Kind::Number),
+    (0x60, 0x0036, Kind::Number),
+    (0x61, 0x008D, Kind::Number),
+    (0x62, 0x0096, Kind::Number),
+    (0x63, 0x002C, Kind::Number),
+    (0x65, 0x00A6, Kind::Number),
+    (0x66, 0x00A5, Kind::Number),
+    (0x6D, 0x0180, Kind::Number),
+    (0x6E, 0x0181, Kind::Number),
+    (0x6F, 0x0182, Kind::Number),
+    (0x70, 0x0184, Kind::Number),
+    (0x71, 0x0185, Kind::Number),
+    (0x9D, 0x0008, Kind::Number),
+    (0x9E, 0x00DB, Kind::Number),
+    (0x9F, 0x00CC, Kind::Number),
     (0xDC, 0x0014, Kind::Text),
     (0xDD, 0x001B, Kind::Text),
     (0xDE, 0x0026, Kind::Text),
@@ -639,6 +775,16 @@ const TYPE_109: Table = &[
 ];
 
 const TYPE_110: Table = &[
+    (0x01, 0x0094, Kind::Number),
+    (0x37, 0x00F3, Kind::Number),
+    (0x3D, 0x0149, Kind::Number),
+    (0x60, 0x0046, Kind::Number),
+    (0x62, 0x008D, Kind::Number),
+    (0x63, 0x0096, Kind::Number),
+    (0x64, 0x002C, Kind::Number),
+    (0x67, 0x00A5, Kind::Number),
+    (0x9C, 0x000D, Kind::Number),
+    (0x9E, 0x00DB, Kind::Number),
     (0xDC, 0x0014, Kind::Text),
     (0xDD, 0x001B, Kind::Text),
     (0xDE, 0x005D, Kind::Text),
@@ -668,6 +814,19 @@ const TYPE_110: Table = &[
 ];
 
 const TYPE_111: Table = &[
+    (0x0B, 0x0044, Kind::Number),
+    (0x33, 0x0149, Kind::Number),
+    (0x3A, 0x00F3, Kind::Number),
+    (0x3E, 0x0170, Kind::Number),
+    (0x60, 0x0046, Kind::Number),
+    (0x64, 0x008D, Kind::Number),
+    (0x65, 0x0096, Kind::Number),
+    (0x66, 0x002C, Kind::Number),
+    (0x68, 0x00A6, Kind::Number),
+    (0x69, 0x00A5, Kind::Number),
+    (0x9C, 0x000D, Kind::Number),
+    (0x9F, 0x00DB, Kind::Number),
+    (0xBE, 0x0178, Kind::Guid),
     (0xDC, 0x0014, Kind::Text),
     (0xDD, 0x001B, Kind::Text),
     (0xDE, 0x005D, Kind::Text),
@@ -700,6 +859,12 @@ const TYPE_111: Table = &[
 ];
 
 const TYPE_112: Table = &[
+    (0x01, 0x0019, Kind::Number),
+    (0x30, 0x0095, Kind::Number),
+    (0x34, 0x0149, Kind::Number),
+    (0x61, 0x008D, Kind::Number),
+    (0x62, 0x0096, Kind::Number),
+    (0x63, 0x002C, Kind::Number),
     (0x9C, 0x0008, Kind::Number),
     (0xDC, 0x0014, Kind::Text),
     (0xDD, 0x0084, Kind::Text),
@@ -713,12 +878,21 @@ const TYPE_112: Table = &[
 ];
 
 const TYPE_118: Table = &[
+    (0x61, 0x008D, Kind::Number),
     (0xDC, 0x0014, Kind::Text),
     (0xDD, 0x010A, Kind::Text),
     (0xDF, 0x0178, Kind::Guid),
 ];
 
 const TYPE_122: Table = &[
+    (0x09, 0x0106, Kind::Number),
+    (0x61, 0x008D, Kind::Number),
+    (0x62, 0x0096, Kind::Number),
+    (0x63, 0x002C, Kind::Number),
+    (0x65, 0x00A6, Kind::Number),
+    (0x66, 0x00A5, Kind::Number),
+    (0x9D, 0x00DB, Kind::Number),
+    (0x9E, 0x00CC, Kind::Number),
     (0xDC, 0x0014, Kind::Text),
     (0xDD, 0x001B, Kind::Text),
     (0xDE, 0x0087, Kind::Text),
@@ -747,8 +921,16 @@ const TYPE_122: Table = &[
 ];
 
 const TYPE_123: Table = &[
+    (0x04, 0x0106, Kind::Number),
+    (0x05, 0x015C, Kind::Number),
     (0x30, 0x0095, Kind::Number),
+    (0x34, 0x00F3, Kind::Number),
     (0x35, 0x001D, Kind::Number),
+    (0x62, 0x0096, Kind::Number),
+    (0x63, 0x002C, Kind::Number),
+    (0x67, 0x015F, Kind::Number),
+    (0x68, 0x015E, Kind::Number),
+    (0x9C, 0x00DB, Kind::Number),
     (0xDC, 0x0014, Kind::Text),
     (0xDD, 0x0087, Kind::Text),
     (0xDE, 0x00E0, Kind::Text),
@@ -766,6 +948,14 @@ const TYPE_123: Table = &[
 ];
 
 const TYPE_124: Table = &[
+    (0x00, 0x0094, Kind::Number),
+    (0x31, 0x009F, Kind::Number),
+    (0x33, 0x0155, Kind::Number),
+    (0x60, 0x0036, Kind::Number),
+    (0x61, 0x008D, Kind::Number),
+    (0x62, 0x0096, Kind::Number),
+    (0x63, 0x002C, Kind::Number),
+    (0x9D, 0x00DB, Kind::Number),
     (0xDC, 0x0014, Kind::Text),
     (0xDD, 0x0087, Kind::Text),
     (0xDE, 0x00E0, Kind::Text),
@@ -781,6 +971,13 @@ const TYPE_124: Table = &[
 ];
 
 const TYPE_152: Table = &[
+    (0x00, 0x004B, Kind::Number),
+    (0x03, 0x0010, Kind::Number),
+    (0x60, 0x002C, Kind::Number),
+    (0x9C, 0x001C, Kind::Number),
+    (0xDC, 0x0050, Kind::Text),
+    (0xDD, 0x0052, Kind::Text),
+    (0xDE, 0x0054, Kind::Text),
     (0xDF, 0x0014, Kind::Text),
     (0xE0, 0x010A, Kind::Text),
     (0xE1, 0x007E, Kind::Text),
@@ -853,7 +1050,7 @@ mod tests {
         rest.push(0xFD);
         let (object, controls) = read(&blob(&[0x30, 2], &rest)).unwrap();
         assert_eq!(object.len(), 1);
-        assert_eq!(object[0].prop_id, 0x8030);
+        assert_eq!(object[0].prop_id, 0x0093);
         assert!(matches!(object[0].value, BlobValue::Short(2)));
         let names: Vec<(&str, u16)> = controls
             .iter()
@@ -862,7 +1059,7 @@ mod tests {
         assert_eq!(names, [("D", 152), ("t", 109), ("Control_2", 100)]);
         let text_box = &controls[1].properties;
         assert!(matches!(text_box[0].value, BlobValue::NotDefault));
-        assert_eq!(text_box[1].prop_id, 0x8060);
+        assert_eq!(text_box[1].prop_id, 0x0036);
         assert!(matches!(text_box[1].value, BlobValue::Short(1500)));
         assert!(matches!(
             controls[2].properties[0].value,
@@ -938,15 +1135,15 @@ mod tests {
         let path = skip_if_missing!("V2000/propertyIdTestV2000.mdb");
         let mut reader = PageReader::open(&path).unwrap();
         for (name, not_default) in [
-            ("base_Form", &[0x8014, 0x801C][..]),
-            ("Form_AllowLayoutView_1", &[0x8014][..]),
+            ("base_Form", &[0x013A, 0x0175][..]),
+            ("Form_AllowLayoutView_1", &[0x013A][..]),
         ] {
             let read =
                 read_form_properties_of_type(&mut reader, name, FormObjectType::Form).unwrap();
             let ids: Vec<u16> = read.properties.iter().map(|p| p.prop_id).collect();
             assert_eq!(ids[..not_default.len()], *not_default, "{name}");
             let next = &read.properties[not_default.len()];
-            assert_eq!(next.prop_id, 0x8030, "{name}");
+            assert_eq!(next.prop_id, 0x0093, "{name}");
             assert!(matches!(next.value, BlobValue::Short(0)), "{name}");
         }
     }
@@ -1015,11 +1212,44 @@ mod tests {
         }
     }
 
+    /// The pairs whose values differ between the files of the two formats,
+    /// by the scope of their table (the object type, or the entry type) and
+    /// the ID of Access 2002 and later. Their values are checked against the
+    /// SaveAsText output of the files of the 2000 format instead.
+    const DIFFERING: &[(&str, u16)] = &[
+        ("Form", 0x000C),
+        ("Form", 0x0081),
+        ("Form", 0x0093),
+        ("Form", 0x00BE),
+        ("Form", 0x00BF),
+        ("Form", 0x0132),
+        ("Report", 0x000C),
+        ("Report", 0x0081),
+        ("Report", 0x0093),
+        ("Report", 0x00BE),
+        ("Report", 0x00BF),
+        ("123", 0x002C),
+        ("123", 0x0096),
+        ("124", 0x002C),
+        ("124", 0x0036),
+        ("124", 0x008D),
+        ("124", 0x0096),
+        ("124", 0x009F),
+    ];
+
+    /// Whether the value of `id` at the node `key` of `nodes` is of a pair
+    /// in `DIFFERING`.
+    fn differs((object, node): &(String, String), id: u16) -> bool {
+        let scope = if node.is_empty() { object } else { node };
+        let scope = scope.split(' ').next().unwrap_or("");
+        DIFFERING.contains(&(scope, id))
+    }
+
     #[test]
     fn tied_ids_hold_the_values_of_access_2002_and_later() {
         // The same forms and reports in both formats: each property given an
         // ID of Access 2002 and later holds the value that ID holds there, or
-        // the one `holding` gives.
+        // the one `holding` gives, but for the pairs `differs` gives.
         for (file2000, file2007, at_least) in [
             (
                 "V2000/controlPropertyTestV2000.mdb",
@@ -1038,7 +1268,10 @@ mod tests {
             let mut checked = 0;
             for (key, properties) in nodes(&path2000) {
                 let other = later.get(&key).unwrap_or_else(|| panic!("{key:?}"));
-                for p in properties.iter().filter(|p| p.prop_id < UNMAPPED) {
+                for p in properties
+                    .iter()
+                    .filter(|p| p.prop_id < UNMAPPED && !differs(&key, p.prop_id))
+                {
                     let there = other.iter().find(|q| q.prop_id == holding(p.prop_id));
                     assert_eq!(
                         there.map(|q| comparable(&q.value)),
@@ -1107,7 +1340,7 @@ mod tests {
         let left = text_box
             .properties
             .iter()
-            .find(|p| p.prop_id == 0x8060)
+            .find(|p| p.prop_id == 0x0036)
             .unwrap();
         assert!(matches!(left.value, BlobValue::Short(1700)));
     }

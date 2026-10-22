@@ -478,7 +478,7 @@ jetdb form props [OPTIONS] <FILE> <NAME>
 
 Blob バイナリストリームをパースして、フォーム/レポート自体と各コントロールのプロパティを表示する。RecordSource、ControlSource、Filter、Caption、FontName、イベントハンドラ等が含まれる。
 
-既知のプロパティ ID は名前で表示、未知の ID は `0xXXXX` で表示。Access 2000 形式のフォームとレポートで、jetdb が Access 2002 以降の ID を付けないプロパティは、その形式の ID に `0x8000` を足した ID（`0x80DD` など）で表示。Binary 値は `(N bytes)`、GUID は `{...}`、Boolean は `yes`/`no`、色を含む数値は SaveAsText と同じ符号付きの数、値を持たずに既定と違う値を表すはい/いいえのプロパティは、SaveAsText と同じく `NotDefault` で表示。
+既知のプロパティ ID は名前で表示、未知の ID は `0xXXXX` で表示。Access 2000 形式のフォームとレポートで、jetdb が Access 2002 以降の ID を付けないプロパティは、その形式の ID に `0x8000` を足した ID（`0x8036` など）で表示。Binary 値は `(N bytes)`、GUID は `{...}`、Boolean は `yes`/`no`、色を含む数値は SaveAsText と同じ符号付きの数、値を持たずに既定と違う値を表すはい/いいえのプロパティは、SaveAsText と同じく `NotDefault` で表示。
 
 ##### オプション
 
