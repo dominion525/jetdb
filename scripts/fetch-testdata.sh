@@ -195,7 +195,11 @@ for entry in "${FILES[@]}"; do
     echo "fetching:   testdata/$rel_path"
     mkdir -p "$(dirname "$dest")"
     tmp="$dest.download"
-    curl -sSLf -o "$tmp" "$url"
+    # A failure, such as a 503 of the host, is tried again with a growing
+    # wait in between. Every error is, as some curl builds give a 503 over
+    # HTTP/2 the exit code of a receive failure, which --retry alone does not
+    # take for a transient one.
+    curl -sSLf --retry 5 --retry-all-errors -o "$tmp" "$url"
 
     actual="$(sha256_of "$tmp")"
     if [ "$actual" != "$expected" ]; then
