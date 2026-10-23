@@ -1,0 +1,19 @@
+name: Fetch test data
+description: >-
+  Restores the test data that is not stored in the repository from the cache,
+  and fetches with scripts/fetch-testdata.sh what is missing or changed.
+runs:
+  using: composite
+  steps:
+    # The places scripts/fetch-testdata.sh writes to, which hold no file of the
+    # repository. A file the script puts elsewhere is fetched on every run, as
+    # before. The script checks every file it finds against its SHA-256, so a
+    # file restored from an older cache is fetched again.
+    - uses: actions/cache@v6
+      with:
+        path: |
+          testdata/saveastext
+          testdata/V1997/nwind.mdb
+        key: testdata-${{ hashFiles('scripts/fetch-testdata.sh') }}
+    - run: scripts/fetch-testdata.sh
+      shell: bash

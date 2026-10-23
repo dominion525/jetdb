@@ -53,8 +53,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Fetch test data
-        run: scripts/fetch-testdata.sh
-        shell: bash
+        uses: ./.github/actions/fetch-testdata
       - run: cargo test
 
   # The library tests open files under testdata/, which WASI can do, so the
@@ -74,7 +73,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: bytecodealliance/actions/wasmtime/setup@v1
       - name: Fetch test data
-        run: scripts/fetch-testdata.sh
+        uses: ./.github/actions/fetch-testdata
       - run: cargo test --target wasm32-wasip1 -p jetdb
 
   # The browser target and WASI are separate builds, and dependencies can
@@ -109,7 +108,7 @@ jobs:
         with:
           tool: wasm-bindgen@${{ steps.wasm-bindgen.outputs.version }}
       - name: Fetch test data
-        run: scripts/fetch-testdata.sh
+        uses: ./.github/actions/fetch-testdata
       - run: cargo test --target wasm32-unknown-unknown -p jetdb --test wasm_browser
 
   # Builds the jetdb-wasm npm package and tests it as npm installs it, through
@@ -139,7 +138,7 @@ jobs:
         with:
           tool: wasm-bindgen@${{ steps.wasm-bindgen.outputs.version }}
       - name: Fetch test data
-        run: scripts/fetch-testdata.sh
+        uses: ./.github/actions/fetch-testdata
       - run: scripts/build-wasm-package.sh
       - run: scripts/test-wasm-package.sh
       # The image lists azure.archive.ubuntu.com first in
