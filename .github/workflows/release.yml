@@ -201,7 +201,9 @@ jobs:
     # Trusted Publishing, as for crates.io: npm exchanges the OIDC token for a
     # short-lived one, against the configuration of the package on npmjs.com,
     # which names this repository and workflow file. It needs npm 11.5.1 or
-    # later, which Node.js 24 comes with.
+    # later, which Node.js 24 comes with. That configuration is made on the
+    # page of the package, so the package has to be on npm, published once by
+    # hand, before this job can publish to it.
     permissions:
       contents: read
       id-token: write
