@@ -3,6 +3,13 @@ name: Release
 on:
   push:
     tags: ['v*']
+  # Publishes only the npm package, of the version given, from main, which CI
+  # has tested: to try the publishing to npm without a release.
+  workflow_dispatch:
+    inputs:
+      npm-version:
+        description: Version of the jetdb-wasm package to publish to npm
+        required: true
 
 permissions:
   contents: write
@@ -13,6 +20,7 @@ env:
 jobs:
   version:
     name: Version
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -22,7 +30,7 @@ jobs:
         run: |
           expected="${TAG#v}"
           mismatch=0
-          for manifest in crates/jetdb/Cargo.toml crates/jetdb-cli/Cargo.toml; do
+          for manifest in crates/jetdb/Cargo.toml crates/jetdb-cli/Cargo.toml crates/jetdb-wasm/Cargo.toml; do
             actual="$(sed -n 's/^version = "\(.*\)"$/\1/p' "$manifest" | head -1)"
             if [ "$actual" != "$expected" ]; then
               echo "::error file=$manifest::version is $actual, but the tag asks for $expected"
@@ -182,3 +190,85 @@ jobs:
       - run: cargo publish -p jetdb-cli
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+
+  npm:
+    name: Publish (npm)
+    # After the GitHub release of a tag, beside the crates; alone when run by
+    # hand.
+    needs: release
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.release.result == 'success') }}
+    runs-on: ubuntu-latest
+    # Trusted Publishing, as for crates.io: npm exchanges the OIDC token for a
+    # short-lived one, against the configuration of the package on npmjs.com,
+    # which names this repository and workflow file. It needs npm 11.5.1 or
+    # later, which Node.js 24 comes with. That configuration is made on the
+    # page of the package, so the package has to be on npm, published once by
+    # hand, before this job can publish to it.
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Run by hand only from main
+        if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::run it by hand from main, not $GITHUB_REF"
+          exit 1
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
+      - name: Read the wasm-bindgen version from Cargo.lock
+        id: wasm-bindgen
+        run: |
+          version=$(cargo metadata --format-version 1 --filter-platform wasm32-unknown-unknown \
+            | jq -r '.packages[] | select(.name == "wasm-bindgen") | .version')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@${{ steps.wasm-bindgen.outputs.version }}
+      - name: Fetch test data
+        run: scripts/fetch-testdata.sh
+      - run: scripts/build-wasm-package.sh
+      - name: Set the version given by hand
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          VERSION: ${{ inputs.npm-version }}
+        run: |
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::npm-version is not a version: $VERSION"
+            exit 1
+          fi
+          jq --arg version "$VERSION" '.version = $version' crates/jetdb-wasm/pkg/package.json \
+            > package.json.tmp
+          mv package.json.tmp crates/jetdb-wasm/pkg/package.json
+      - run: scripts/test-wasm-package.sh
+      - name: Publish unless the version is on npm
+        working-directory: crates/jetdb-wasm/pkg
+        run: |
+          version="$(jq -r .version package.json)"
+          # npm view fails with E404 for a version, or a package, not on npm.
+          if found="$(npm view "jetdb-wasm@$version" version 2>&1)"; then
+            if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+              echo "::error::jetdb-wasm $version is on npm already"
+              exit 1
+            fi
+            echo "jetdb-wasm $version is on npm; not publishing"
+            exit 0
+          elif ! grep -q E404 <<<"$found"; then
+            echo "$found" >&2
+            echo "::error::could not tell whether jetdb-wasm $version is on npm"
+            exit 1
+          fi
+          # A prerelease, as the GitHub release marks one, does not become the
+          # version npm installs by default.
+          if [[ "$version" == *-* ]]; then
+            npm publish --tag next
+          else
+            npm publish
+          fi
