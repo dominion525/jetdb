@@ -146,9 +146,11 @@ cargo install cargo-llvm-cov
 
 > **Note**: The `llvm-tools-preview` component is required. It will be installed automatically on first run.
 
+CI measures the same in its Coverage job, after fetching the test data, and shows the table of files in the summary of the run. For a pull request from this repository, it also puts the table in a comment on the pull request, which each push updates.
+
 #### Coverage Notes
 
-`relationship.rs` (~76%) and `vba.rs` (~80%) have the lowest line coverage. `crypto.rs` (~88%) is also below average. Uncovered lines in these files are error-mapping closures (`.map_err`), `.ok_or()` error paths for missing columns, XML parse error branches, and `continue` branches for malformed data — none of which are reachable with valid database files. llvm-cov counts each closure as a separate function, making function coverage appear low, but all normal-path logic (including all AES key sizes, all hash algorithms, and page decryption) is fully tested.
+Most uncovered lines are error paths that valid database files do not reach: error-mapping closures (`.map_err`), `.ok_or()` error paths for missing columns, XML parse error branches, and `continue` branches for malformed data. llvm-cov counts each closure as a separate function, which makes the function coverage look lower than the line coverage. The coverage of each file is in the table of the Coverage job of CI.
 
 ## Quality Check Script
 
