@@ -51,8 +51,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Fetch test data
-        run: scripts/fetch-testdata.sh
-        shell: bash
+        uses: ./.github/actions/fetch-testdata
       - run: cargo test
 
   # Same Wasm checks as CI; see ci.yml for what each covers.
@@ -70,7 +69,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: bytecodealliance/actions/wasmtime/setup@v1
       - name: Fetch test data
-        run: scripts/fetch-testdata.sh
+        uses: ./.github/actions/fetch-testdata
       - run: cargo test --target wasm32-wasip1 -p jetdb
 
   wasm-browser-test:
@@ -98,7 +97,7 @@ jobs:
         with:
           tool: wasm-bindgen@${{ steps.wasm-bindgen.outputs.version }}
       - name: Fetch test data
-        run: scripts/fetch-testdata.sh
+        uses: ./.github/actions/fetch-testdata
       - run: cargo test --target wasm32-unknown-unknown -p jetdb --test wasm_browser
 
   build:
@@ -233,7 +232,7 @@ jobs:
         with:
           tool: wasm-bindgen@${{ steps.wasm-bindgen.outputs.version }}
       - name: Fetch test data
-        run: scripts/fetch-testdata.sh
+        uses: ./.github/actions/fetch-testdata
       - run: scripts/build-wasm-package.sh
       - name: Set the version given by hand
         if: github.event_name == 'workflow_dispatch'
