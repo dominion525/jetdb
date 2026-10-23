@@ -156,6 +156,59 @@ jobs:
           npx playwright install --with-deps chromium firefox webkit
       - run: scripts/test-wasm-browser.sh
 
+  # Measures the line coverage of the workspace, as scripts/quality-check.sh
+  # does, and shows the table of files on the page of the run and, for a pull
+  # request from this repository, in a comment on it. The test data is fetched
+  # first: without it the tests that need it are skipped and the numbers
+  # change.
+  coverage:
+    name: Coverage
+    needs: [clippy, audit, msrv]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Fetch test data
+        uses: ./.github/actions/fetch-testdata
+      - run: cargo llvm-cov --workspace --no-report
+      - name: Show the coverage in the summary of the run
+        run: |
+          cargo llvm-cov report --summary-only > coverage.txt
+          {
+            echo '## Coverage'
+            echo
+            echo '```'
+            cat coverage.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          grep '^TOTAL' coverage.txt
+      # One comment, found by its first line and updated on each push. A pull
+      # request from a fork gets no token that can write, so it has none.
+      - name: Show the coverage on the pull request
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          marker='<!-- jetdb coverage -->'
+          fence='```'
+          body="$(printf '%s\n## Coverage\n\nFor %s.\n\n%s\n%s\n%s\n' "$marker" "$SHA" "$fence" "$(cat coverage.txt)" "$fence")"
+          comments="repos/$GITHUB_REPOSITORY/issues/$PR/comments"
+          id="$(gh api --paginate "$comments" --jq ".[] | select(.body | startswith(\"$marker\")) | .id" | head -n 1)"
+          if [ -n "$id" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -f body="$body" > /dev/null
+          else
+            gh api "$comments" -f body="$body" > /dev/null
+          fi
+
   doc:
     name: Doc
     needs: test
