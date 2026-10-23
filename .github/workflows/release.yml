@@ -215,6 +215,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
