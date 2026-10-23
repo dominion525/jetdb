@@ -249,9 +249,18 @@ jobs:
         working-directory: crates/jetdb-wasm/pkg
         run: |
           version="$(jq -r .version package.json)"
-          if npm view "jetdb-wasm@$version" version >/dev/null 2>&1; then
+          # npm view fails with E404 for a version, or a package, not on npm.
+          if found="$(npm view "jetdb-wasm@$version" version 2>&1)"; then
+            if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+              echo "::error::jetdb-wasm $version is on npm already"
+              exit 1
+            fi
             echo "jetdb-wasm $version is on npm; not publishing"
             exit 0
+          elif ! grep -q E404 <<<"$found"; then
+            echo "$found" >&2
+            echo "::error::could not tell whether jetdb-wasm $version is on npm"
+            exit 1
           fi
           # A prerelease, as the GitHub release marks one, does not become the
           # version npm installs by default.
