@@ -3,8 +3,8 @@ name: Release
 on:
   push:
     tags: ['v*']
-  # Publishes only the npm package, of the version given, from the commit it
-  # runs on: to try the publishing to npm without a release.
+  # Publishes only the npm package, of the version given, from main, which CI
+  # has tested: to try the publishing to npm without a release.
   workflow_dispatch:
     inputs:
       npm-version:
@@ -206,6 +206,11 @@ jobs:
       contents: read
       id-token: write
     steps:
+      - name: Run by hand only from main
+        if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::run it by hand from main, not $GITHUB_REF"
+          exit 1
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
