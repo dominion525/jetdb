@@ -301,7 +301,7 @@ Names of text values:
 | 0x015A | ColumnInfo | Not in Microsoft's VBA reference; a key of SaveAsText. |
 | 0x015B | HyperlinkSubAddress | Use the HyperlinkSubAddress property to specify or determine a location within the target document specified by the HyperlinkAddress property. |
 | 0x0161 | Toolbar | Specifies a custom toolbar to display for a form. |
-| 0x0167 | FuriganaControl | _expression_.FuriganaControl |
+| 0x0167 | FuriganaControl | Microsoft's VBA reference has no summary of it. The setting value is the name of the control for entering furigana. |
 | 0x0168 | PostalAddress | Use the PostalAddress property to specify or determine the postal code and the Customer Barcode data corresponding to the address information displayed in a specified field or text box. The PostalAddress Property Wizard enables the setting of these properties. |
 | 0x0177 | OnDirty | Sets or returns the value of the On Dirty box in the Properties window of a form or report. |
 | 0x0194 | OnUndo | Returns or sets a String indicating which macro, event procedure, or user-defined function runs when the Undo event occurs. |
@@ -342,7 +342,7 @@ Names of number and Yes/No values:
 | 0x000F | RepeatSection | Use the RepeatSection property to specify whether a group header is repeated on the next page or column when a group spans more than one page or column. |
 | 0x0010 | CanShrink | Gets or sets whether the specified control automatically adjusts vertically to print or preview all the data that the section or control contains. |
 | 0x0013 | RecordSelectors | Use the RecordSelectors property to specify whether a form displays record selectors in Form view. |
-| 0x0019 | Enabled | Use the Enabled property to set or return the status of the conditional format in the FormatCondition object. |
+| 0x0019 | Enabled | Microsoft's VBA reference has no summary of it. The first sentence of its pages describes the FormatCondition object instead. |
 | 0x001C | BackColor | Gets or sets the interior color of the specified object. |
 | 0x001D | BackStyle | Use the BackStyle property to specify whether a control will be transparent. |
 | 0x001E | AllowFilters | Use the AllowFilters property to specify whether records in a form can be filtered. |
@@ -429,9 +429,9 @@ Names of number and Yes/No values:
 | 0x0163 | Vertical | Use the Vertical property to set a form control for vertical display and editing, or to set a report control for vertical display and printing. |
 | 0x0165 | IMEHold | Use the IMEHold/Hold KanjiConversionMode property to show whether the Kanji Conversion Mode is maintained when the control loses the focus. |
 | 0x016C | RecSrcDt | Not in Microsoft's VBA reference; a key of SaveAsText. An 8-byte date and time, in a binary block of SaveAsText. |
-| 0x0170 | KeyboardLanguage | _expression_.KeyboardLanguage |
+| 0x0170 | KeyboardLanguage | Microsoft's VBA reference has no summary of it. |
 | 0x0175 | AllowDesignChanges | Not in Microsoft's VBA reference; a key of SaveAsText. |
-| 0x017B | IMESentenceMode | _expression_.IMESentenceMode |
+| 0x017B | IMESentenceMode | Microsoft's VBA reference has no summary of it. |
 | 0x0180 | LeftMargin | Along with the TopMargin, RightMargin, and BottomMargin properties, specifies the location of information displayed within a text box control. |
 | 0x0181 | TopMargin | Along with the LeftMargin, RightMargin, and BottomMargin properties, specifies the location of information displayed within a text box control. |
 | 0x0182 | LineSpacing | Use the LineSpacing property to specify or determine the location of information displayed within a label or text box control. |

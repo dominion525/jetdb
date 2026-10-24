@@ -242,8 +242,8 @@ jetdb は、種類ごとの表（599 組）で、プロパティに Access 2002 
 | 0x0032 | LinkMasterFields | リンク親フィールド |
 | 0x003D | ValidationText | エラーメッセージ |
 | 0x0048 | InputMask | 定型入力 |
-| 0x004C | OLEClass | OLE |
-| 0x004D | OnOpen | Sets or returns the value of the On Open box in the Properties window of a form or report. 読み取り/書き込みが可能な String です。 |
+| 0x004C | OLEClass | OLEClass プロパティを使用して、グラフ コントロールまたはバインドされていないオブジェクト フレームに含まれる OLE オブジェクトの種類の説明を取得します。 |
+| 0x004D | OnOpen | Microsoft の VBA のリファレンスの日本語版に、日本語の説明が無い。 |
 | 0x004E | OnClose | フォームまたはレポートの [プロパティ ウィンドウ] にある [閉じるとき] ボックスの値を設定または返します。 |
 | 0x004F | OnDelete | レコード削除時 |
 | 0x0050 | OnFormat | フォーマット時 |
@@ -259,7 +259,7 @@ jetdb は、種類ごとの表（599 組）で、プロパティに Access 2002 
 | 0x0069 | OnKeyUp | キー解放時 |
 | 0x006A | OnKeyPress | キー入力時 |
 | 0x006B | OnMouseDown | マウスボタンクリック時 |
-| 0x006C | OnMouseUp | Sets or returns the value of the On Mouse Up box in the Properties window. 読み取り/書き込みが可能な String です。 |
+| 0x006C | OnMouseUp | Microsoft の VBA のリファレンスの日本語版に、日本語の説明が無い。 |
 | 0x006D | OnMouseMove | マウスボタン移動時 |
 | 0x006E | OnTimer | タイマー時 |
 | 0x0070 | OnActivate | アクティブ時 |
@@ -268,7 +268,7 @@ jetdb は、種類ごとの表（599 組）で、プロパティに Access 2002 
 | 0x0073 | OnGotFocus | フォーカス取得後 |
 | 0x0074 | OnLostFocus | フォーカス喪失時 |
 | 0x0075 | OnResize | サイズ変更時 |
-| 0x0076 | OnUpdated | Sets or returns the value of the On Updated box in the Properties window of a form or report. 読み取り/書き込みが可能な String です。 |
+| 0x0076 | OnUpdated | Microsoft の VBA のリファレンスの日本語版に、日本語の説明が無い。 |
 | 0x0077 | OnError | フォームまたはレポートの [プロパティ ウィンドウ] の [エラー時] ボックスの値を設定または返します。 |
 | 0x0078 | OnNotInList | リスト外入力時 |
 | 0x0079 | OnNoData | 空データ時 |
@@ -303,7 +303,7 @@ jetdb は、種類ごとの表（599 組）で、プロパティに Access 2002 
 | 0x0161 | Toolbar | フォームに表示するカスタム ツールバーを指定します。 |
 | 0x0167 | FuriganaControl | ふりがな |
 | 0x0168 | PostalAddress | PostalAddress プロパティを使用して、指定したフィールドまたはテキスト ボックスに表示される住所情報に対応する郵便番号と顧客バーコード データを指定または決定します。 |
-| 0x0177 | OnDirty | Sets or returns the value of the On Dirty box in the Properties window of a form or report. 読み取り/書き込みが可能な String です。 |
+| 0x0177 | OnDirty | Microsoft の VBA のリファレンスの日本語版に、日本語の説明が無い。 |
 | 0x0194 | OnUndo | 元に戻すイベントが発生したときに実行されるマクロ、イベント プロシージャ、またはユーザー定義関数を示す文字列を返すか設定します。 |
 | 0x01A9 | OnConnect | OnConnect イベントが発生したときに実行されるマクロ、イベント プロシージャ、またはユーザー定義関数を示す文字列を返すか設定します。 |
 | 0x01AA | OnDisconnect | OnDisconnect イベントが発生したときに実行するマクロ、イベント プロシージャ、またはユーザー定義関数を示す文字列型 ( String ) の値を指定します。 |
@@ -366,7 +366,7 @@ jetdb は、種類ごとの表（599 組）で、プロパティに Access 2002 
 | 0x0046 | ColumnCount | 列数 |
 | 0x0047 | DecimalPlaces | 小数点以下表示桁数 |
 | 0x004B | KeepTogether | 同一ページ印刷 |
-| 0x0059 | SizeMode | OLE |
+| 0x0059 | SizeMode | SizeMode プロパティを使用して、バインドされたオブジェクト フレーム、バインドされていないオブジェクト フレーム、またはイメージ コントロール内の画像またはその他のオブジェクトのサイズを指定する方法を指定します。 |
 | 0x005A | PopUp | ポップアップ |
 | 0x005C | RowSourceTypeInt | Microsoft の VBA のリファレンスに無い。SaveAsText の項目名。 |
 | 0x005E | MaxButton | Microsoft の VBA のリファレンスに無い。SaveAsText の項目名。 |
@@ -427,11 +427,11 @@ jetdb は、種類ごとの表（599 組）で、プロパティに Access 2002 
 | 0x015E | TabFixedHeight | タブ コントロールのタブの高さを指定または決定するには、 TabFixedHeight プロパティを使用します。 |
 | 0x015F | TabFixedWidth | タブ コントロールのタブの幅を指定または決定するには、 TabFixedWidth プロパティを使用します。 |
 | 0x0163 | Vertical | 縦書き |
-| 0x0165 | IMEHold | Hold |
+| 0x0165 | IMEHold | IMEHold/Hold KanjiConversionMode プロパティを使用して、コントロールがフォーカスを失ったときに漢字変換モードが維持されるかどうかを表示します。 |
 | 0x016C | RecSrcDt | Microsoft の VBA のリファレンスに無い。SaveAsText の項目名。8 バイトの日時。SaveAsText ではバイナリのブロックに書かれる。 |
-| 0x0170 | KeyboardLanguage | 構文 式。 |
+| 0x0170 | KeyboardLanguage | Microsoft の VBA のリファレンスの日本語版に、日本語の説明が無い。 |
 | 0x0175 | AllowDesignChanges | Microsoft の VBA のリファレンスに無い。SaveAsText の項目名。 |
-| 0x017B | IMESentenceMode | IME |
+| 0x017B | IMESentenceMode | IME 変換モード |
 | 0x0180 | LeftMargin | 左余白 |
 | 0x0181 | TopMargin | 上余白 |
 | 0x0182 | LineSpacing | LineSpacing プロパティを使用して、ラベル コントロールまたはテキスト ボックス コントロール内に表示される情報の場所を指定または決定します。 |
