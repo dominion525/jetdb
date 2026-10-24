@@ -918,31 +918,35 @@ mod tests {
         }
     }
 
+    /// The names of the columns that `props` has properties of.
+    fn column_names(props: &ObjectProperties) -> Vec<String> {
+        props
+            .maps
+            .iter()
+            .filter(|m| m.map_type == PropMapType::Column)
+            .map(|m| m.name.clone())
+            .collect()
+    }
+
+    /// The Description of the object itself in `props`, if it is a text.
+    fn description(props: &ObjectProperties) -> Option<String> {
+        props
+            .maps
+            .iter()
+            .filter(|m| m.map_type == PropMapType::Default)
+            .flat_map(|m| &m.properties)
+            .find(|p| p.name == "Description")
+            .and_then(|p| match &p.value {
+                Value::Text(s) => Some(s.clone()),
+                _ => None,
+            })
+    }
+
     #[test]
     fn properties_of_the_object_of_a_type() {
         // nwind.mdb has a table, a form and a macro all named Customers.
         let path = skip_if_missing!("V1997/nwind.mdb");
         let mut reader = PageReader::open(&path).unwrap();
-        let column_names = |props: &ObjectProperties| -> Vec<String> {
-            props
-                .maps
-                .iter()
-                .filter(|m| m.map_type == PropMapType::Column)
-                .map(|m| m.name.clone())
-                .collect()
-        };
-        let description = |props: &ObjectProperties| -> Option<String> {
-            props
-                .maps
-                .iter()
-                .filter(|m| m.map_type == PropMapType::Default)
-                .flat_map(|m| &m.properties)
-                .find(|p| p.name == "Description")
-                .and_then(|p| match &p.value {
-                    Value::Text(s) => Some(s.clone()),
-                    _ => None,
-                })
-        };
 
         let table =
             read_object_properties_of_type(&mut reader, "Customers", ObjectType::Table).unwrap();
