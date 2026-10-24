@@ -1597,6 +1597,128 @@ mod tests {
         page0
     }
 
+    /// The EncryptionInfo of version `major`.`minor` with `flags`, and an
+    /// EncryptionHeader of `alg_id` and `key_size`, followed by an
+    /// EncryptionVerifier with a salt of 0x11.
+    fn cryptoapi_info(major: u8, minor: u8, flags: u32, alg_id: u32, key_size: u32) -> Vec<u8> {
+        let mut info = vec![major, 0, minor, 0];
+        info.extend_from_slice(&flags.to_le_bytes());
+        info.extend_from_slice(&40u32.to_le_bytes()); // headerSize
+        let mut header = [0u8; 40];
+        header[8..12].copy_from_slice(&alg_id.to_le_bytes());
+        header[16..20].copy_from_slice(&key_size.to_le_bytes());
+        info.extend_from_slice(&header);
+        info.extend_from_slice(&16u32.to_le_bytes()); // saltSize
+        info.extend_from_slice(&[0x11; 16]); // salt
+        info.extend_from_slice(&[0x22; 16]); // encryptedVerifier
+        info.extend_from_slice(&20u32.to_le_bytes()); // verifierHashSize
+        info.extend_from_slice(&[0x33; 32]); // encryptedVerifierHash
+        info
+    }
+
+    /// The parameters of `info` as Standard AES, which it must be.
+    fn standard_aes_params(info: &[u8]) -> StandardAesParams {
+        match parse_encryption_info(&build_page0_with_info(info)) {
+            Ok(Some(EncryptionParams::StandardAes(p))) => p,
+            other => panic!("expected Standard AES, got: {other:?}"),
+        }
+    }
+
+    /// The reason of the error that parsing `page0` gives.
+    fn unsupported_reason(page0: &[u8]) -> String {
+        match parse_encryption_info(page0) {
+            Err(FileError::UnsupportedEncryption { reason }) => reason,
+            other => panic!("expected UnsupportedEncryption, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn standard_aes_info_with_the_key_size_of_its_algorithm() {
+        // With the AES flag, keySize 0 means the size of the algorithm, and
+        // the hash is iterated 50,000 times.
+        for (alg_id, key_size) in [
+            (ALGID_AES_128, 128),
+            (ALGID_AES_192, 192),
+            (ALGID_AES_256, 256),
+        ] {
+            let p = standard_aes_params(&cryptoapi_info(3, 2, 0x24, alg_id, 0));
+            assert_eq!(
+                (p.key_size, p.hash_iterations),
+                (key_size, 50_000),
+                "{alg_id:x}"
+            );
+            assert_eq!((p.salt, p.encrypted_verifier), ([0x11; 16], [0x22; 16]));
+            assert_eq!(
+                (p.verifier_hash_size, p.encrypted_verifier_hash),
+                (20, vec![0x33; 32])
+            );
+        }
+        // A keySize that is given is kept.
+        let p = standard_aes_params(&cryptoapi_info(4, 2, 0x24, ALGID_AES_128, 192));
+        assert_eq!(p.key_size, 192);
+    }
+
+    #[test]
+    fn nonstandard_aes_info_with_the_key_size_of_its_algorithm() {
+        // Without the AES flag, an AES algorithm is NonStandard AES, whose
+        // hash is not iterated.
+        for (alg_id, key_size) in [
+            (ALGID_AES_128, 128),
+            (ALGID_AES_192, 192),
+            (ALGID_AES_256, 256),
+        ] {
+            let p = standard_aes_params(&cryptoapi_info(2, 2, 0x04, alg_id, 0));
+            assert_eq!((p.key_size, p.hash_iterations), (key_size, 0), "{alg_id:x}");
+        }
+    }
+
+    #[test]
+    fn encryption_info_of_algorithms_and_versions_not_supported() {
+        let info = |data: Vec<u8>| unsupported_reason(&build_page0_with_info(&data));
+        assert_eq!(
+            info(cryptoapi_info(3, 2, 0x24, ALGID_RC4, 0)),
+            "Standard AES: unexpected algId 0x6801"
+        );
+        assert_eq!(
+            info(cryptoapi_info(3, 2, 0x04, 0x1234, 0)),
+            "unsupported CryptoAPI algorithm ID: 0x1234"
+        );
+        assert_eq!(
+            info(vec![1, 0, 1, 0]),
+            "Office Binary Doc RC4 encryption (v1.1) is not supported"
+        );
+        for major in [3, 4] {
+            assert_eq!(
+                info(vec![major, 0, 3, 0]),
+                "Extensible encryption (v3/4.3) is not supported"
+            );
+        }
+        assert_eq!(
+            info(vec![9, 0, 9, 0]),
+            "unsupported EncryptionInfo version: vMajor=9, vMinor=9"
+        );
+    }
+
+    #[test]
+    fn encryption_info_too_short_or_without_the_cryptoapi_flag() {
+        let info = |data: Vec<u8>| unsupported_reason(&build_page0_with_info(&data));
+        assert_eq!(
+            info(vec![3, 0, 2, 0, 0x04]),
+            "EncryptionInfo too short for CryptoAPI flags"
+        );
+        assert_eq!(
+            info(vec![3, 0, 2, 0, 0x20, 0, 0, 0]),
+            "CryptoAPI flag not set in EncryptionInfo flags: 0x00000020"
+        );
+        // The length of the EncryptionInfo goes past the end of page 0.
+        let mut page0 = vec![0u8; db_header::ENCRYPTION_INFO_OFFSET + 6];
+        page0[db_header::ENCRYPTION_INFO_OFFSET] = 100;
+        assert_eq!(
+            unsupported_reason(&page0),
+            "EncryptionInfo extends beyond page 0"
+        );
+    }
+
     #[test]
     fn parse_encryption_info_too_short_for_version() {
         // info_data is non-zero length but < 4 bytes: should error
