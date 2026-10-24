@@ -93,7 +93,7 @@ TypeInfo はフォーム内の全コントロールの名前と型コードの�
     括弧あり → 実際のコントロール名
 ```
 
-名前は、フォームを保存した Access のコードページで書かれ、ファイルはそのコードページを持っていない。jetdb は、データベースのヘッダーのコードページと、Windows のコードページ（874、932、936、949、950、1250〜1258）のうち、ASCII 以外の文字を含む名前が、Blob のコントロールの名前（UTF-16）と大文字と小文字を区別せずにいちばん多く一致するもので読む。どれも一致しないときは、ヘッダーのコードページで読む。`Strings.mdb` のロシア語の名前は 1251 で、ヘッダーは 1252 である。
+名前は、フォームを保存した Access のコードページで書かれ、ファイルはそのコードページを持っていない。jetdb は、データベースのヘッダーのコードページ、続いて Windows のコードページ（874、932、936、949、950、1250〜1258）の順に試し、ASCII 以外の文字を含む名前が、Blob のコントロールの名前（UTF-16）と大文字と小文字を区別せずにいちばん多く一致するもので読む。一致の数が同じときは、先に試したもの（ヘッダーのコードページが先）で読む。どれも一致しないときは、ヘッダーのコードページで読む。`Strings.mdb` のロシア語の名前は 1251 で、ヘッダーは 1252 である。
 
 含まれるコントロール例:
 - ボタン: `Btn_クライアント一覧`
@@ -207,7 +207,7 @@ Blob       ヘッダー 8 バイト + フォームやレポート自体 + 並び
 - 要素の種類は Access の `acControlType` で、TypeInfo の type_code の下位バイトと同じ。100 がラベル、109 がテキストボックス、123 がタブコントロール、124 がページ、152 が詳細セクション、155・156 がページヘッダー・フッター、など
 - プロパティの ID は種類ごとの番号。たとえば `0xDC` は、コントロールでは名前、フォームではレコードソース。値の大きさは ID で決まる。`0x00`〜`0x2F` は値なし（既定と違う値を表すはい/いいえで、`NotDefault` として返す）、`0x30`〜`0x5F` は 1 バイト、`0x60`〜`0x7F` は 2 バイト、`0x80`〜`0xBC` は 4 バイト、`0xBD`〜`0xFC` は長さ 1 バイトとその長さのバイト（長さが `0xFF` なら 2 バイトの長さが続く）。`0x80`〜`0xBC` で実際に見たのは `0x9C`〜`0xA0` だけで、4 バイトの値が `0xA1`〜`0xBC` のどこまでかはわかっていない
 
-jetdb は、種類ごとの表（599 組）で、プロパティに Access 2002 以降の ID を付け、値はその ID の型で返す。そのため、[prop_id マッピング](#prop_id-マッピング) の名前がそのまま付く。そのうち 409 組は、`testdata/V2000/controlPropertyTestV2000.mdb` と `propertyIdTestV2000.mdb` のフォームとレポートを、Access for Microsoft 365 で作った同じオブジェクト（`testdata/V2007/controlPropertyTestV2007.accdb` と `propertyIdTestV2007.accdb`）と突き合わせて決めた。オブジェクトをまたいだ ID の値の並びが、後の形式の ID 1 つとだけ一致するものを組にした。両方の形式で名前がわかる組 307 組は、すべて名前が一致した。さらに、その 409 組を、2000 形式のファイルそのものの SaveAsText の出力（`testdata/V2000/saveastext`。Microsoft 365 の Access がそのファイルから書き出したもので、`Version =19`）で確かめた。409 組のうちデータにある 386 組のうち、381 組は両方の形式で同じ名前の項目にある。残る 4 組は、両方の形式でいつも同じ値を持つ項目どうしにあり、データからは区別できない。名前と値の並びで指す ID が違うときは、名前に従って組にしている。四角形の BorderColor のように、それらのファイルで値がいつも GridlineColor（`0x01CF`）と同じものなど、10 組がそれに当たる。2000 形式に保存するとき、Access は DatasheetGridlinesColor12（`0x0247`）の値を、その形式にある DatasheetGridlinesColor（`0x013F`）として書く。後の形式の ID は Access for Microsoft 365 のもので、`0x01C4` より大きい ID は、それより前の Access のファイルより 1 つ大きい。残る 190 組は、その SaveAsText の出力だけで決めた。種類ごとに、ID のすべての値を持つ項目がそれ 1 つだけで、後の形式の ID は、[prop_id マッピング](#prop_id-マッピング) でその項目の名前が付いているものである。そのうち、フォームのウィンドウの位置の Right と Bottom、PrtDevMode など 18 組は、2 つの形式のファイルで値が違うため、値はその出力と突き合わせて確かめる。組の無いプロパティは、2000 形式の ID に `0x8000` を足した ID で返す。たとえばフォームの `0x8036` は、その出力で Cycle・DatasheetCellsEffect・DatasheetGridlinesBehavior・PictureType のどれもがその値を持つ。
+jetdb は、種類ごとの表（599 組）で、プロパティに Access 2002 以降の ID を付け、値はその ID の型で返す。そのため、[prop_id マッピング](#prop_id-マッピング) の名前がそのまま付く。そのうち 409 組は、`testdata/V2000/controlPropertyTestV2000.mdb` と `propertyIdTestV2000.mdb` のフォームとレポートを、Access for Microsoft 365 で作った同じオブジェクト（`testdata/V2007/controlPropertyTestV2007.accdb` と `propertyIdTestV2007.accdb`）と突き合わせて決めた。オブジェクトをまたいだ ID の値の並びが、後の形式の ID 1 つとだけ一致するものを組にした。さらに、その 409 組を、2000 形式のファイルそのものの SaveAsText の出力（`testdata/V2000/saveastext`。Microsoft 365 の Access がそのファイルから書き出したもので、`Version =19`）で確かめた。409 組すべてに、その出力に値があり、そのうち 404 組は、後の形式の ID の名前と同じ項目だけがその値を持つ。残る 5 組のうち 2 組（レポートの AllowDesignChanges と DateGrouping）は、その項目のほかに、同じ値を持つ項目もある。残る 3 組（フォームとレポートの `0x0172`、レポートの `0x011B`）は、[prop_id マッピング](#prop_id-マッピング) の名前の無い ID で、いくつもの項目がその値を持つ。名前と値の並びで指す ID が違うときは、名前に従って組にしている。四角形の BorderColor のように、それらのファイルで値がいつも GridlineColor（`0x01CF`）と同じものなど、10 組がそれに当たる。2000 形式に保存するとき、Access は DatasheetGridlinesColor12（`0x0247`）の値を、その形式にある DatasheetGridlinesColor（`0x013F`）として書く。後の形式の ID は Access for Microsoft 365 のもので、`0x01C4` より大きい ID は、それより前の Access のファイルより 1 つ大きい。残る 190 組は、その SaveAsText の出力だけで決めた。種類ごとに、ID のすべての値を持つ項目がそれ 1 つだけで、後の形式の ID は、[prop_id マッピング](#prop_id-マッピング) でその項目の名前が付いているものである。そのうち、フォームのウィンドウの位置の Right と Bottom、PrtDevMode など 18 組は、2 つの形式のファイルで値が違うため、値はその出力と突き合わせて確かめる。組の無いプロパティは、2000 形式の ID に `0x8000` を足した ID で返す。たとえばフォームの `0x8036` は、その出力で Cycle・DatasheetCellsEffect・DatasheetGridlinesBehavior・PictureType のどれもがその値を持つ。
 
 ## 既知の制約
 
@@ -242,8 +242,8 @@ jetdb は、種類ごとの表（599 組）で、プロパティに Access 2002 
 | 0x0032 | LinkMasterFields | リンク親フィールド |
 | 0x003D | ValidationText | エラーメッセージ |
 | 0x0048 | InputMask | 定型入力 |
-| 0x004C | OLEClass | OLE |
-| 0x004D | OnOpen | Sets or returns the value of the On Open box in the Properties window of a form or report. 読み取り/書き込みが可能な String です。 |
+| 0x004C | OLEClass | OLEClass プロパティを使用して、グラフ コントロールまたはバインドされていないオブジェクト フレームに含まれる OLE オブジェクトの種類の説明を取得します。 |
+| 0x004D | OnOpen | Microsoft の VBA のリファレンスの日本語版に、日本語の説明が無い。 |
 | 0x004E | OnClose | フォームまたはレポートの [プロパティ ウィンドウ] にある [閉じるとき] ボックスの値を設定または返します。 |
 | 0x004F | OnDelete | レコード削除時 |
 | 0x0050 | OnFormat | フォーマット時 |
@@ -259,7 +259,7 @@ jetdb は、種類ごとの表（599 組）で、プロパティに Access 2002 
 | 0x0069 | OnKeyUp | キー解放時 |
 | 0x006A | OnKeyPress | キー入力時 |
 | 0x006B | OnMouseDown | マウスボタンクリック時 |
-| 0x006C | OnMouseUp | Sets or returns the value of the On Mouse Up box in the Properties window. 読み取り/書き込みが可能な String です。 |
+| 0x006C | OnMouseUp | Microsoft の VBA のリファレンスの日本語版に、日本語の説明が無い。 |
 | 0x006D | OnMouseMove | マウスボタン移動時 |
 | 0x006E | OnTimer | タイマー時 |
 | 0x0070 | OnActivate | アクティブ時 |
@@ -268,7 +268,7 @@ jetdb は、種類ごとの表（599 組）で、プロパティに Access 2002 
 | 0x0073 | OnGotFocus | フォーカス取得後 |
 | 0x0074 | OnLostFocus | フォーカス喪失時 |
 | 0x0075 | OnResize | サイズ変更時 |
-| 0x0076 | OnUpdated | Sets or returns the value of the On Updated box in the Properties window of a form or report. 読み取り/書き込みが可能な String です。 |
+| 0x0076 | OnUpdated | Microsoft の VBA のリファレンスの日本語版に、日本語の説明が無い。 |
 | 0x0077 | OnError | フォームまたはレポートの [プロパティ ウィンドウ] の [エラー時] ボックスの値を設定または返します。 |
 | 0x0078 | OnNotInList | リスト外入力時 |
 | 0x0079 | OnNoData | 空データ時 |
@@ -303,7 +303,7 @@ jetdb は、種類ごとの表（599 組）で、プロパティに Access 2002 
 | 0x0161 | Toolbar | フォームに表示するカスタム ツールバーを指定します。 |
 | 0x0167 | FuriganaControl | ふりがな |
 | 0x0168 | PostalAddress | PostalAddress プロパティを使用して、指定したフィールドまたはテキスト ボックスに表示される住所情報に対応する郵便番号と顧客バーコード データを指定または決定します。 |
-| 0x0177 | OnDirty | Sets or returns the value of the On Dirty box in the Properties window of a form or report. 読み取り/書き込みが可能な String です。 |
+| 0x0177 | OnDirty | Microsoft の VBA のリファレンスの日本語版に、日本語の説明が無い。 |
 | 0x0194 | OnUndo | 元に戻すイベントが発生したときに実行されるマクロ、イベント プロシージャ、またはユーザー定義関数を示す文字列を返すか設定します。 |
 | 0x01A9 | OnConnect | OnConnect イベントが発生したときに実行されるマクロ、イベント プロシージャ、またはユーザー定義関数を示す文字列を返すか設定します。 |
 | 0x01AA | OnDisconnect | OnDisconnect イベントが発生したときに実行するマクロ、イベント プロシージャ、またはユーザー定義関数を示す文字列型 ( String ) の値を指定します。 |
@@ -366,7 +366,7 @@ jetdb は、種類ごとの表（599 組）で、プロパティに Access 2002 
 | 0x0046 | ColumnCount | 列数 |
 | 0x0047 | DecimalPlaces | 小数点以下表示桁数 |
 | 0x004B | KeepTogether | 同一ページ印刷 |
-| 0x0059 | SizeMode | OLE |
+| 0x0059 | SizeMode | SizeMode プロパティを使用して、バインドされたオブジェクト フレーム、バインドされていないオブジェクト フレーム、またはイメージ コントロール内の画像またはその他のオブジェクトのサイズを指定する方法を指定します。 |
 | 0x005A | PopUp | ポップアップ |
 | 0x005C | RowSourceTypeInt | Microsoft の VBA のリファレンスに無い。SaveAsText の項目名。 |
 | 0x005E | MaxButton | Microsoft の VBA のリファレンスに無い。SaveAsText の項目名。 |
@@ -427,11 +427,11 @@ jetdb は、種類ごとの表（599 組）で、プロパティに Access 2002 
 | 0x015E | TabFixedHeight | タブ コントロールのタブの高さを指定または決定するには、 TabFixedHeight プロパティを使用します。 |
 | 0x015F | TabFixedWidth | タブ コントロールのタブの幅を指定または決定するには、 TabFixedWidth プロパティを使用します。 |
 | 0x0163 | Vertical | 縦書き |
-| 0x0165 | IMEHold | Hold |
+| 0x0165 | IMEHold | IMEHold/Hold KanjiConversionMode プロパティを使用して、コントロールがフォーカスを失ったときに漢字変換モードが維持されるかどうかを表示します。 |
 | 0x016C | RecSrcDt | Microsoft の VBA のリファレンスに無い。SaveAsText の項目名。8 バイトの日時。SaveAsText ではバイナリのブロックに書かれる。 |
-| 0x0170 | KeyboardLanguage | 構文 式。 |
+| 0x0170 | KeyboardLanguage | Microsoft の VBA のリファレンスの日本語版に、日本語の説明が無い。 |
 | 0x0175 | AllowDesignChanges | Microsoft の VBA のリファレンスに無い。SaveAsText の項目名。 |
-| 0x017B | IMESentenceMode | IME |
+| 0x017B | IMESentenceMode | IME 変換モード |
 | 0x0180 | LeftMargin | 左余白 |
 | 0x0181 | TopMargin | 上余白 |
 | 0x0182 | LineSpacing | LineSpacing プロパティを使用して、ラベル コントロールまたはテキスト ボックス コントロール内に表示される情報の場所を指定または決定します。 |

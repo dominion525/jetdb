@@ -146,7 +146,7 @@ fn main() -> Result<(), jetdb::FileError> {
 
 [agent-skills](https://github.com/dominion525/agent-skills) リポジトリ経由で Claude Code Skill として利用できます。
 
-Plugin Marketplace 経由:
+Claude Code の Plugin Marketplace 経由:
 
 ```
 /plugin marketplace add dominion525/agent-skills

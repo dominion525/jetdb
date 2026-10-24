@@ -115,7 +115,7 @@ do {
 
 フォームとレポートが同じ名前のときは、`formControls`、`formProperties`、`formStream`、`embeddedMacros` に `{ type: "Form" }` か `{ type: "Report" }` を渡します。渡さないと `INVALID_ARGUMENT` を投げます。
 
-プロパティの名前は、jetdb が知らないものでは番号の `0x....` になります。番号は、どのプロパティでも `id` に入ります。値を持たずに保存された Yes/No のプロパティ（既定でないほうの値に設定されたもの）の値は、SaveAsText と同じく `NotDefault` です。色は、`0x00BBGGRR` の数か、システムの色では負の数です。
+プロパティの名前は `name` に入り、jetdb が知らないものでは番号の `0x....` になります。番号は、どのプロパティでも `id` に入ります。値を持たずに保存された Yes/No のプロパティ（既定でないほうの値に設定されたもの）の値は、SaveAsText と同じく `NotDefault` です。色は、`0x00BBGGRR` の数か、システムの色では負の数です。
 
 ## マクロ
 
