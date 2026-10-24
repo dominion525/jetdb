@@ -55,6 +55,7 @@ const en = {
     skipped: (n) => `${n} rows on this page could not be read and were left out.`,
     tabs: {
         data: "Data",
+        csv: "CSV",
         columns: "Columns",
         indexes: "Indexes",
         properties: "Properties",
@@ -153,6 +154,7 @@ const ja = {
     skipped: (n) => `このページの ${n} 行は読めなかったので、出していません。`,
     tabs: {
         data: "データ",
+        csv: "CSV",
         columns: "列",
         indexes: "索引",
         properties: "プロパティ",

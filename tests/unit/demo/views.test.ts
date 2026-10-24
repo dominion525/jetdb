@@ -11,6 +11,7 @@ import {
   hashOf,
   propertiesView,
   tableColumns,
+  tableCsv,
   tableData,
   tableDataMacros,
   tableIndexes,
@@ -230,6 +231,33 @@ describe("プロパティ", () => {
       "Query",
     );
     expect(view.querySelector("h3")?.textContent).toBe("クエリのプロパティ");
+  });
+});
+
+describe("CSV", () => {
+  it("jetdb export と同じ既定のオプションで読み、テキストで出して保存できる", () => {
+    const csv = vi.fn(() => "ID,Name\n1,a\n");
+    const box = mount(tableCsv(context({ csv }), "Order Details"));
+    expect(csv).toHaveBeenCalledWith("Order Details");
+    expect(box.querySelector("pre code")?.textContent).toBe("ID,Name\n1,a\n");
+    let saved = "";
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:test");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      saved = this.download;
+    });
+    buttonNamed(box, "Save").click();
+    expect(saved).toBe("Order Details.csv");
+    vi.restoreAllMocks();
+  });
+
+  it("読めなかったら、その場で投げる（タブが読めなかった一文にする）", () => {
+    const csv = () => {
+      throw jetdbError("TABLE_NOT_FOUND", "no table");
+    };
+    expect(() => tableCsv(context({ csv }), "T")).toThrow("no table");
   });
 });
 
@@ -504,7 +532,7 @@ describe("右に出す中身", () => {
     expect(box.querySelector("pre code")?.textContent).toBe("CREATE TABLE x;");
   });
 
-  it("テーブルは 6 つのタブで、最初はデータ", () => {
+  it("テーブルは 7 つのタブで、最初はデータ", () => {
     const rows = () => ({
       columns: ["A"],
       rows: [{ A: 1 }],
@@ -513,7 +541,7 @@ describe("右に出す中身", () => {
     });
     const box = show(context({ rows }), "table", "T");
     expect([...box.querySelectorAll(".tab")].map((b) => b.textContent)).toEqual(
-      ["Data", "Columns", "Indexes", "Properties", "Data macros", "DDL"],
+      ["Data", "CSV", "Columns", "Indexes", "Properties", "Data macros", "DDL"],
     );
     expect(box.querySelector(".viewer-type")?.textContent).toBe("table");
     expect(cells(box)).toEqual([["1"]]);

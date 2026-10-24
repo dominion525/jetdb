@@ -50,6 +50,7 @@ test("日本語のデモ: ビューアの中も日本語", async ({ page }) => {
   await page.getByRole("button", { name: "tblOrders", exact: true }).click();
   await expect(detail(page).getByRole("tab")).toHaveText([
     "データ",
+    "CSV",
     "列",
     "索引",
     "プロパティ",
@@ -112,6 +113,20 @@ test("クエリ・フォーム・リレーションシップを右に出す", as
     "Cascade update: no",
     "Cascade delete: no",
   ]);
+});
+
+test("テーブルの CSV を出し、ファイルとして保存できる", async ({ page }) => {
+  await openDemo(page, "/demo/#table/tblOrders");
+  await detail(page).getByRole("tab", { name: "CSV" }).click();
+  const csv = detail(page).locator("pre code");
+  await expect(csv).toContainText(
+    "OrderID,CustomerID,ProductID,Quantity,OrderDate,Shipped",
+  );
+  // 1 行目の列の名前と、5 行のデータ
+  expect((await csv.textContent())?.trimEnd().split("\n")).toHaveLength(6);
+  const download = page.waitForEvent("download");
+  await detail(page).getByRole("button", { name: "Save" }).click();
+  expect((await download).suggestedFilename()).toBe("tblOrders.csv");
 });
 
 test("DDL の方言を選び直せる", async ({ page }) => {

@@ -89,10 +89,15 @@ export function tableDataMacros({ db, t }, name) {
         return note(t.noDataMacros);
     return textView(t, text, fileName(`${name}-data-macros`, "xml"));
 }
+// CSV: jetdb export と同じ形（既定のオプション）
+export function tableCsv({ db, t }, name) {
+    return textView(t, db.csv(name), fileName(name, "csv"));
+}
 function showTable(ctx, name) {
     const { t } = ctx;
     return tabs(t, [
         [t.tabs.data, () => tableData(ctx, name)],
+        [t.tabs.csv, () => tableCsv(ctx, name)],
         [t.tabs.columns, () => tableColumns(ctx, name)],
         [t.tabs.indexes, () => tableIndexes(ctx, name)],
         [t.tabs.properties, () => propertiesView(ctx, name, "Table")],
