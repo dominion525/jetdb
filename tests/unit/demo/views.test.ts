@@ -8,6 +8,7 @@ import {
   formControls,
   formMacros,
   formModule,
+  formStreams,
   hashOf,
   propertiesView,
   tableColumns,
@@ -340,7 +341,7 @@ describe("データベースのプロパティ", () => {
 });
 
 describe("フォーム/レポート", () => {
-  it("コントロールごとに、種類とプロパティを開いて見られる", () => {
+  it("コントロールの一覧の表（jetdb form controls と同じ）と、コントロールごとのプロパティ", () => {
     const design = {
       properties: [],
       controls: [
@@ -351,14 +352,85 @@ describe("フォーム/レポート", () => {
         },
       ],
     };
-    const box = mount(formControls(t, design as never));
+    const formControlsOf = vi.fn(() => [
+      { name: "Detail", type: "Detail", typeCode: 0, index: 0 },
+      { name: "btnOk", type: "CommandButton", typeCode: 104, index: 1 },
+    ]);
+    const box = mount(
+      formControls(
+        context({ formControls: formControlsOf }),
+        "F",
+        "Report",
+        design as never,
+      ),
+    );
+    expect(formControlsOf).toHaveBeenCalledWith("F", { type: "Report" });
+    expect(
+      [...(box.querySelectorAll("table")[0]?.querySelectorAll("th") ?? [])].map(
+        (h) => h.textContent,
+      ),
+    ).toEqual(["Name", "Type", "Index"]);
+    expect(cells(box).slice(0, 2)).toEqual([
+      ["Detail", "Detail", "0"],
+      ["btnOk", "CommandButton", "1"],
+    ]);
+    expect(box.querySelector("h3")?.textContent).toBe(
+      "Properties of each control",
+    );
     expect(box.querySelector("summary")?.textContent).toBe(
       "btnOk (CommandButton)",
     );
-    expect(cells(box)).toEqual([["Caption", "OK"]]);
+    expect(cells(box).slice(2)).toEqual([["Caption", "OK"]]);
+  });
+
+  it("コントロールが無いとき", () => {
     expect(
-      formControls(t, { properties: [], controls: [] } as never).textContent,
+      formControls(context({ formControls: () => [] }), "F", "Form", {
+        properties: [],
+        controls: [],
+      } as never).textContent,
     ).toBe("This design has no controls.");
+  });
+
+  it("4 つのストリームを大きさと保存のボタンで出し、無いものと読めないものはそう書く", () => {
+    const formStream = vi.fn(
+      (_name: string, options: { type: string; stream: string }) => {
+        if (options.stream === "blob") return new Uint8Array(2048);
+        if (options.stream === "typeinfo") return new Uint8Array(10);
+        if (options.stream === "propdata")
+          throw jetdbError("FORM_NOT_FOUND", "no propdata");
+        throw jetdbError("INVALID_FILE", "broken stream");
+      },
+    );
+    const box = mount(formStreams(context({ formStream }), "F", "Form"));
+    expect(formStream).toHaveBeenCalledWith("F", {
+      type: "Form",
+      stream: "blob",
+    });
+    expect(box.querySelector(".note")?.textContent).toContain(
+      "jetdb form dump",
+    );
+    expect(cells(box)).toEqual([
+      [
+        "blob",
+        "The design: layout, controls, properties and events",
+        "2.0 KB Save",
+      ],
+      ["typeinfo", "The names and types of the controls", "10 bytes Save"],
+      ["propdata", "A little property data", "None"],
+      ["blobdelta", "Changes, usually none", "Could not read: broken stream"],
+    ]);
+    let saved = "";
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:test");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      saved = this.download;
+    });
+    buttonNamed(box, "Save").click();
+    expect(saved).toBe("F.blob.bin");
+    vi.restoreAllMocks();
   });
 
   it("埋め込みマクロの見出しは、コントロールとイベント。テキストの無いものはそう書く", () => {
@@ -549,7 +621,10 @@ describe("右に出す中身", () => {
 
   it("フォームとレポートは、種類を付けてデザインを読む", () => {
     const formProperties = vi.fn(() => ({ properties: [], controls: [] }));
-    show(context({ formProperties }), "report", "R");
+    const box = show(context({ formProperties }), "report", "R");
     expect(formProperties).toHaveBeenCalledWith("R", { type: "Report" });
+    expect([...box.querySelectorAll(".tab")].map((b) => b.textContent)).toEqual(
+      ["Properties", "Controls", "Embedded macros", "Module", "Streams"],
+    );
   });
 });

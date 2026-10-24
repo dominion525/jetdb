@@ -1,6 +1,6 @@
 // デモのページ: 右に出す中身を、オブジェクトの種類ごとに作る。
 // 開いているデータベースと文字の表は、ViewContext として引数でもらう
-import { codeOf, el, failure, fileName, table, tabs, textView, value, } from "./dom.js";
+import { codeOf, el, failure, fileName, messageOf, saveButton, sizeOf, table, tabs, textView, value, } from "./dom.js";
 // URL の # の形: #database、#table/<名前> など
 export const hashOf = (kind, name) => kind === "database"
     ? "#database"
@@ -201,10 +201,32 @@ function showMacro({ db, t }, name) {
     return [textView(t, macro.text, fileName(name, "txt"))];
 }
 // ---- フォーム/レポート ----
-export function formControls(t, design) {
-    if (design.controls.length === 0)
+// コントロール: jetdb form controls と同じ一覧の表と、コントロールごとのプロパティ
+export function formControls({ db, t }, name, type, design) {
+    const list = db.formControls(name, { type });
+    if (list.length === 0 && design.controls.length === 0)
         return note(t.noControls);
-    return el("div", { class: "viewer-controls" }, design.controls.map((c) => el("details", { class: "viewer-control" }, el("summary", {}, el("strong", {}, c.name), ` (${c.type})`), propertyTable(t, c.properties))));
+    return el("div", {}, table(t.controlListHeads, list.map((c) => [c.name, c.type, String(c.index)])), design.controls.length === 0
+        ? null
+        : el("section", { class: "viewer-props" }, el("h3", {}, t.controlProperties), el("div", { class: "viewer-controls" }, design.controls.map((c) => el("details", { class: "viewer-control" }, el("summary", {}, el("strong", {}, c.name), ` (${c.type})`), propertyTable(t, c.properties))))));
+}
+const STREAMS = ["blob", "typeinfo", "propdata", "blobdelta"];
+// ストリーム: Access がフォームの設計を持つバイナリのデータを、そのまま保存する（jetdb form dump と同じ）
+export function formStreams({ db, t }, name, type) {
+    return el("div", {}, note(t.streamsNote), table(t.streamHeads, STREAMS.map((stream) => {
+        let size;
+        try {
+            const bytes = db.formStream(name, { type, stream });
+            size = el("span", {}, `${sizeOf(t, bytes.length)} `, saveButton(t.save, bytes, fileName(`${name}.${stream}`, "bin")));
+        }
+        catch (e) {
+            size =
+                codeOf(e) === "FORM_NOT_FOUND"
+                    ? t.noStream
+                    : t.couldNotRead(messageOf(e));
+        }
+        return [stream, t.streamKinds[stream], size];
+    })));
 }
 // 埋め込みマクロ: どのコントロールのどのイベントのものかを見出しにする
 export function formMacros({ db, t }, name, type) {
@@ -234,9 +256,10 @@ function showForm(ctx, name, type) {
     const design = db.formProperties(name, { type });
     return tabs(t, [
         [t.tabs.properties, () => propertyTable(t, design.properties)],
-        [t.tabs.controls, () => formControls(t, design)],
+        [t.tabs.controls, () => formControls(ctx, name, type, design)],
         [t.tabs.embeddedMacros, () => formMacros(ctx, name, type)],
         [t.tabs.module, () => formModule(ctx, name, type)],
+        [t.tabs.streams, () => formStreams(ctx, name, type)],
     ]);
 }
 // ---- 右の中身 ----

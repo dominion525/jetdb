@@ -5,6 +5,7 @@ import type {
   Database,
   DdlDialect,
   FormProperties,
+  FormStreamKind,
   FormType,
   Property,
 } from "/assets/wasm/jetdb_wasm.js";
@@ -14,6 +15,9 @@ import {
   el,
   failure,
   fileName,
+  messageOf,
+  saveButton,
+  sizeOf,
   table,
   tabs,
   textView,
@@ -339,18 +343,77 @@ function showMacro({ db, t }: ViewContext, name: string) {
 
 // ---- フォーム/レポート ----
 
-export function formControls(t: Messages, design: FormProperties) {
-  if (design.controls.length === 0) return note(t.noControls);
+// コントロール: jetdb form controls と同じ一覧の表と、コントロールごとのプロパティ
+export function formControls(
+  { db, t }: ViewContext,
+  name: string,
+  type: FormType,
+  design: FormProperties,
+) {
+  const list = db.formControls(name, { type });
+  if (list.length === 0 && design.controls.length === 0)
+    return note(t.noControls);
   return el(
     "div",
-    { class: "viewer-controls" },
-    design.controls.map((c) =>
-      el(
-        "details",
-        { class: "viewer-control" },
-        el("summary", {}, el("strong", {}, c.name), ` (${c.type})`),
-        propertyTable(t, c.properties),
-      ),
+    {},
+    table(
+      t.controlListHeads,
+      list.map((c) => [c.name, c.type, String(c.index)]),
+    ),
+    design.controls.length === 0
+      ? null
+      : el(
+          "section",
+          { class: "viewer-props" },
+          el("h3", {}, t.controlProperties),
+          el(
+            "div",
+            { class: "viewer-controls" },
+            design.controls.map((c) =>
+              el(
+                "details",
+                { class: "viewer-control" },
+                el("summary", {}, el("strong", {}, c.name), ` (${c.type})`),
+                propertyTable(t, c.properties),
+              ),
+            ),
+          ),
+        ),
+  );
+}
+
+const STREAMS: FormStreamKind[] = ["blob", "typeinfo", "propdata", "blobdelta"];
+
+// ストリーム: Access がフォームの設計を持つバイナリのデータを、そのまま保存する（jetdb form dump と同じ）
+export function formStreams(
+  { db, t }: ViewContext,
+  name: string,
+  type: FormType,
+) {
+  return el(
+    "div",
+    {},
+    note(t.streamsNote),
+    table(
+      t.streamHeads,
+      STREAMS.map((stream) => {
+        let size: Child;
+        try {
+          const bytes = db.formStream(name, { type, stream });
+          size = el(
+            "span",
+            {},
+            `${sizeOf(t, bytes.length)} `,
+            saveButton(t.save, bytes, fileName(`${name}.${stream}`, "bin")),
+          );
+        } catch (e) {
+          size =
+            codeOf(e) === "FORM_NOT_FOUND"
+              ? t.noStream
+              : t.couldNotRead(messageOf(e));
+        }
+        return [stream, t.streamKinds[stream], size];
+      }),
     ),
   );
 }
@@ -407,9 +470,10 @@ function showForm(ctx: ViewContext, name: string, type: FormType) {
   const design = db.formProperties(name, { type });
   return tabs(t, [
     [t.tabs.properties, () => propertyTable(t, design.properties)],
-    [t.tabs.controls, () => formControls(t, design)],
+    [t.tabs.controls, () => formControls(ctx, name, type, design)],
     [t.tabs.embeddedMacros, () => formMacros(ctx, name, type)],
     [t.tabs.module, () => formModule(ctx, name, type)],
+    [t.tabs.streams, () => formStreams(ctx, name, type)],
   ]);
 }
 

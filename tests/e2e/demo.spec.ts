@@ -115,6 +115,24 @@ test("クエリ・フォーム・リレーションシップを右に出す", as
   ]);
 });
 
+test("フォーム: コントロールの一覧と、ストリームの保存", async ({ page }) => {
+  await openDemo(page, "/demo/#form/frmOrders");
+  await detail(page).getByRole("tab", { name: "Controls" }).click();
+  const list = detail(page).locator("table").first();
+  await expect(list.locator("th")).toHaveText(["Name", "Type", "Index"]);
+  await expect(
+    list.locator("tbody tr").first().locator("td").nth(2),
+  ).toHaveText("0");
+  await expect(detail(page).locator(".viewer-control").first()).toBeVisible();
+
+  await detail(page).getByRole("tab", { name: "Streams" }).click();
+  const blob = detail(page).locator("tbody tr").first();
+  await expect(blob.locator("td").first()).toHaveText("blob");
+  const download = page.waitForEvent("download");
+  await blob.getByRole("button", { name: "Save" }).click();
+  expect((await download).suggestedFilename()).toBe("frmOrders.blob.bin");
+});
+
 test("テーブルの CSV を出し、ファイルとして保存できる", async ({ page }) => {
   await openDemo(page, "/demo/#table/tblOrders");
   await detail(page).getByRole("tab", { name: "CSV" }).click();
