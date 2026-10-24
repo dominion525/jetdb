@@ -441,6 +441,68 @@ mod tests {
         out
     }
 
+    fn debug(value: &dyn std::fmt::Debug) -> String {
+        format!("{value:?}")
+    }
+
+    /// Compares the forms and reports, their properties and their embedded
+    /// macros, as the functions given `storage` read them and as the others
+    /// do, and gives how many forms and reports were compared.
+    fn compare_forms(reader: &mut PageReader, storage: &AccessStorage, at: &str) -> usize {
+        assert_eq!(
+            debug(&crate::list_forms(reader).ok()),
+            debug(&crate::list_forms_in(storage).ok()),
+            "{at}"
+        );
+        let forms = crate::list_forms(reader).unwrap_or_default();
+        for form in &forms {
+            let (name, t) = (&form.name, form.object_type);
+            assert_eq!(
+                debug(&crate::read_form_properties_of_type(reader, name, t).ok()),
+                debug(&crate::read_form_properties_in(storage, name, Some(t)).ok()),
+                "{at}: {name}"
+            );
+            assert_eq!(
+                debug(&crate::read_embedded_macros_of_type(reader, name, t).ok()),
+                debug(&crate::read_embedded_macros_in(storage, name, Some(t)).ok()),
+                "{at}: {name}"
+            );
+        }
+        forms.len()
+    }
+
+    /// Compares the macros in the same way, and gives how many were compared.
+    fn compare_macros(reader: &mut PageReader, storage: &AccessStorage, at: &str) -> usize {
+        let names = crate::list_macros(reader).ok();
+        assert_eq!(
+            debug(&names),
+            debug(&crate::list_macros_in(reader, storage).ok()),
+            "{at}"
+        );
+        let names = names.unwrap_or_default();
+        for entry in &names {
+            assert_eq!(
+                debug(&crate::read_macro(reader, &entry.name).ok()),
+                debug(&crate::read_macro_in(reader, storage, &entry.name).ok()),
+                "{at}: {}",
+                entry.name
+            );
+        }
+        names.len()
+    }
+
+    /// Compares the VBA project in the same way, and gives how many modules
+    /// it has.
+    fn compare_vba(reader: &mut PageReader, storage: &AccessStorage, at: &str) -> usize {
+        let project = crate::read_vba_project(reader).ok();
+        assert_eq!(
+            debug(&project),
+            debug(&crate::read_vba_project_in(reader, storage).ok()),
+            "{at}"
+        );
+        project.map_or(0, |p| p.modules.len())
+    }
+
     #[test]
     fn the_in_functions_read_what_the_others_read() {
         // For every test database that opens without a password, the
@@ -454,68 +516,10 @@ mod tests {
             let Ok(storage) = read_access_storage(&mut reader) else {
                 continue;
             };
-            let at = path.display();
-            let debug = |value: &dyn std::fmt::Debug| format!("{value:?}");
-
-            assert_eq!(
-                debug(&crate::list_forms(&mut reader).ok()),
-                debug(&crate::list_forms_in(&storage).ok()),
-                "{at}"
-            );
-            for form in crate::list_forms(&mut reader).unwrap_or_default() {
-                let t = Some(form.object_type);
-                assert_eq!(
-                    debug(
-                        &crate::read_form_properties_of_type(
-                            &mut reader,
-                            &form.name,
-                            form.object_type
-                        )
-                        .ok()
-                    ),
-                    debug(&crate::read_form_properties_in(&storage, &form.name, t).ok()),
-                    "{at}: {}",
-                    form.name
-                );
-                assert_eq!(
-                    debug(
-                        &crate::read_embedded_macros_of_type(
-                            &mut reader,
-                            &form.name,
-                            form.object_type
-                        )
-                        .ok()
-                    ),
-                    debug(&crate::read_embedded_macros_in(&storage, &form.name, t).ok()),
-                    "{at}: {}",
-                    form.name
-                );
-                forms += 1;
-            }
-
-            let names = crate::list_macros(&mut reader).ok();
-            assert_eq!(
-                debug(&names),
-                debug(&crate::list_macros_in(&mut reader, &storage).ok()),
-                "{at}"
-            );
-            for entry in names.unwrap_or_default() {
-                assert_eq!(
-                    debug(&crate::read_macro(&mut reader, &entry.name).ok()),
-                    debug(&crate::read_macro_in(&mut reader, &storage, &entry.name).ok()),
-                    "{at}: {}",
-                    entry.name
-                );
-                macros += 1;
-            }
-
-            let project = crate::read_vba_project(&mut reader).ok();
-            modules += project.as_ref().map_or(0, |p| p.modules.len());
-            assert_eq!(
-                debug(&project),
-                debug(&crate::read_vba_project_in(&mut reader, &storage).ok()),
-                "{at}"
-            );
+            let at = path.display().to_string();
+            forms += compare_forms(&mut reader, &storage, &at);
+            macros += compare_macros(&mut reader, &storage, &at);
+            modules += compare_vba(&mut reader, &storage, &at);
         }
         // Forms and reports, macros and modules were all compared.
         assert!(

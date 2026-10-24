@@ -1097,61 +1097,82 @@ mod tests {
 
     // -- FileError::Display remaining variants --------------------------------
 
+    /// Checks that the message of each error holds each of its texts.
+    fn assert_messages_hold(cases: Vec<(FileError, &[&str])>) {
+        for (error, texts) in cases {
+            let message = error.to_string();
+            for text in texts {
+                assert!(message.contains(text), "{message:?} should hold {text:?}");
+            }
+        }
+    }
+
     #[test]
-    fn file_error_display_all_variants() {
-        let e = FileError::InvalidUsageMap { reason: "test" };
-        assert!(e.to_string().contains("test"));
-        assert!(e.to_string().contains("invalid usage map"));
+    fn file_error_display_of_names_not_found() {
+        assert_messages_hold(vec![
+            (
+                FileError::TableNotFound { name: "T1".into() },
+                &["T1", "table not found"],
+            ),
+            (
+                FileError::QueryNotFound { name: "Q1".into() },
+                &["Q1", "query not found"],
+            ),
+            (
+                FileError::ModuleNotFound { name: "M1".into() },
+                &["M1", "VBA module not found"],
+            ),
+            (
+                FileError::MacroNotFound { name: "Mc1".into() },
+                &["Mc1", "macro not found"],
+            ),
+        ]);
+    }
 
-        let e = FileError::InvalidTableDef { reason: "bad tdef" };
-        assert!(e.to_string().contains("bad tdef"));
-        assert!(e.to_string().contains("invalid table definition"));
+    #[test]
+    fn file_error_display_of_invalid_data() {
+        assert_messages_hold(vec![
+            (
+                FileError::InvalidUsageMap { reason: "test" },
+                &["test", "invalid usage map"],
+            ),
+            (
+                FileError::InvalidTableDef { reason: "bad tdef" },
+                &["bad tdef", "invalid table definition"],
+            ),
+            (
+                FileError::InvalidProperty { reason: "bad prop" },
+                &["bad prop", "invalid property"],
+            ),
+            (
+                FileError::InvalidVbaProject {
+                    reason: "corrupt".into(),
+                },
+                &["corrupt", "invalid VBA project"],
+            ),
+            (
+                FileError::InvalidRow {
+                    page: 5,
+                    row: 3,
+                    reason: "oops",
+                },
+                &["oops", "invalid row"],
+            ),
+        ]);
+    }
 
-        let e = FileError::InvalidProperty { reason: "bad prop" };
-        assert!(e.to_string().contains("bad prop"));
-        assert!(e.to_string().contains("invalid property"));
-
-        let e = FileError::TableNotFound { name: "T1".into() };
-        assert!(e.to_string().contains("T1"));
-        assert!(e.to_string().contains("table not found"));
-
-        let e = FileError::QueryNotFound { name: "Q1".into() };
-        assert!(e.to_string().contains("Q1"));
-        assert!(e.to_string().contains("query not found"));
-
-        let e = FileError::ModuleNotFound { name: "M1".into() };
-        assert!(e.to_string().contains("M1"));
-        assert!(e.to_string().contains("VBA module not found"));
-
-        let e = FileError::MacroNotFound { name: "Mc1".into() };
-        assert!(e.to_string().contains("Mc1"));
-        assert!(e.to_string().contains("macro not found"));
-
-        let e = FileError::InvalidVbaProject {
-            reason: "corrupt".into(),
-        };
-        assert!(e.to_string().contains("corrupt"));
-        assert!(e.to_string().contains("invalid VBA project"));
-
-        let e = FileError::InvalidRow {
-            page: 5,
-            row: 3,
-            reason: "oops",
-        };
-        assert!(e.to_string().contains("oops"));
-        assert!(e.to_string().contains("invalid row"));
-
-        let e = FileError::PasswordRequired;
-        assert!(e.to_string().contains("password-protected"));
-
-        let e = FileError::InvalidPassword;
-        assert!(e.to_string().contains("invalid password"));
-
-        let e = FileError::UnsupportedEncryption {
-            reason: "test".into(),
-        };
-        assert!(e.to_string().contains("unsupported encryption"));
-        assert!(e.to_string().contains("test"));
+    #[test]
+    fn file_error_display_of_passwords_and_encryption() {
+        assert_messages_hold(vec![
+            (FileError::PasswordRequired, &["password-protected"]),
+            (FileError::InvalidPassword, &["invalid password"]),
+            (
+                FileError::UnsupportedEncryption {
+                    reason: "test".into(),
+                },
+                &["unsupported encryption", "test"],
+            ),
+        ]);
     }
 
     // -- Error::source() ------------------------------------------------------
