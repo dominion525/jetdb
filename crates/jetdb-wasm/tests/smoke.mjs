@@ -22,14 +22,22 @@ function check(Database, build) {
   checkColumns(Database, build);
   checkIndexes(Database, build);
   checkRows(Database, build);
+  checkRowsInParts(Database, build);
+  checkCsv(Database, build);
+  checkComplexRows(Database, build);
+  checkBinaryAndBigIntRows(Database, build);
   checkSkippedRows(Database, build);
   checkRelationships(Database, build);
   checkDdl(Database, build);
   checkQueries(Database, build);
   checkModules(Database, build);
   checkForms(Database, build);
+  checkFormControls(Database, build);
+  checkFormStreams(Database, build);
+  checkFormsOfTheSameName(Database, build);
   checkMacros(Database, build);
   checkProperties(Database, build);
+  checkPropertiesOfAType(Database, build);
   checkErrors(Database, build);
   checkStringArguments(Database, build);
   checkPassword(Database, build);
@@ -37,6 +45,7 @@ function check(Database, build) {
 }
 
 const openTest = (Database) => Database.open(read("V2003/testV2003.mdb"));
+const propertyValue = (properties, name) => properties.find((p) => p.name === name).value;
 
 function checkTables(Database, build) {
   const db = openTest(Database);
@@ -118,6 +127,16 @@ function checkRows(Database, build) {
     build,
   );
   assert.throws(() => db.rows("NoSuchTable"), { name: "JetdbError", code: "TABLE_NOT_FOUND" }, build);
+
+  // A table without rows still gives the names of its columns.
+  const empty = db.rows("Table2");
+  assert.deepEqual(empty.rows, [], build);
+  assert.deepEqual(empty.columns, db.columns("Table2").map((c) => c.name), build);
+  assert.ok(empty.columns.length > 0, build);
+}
+
+function checkRowsInParts(Database, build) {
+  const db = openTest(Database);
   // Read a part at a time, the parts join to all the rows, and next is null
   // after the last part.
   const whole = Database.open(read("V2007/complexDataTestV2007.accdb")).rows("Table1");
@@ -135,6 +154,10 @@ function checkRows(Database, build) {
   for (const options of [{ limit: 0 }, { limit: 1.5 }, { limit: "1" }, { start: -1 }, { start: 0.5 }, { start: "0" }]) {
     assert.throws(() => db.rows("Table1", options), { name: "JetdbError", code: "INVALID_ARGUMENT" }, build);
   }
+}
+
+function checkCsv(Database, build) {
+  const db = openTest(Database);
   // The CSV of a table, as jetdb export writes it.
   assert.equal(
     db.csv("Table1"),
@@ -152,16 +175,9 @@ function checkRows(Database, build) {
     assert.throws(() => db.csv("Table1", options), { name: "JetdbError", code: "INVALID_ARGUMENT" }, build);
   }
   assert.throws(() => db.csv("NoSuchTable"), { name: "JetdbError", code: "TABLE_NOT_FOUND" }, build);
-  // A table without rows still gives the names of its columns.
-  const empty = db.rows("Table2");
-  assert.deepEqual(empty.rows, [], build);
-  assert.deepEqual(empty.columns, db.columns("Table2").map((c) => c.name), build);
-  assert.ok(empty.columns.length > 0, build);
+}
 
-  const binary = Database.open(read("V2010/binIdxTestV2010.accdb")).rows("Test").rows;
-  assert.deepEqual(binary.find((row) => row.ID === 1).BinAsc, new Uint8Array([0x61, 0x62]), build);
-  assert.equal(binary.find((row) => row.ID === 200).BinAsc, null, build);
-
+function checkComplexRows(Database, build) {
   // A complex column gives an array of its values in the row.
   const complex = Database.open(read("V2007/complexDataTestV2007.accdb")).rows("Table1").rows;
   const complexRow = (id) => complex.find((row) => row.id === id);
@@ -190,6 +206,13 @@ function checkRows(Database, build) {
     ],
     build,
   );
+}
+
+function checkBinaryAndBigIntRows(Database, build) {
+  const binary = Database.open(read("V2010/binIdxTestV2010.accdb")).rows("Test").rows;
+  assert.deepEqual(binary.find((row) => row.ID === 1).BinAsc, new Uint8Array([0x61, 0x62]), build);
+  assert.equal(binary.find((row) => row.ID === 200).BinAsc, null, build);
+
 
   // 9007199254740993 is 2^53 + 1, which a number cannot hold exactly.
   assert.deepEqual(
@@ -351,21 +374,25 @@ function checkForms(Database, build) {
   const design = db.formProperties("jp_フォーム_2");
   assert.equal(design.name, "jp_フォーム_2", build);
   assert.equal(design.type, "Form", build);
-  const value = (properties, name) => properties.find((p) => p.name === name).value;
-  assert.equal(value(design.properties, "RecordSource"), "jp_クエリ_02", build);
+  assert.equal(propertyValue(design.properties, "RecordSource"), "jp_クエリ_02", build);
   assert.equal(design.properties.find((p) => p.name === "RecordSource").id, 0x9c, build);
   // A property jetdb does not name is given by its number.
   assert.equal(design.properties.find((p) => p.name === "0x0250").id, 0x250, build);
-  assert.equal(value(design.properties, "DividingLines"), "NotDefault", build);
-  assert.equal(value(design.properties, "DefaultView"), 5, build);
-  assert.equal(value(design.properties, "DatasheetGridlinesColor"), 0xe8e8e8, build);
-  assert.ok(value(design.properties, "NameMap") instanceof Uint8Array, build);
+  assert.equal(propertyValue(design.properties, "DividingLines"), "NotDefault", build);
+  assert.equal(propertyValue(design.properties, "DefaultView"), 5, build);
+  assert.equal(propertyValue(design.properties, "DatasheetGridlinesColor"), 0xe8e8e8, build);
+  assert.ok(propertyValue(design.properties, "NameMap") instanceof Uint8Array, build);
   assert.equal(design.controls.length, 21, build);
   assert.deepEqual(
     { name: design.controls[0].name, type: design.controls[0].type, typeCode: design.controls[0].typeCode },
     { name: "フォームヘッダー", type: "FormHeader", typeCode: 0x1899 },
     build,
   );
+}
+
+function checkFormControls(Database, build) {
+  const db = Database.open(read("formPropTest.accdb"));
+  const design = db.formProperties("jp_フォーム_2");
   // The controls of a form, as jetdb form controls lists them: the names and
   // types of the controls of formProperties, each with its own index.
   const controls = db.formControls("jp_フォーム_2");
@@ -380,6 +407,10 @@ function checkForms(Database, build) {
   assert.ok(indexes.every((i) => Number.isInteger(i) && i >= 0), build);
   assert.equal(new Set(indexes).size, indexes.length, build);
   assert.throws(() => db.formControls("NoSuchForm"), { name: "JetdbError", code: "FORM_NOT_FOUND" }, build);
+}
+
+function checkFormStreams(Database, build) {
+  const db = Database.open(read("formPropTest.accdb"));
   // The streams of a form, as jetdb form dump writes them; the blob starts
   // with the header every form design has.
   const blob = db.formStream("jp_フォーム_2");
@@ -391,7 +422,9 @@ function checkForms(Database, build) {
   assert.throws(() => db.formStream("NoSuchForm"), { name: "JetdbError", code: "FORM_NOT_FOUND" }, build);
   assert.throws(() => db.formProperties("NoSuchForm"), { name: "JetdbError", code: "FORM_NOT_FOUND" }, build);
   assert.deepEqual(openTest(Database).forms(), [], build);
+}
 
+function checkFormsOfTheSameName(Database, build) {
   // A form and a report both named Shared: the type option chooses one.
   const shared = Database.open(read("V2007/sameNameTestV2007.accdb"));
   assert.deepEqual(shared.forms(), [{ name: "Shared", type: "Form" }, { name: "Shared", type: "Report" }], build);
@@ -461,15 +494,19 @@ function checkMacros(Database, build) {
 function checkProperties(Database, build) {
   const db = Database.open(read("V2010/calcFieldTestV2010.accdb"));
   const props = db.properties("Table1");
-  const value = (properties, name) => properties.find((p) => p.name === name).value;
-  assert.match(value(props.object, "GUID"), /^\{[0-9A-F-]+\}$/, build);
-  assert.equal(value(props.object, "TotalsRow"), false, build);
-  assert.ok(value(props.object, "NameMap") instanceof Uint8Array, build);
+  assert.match(propertyValue(props.object, "GUID"), /^\{[0-9A-F-]+\}$/, build);
+  assert.equal(propertyValue(props.object, "TotalsRow"), false, build);
+  assert.ok(propertyValue(props.object, "NameMap") instanceof Uint8Array, build);
   const firstName = props.columns.find((c) => c.name === "FirstName").properties;
-  assert.equal(value(firstName, "AllowZeroLength"), true, build);
-  assert.equal(value(firstName, "ColumnWidth"), 1380, build);
+  assert.equal(propertyValue(firstName, "AllowZeroLength"), true, build);
+  assert.equal(propertyValue(firstName, "ColumnWidth"), 1380, build);
   assert.deepEqual(props.additional, [], build);
 
+  assert.throws(() => db.properties("NoSuchObject"), { name: "JetdbError", code: "OBJECT_NOT_FOUND" }, build);
+  assert.throws(() => db.properties(42), { name: "JetdbError", code: "INVALID_ARGUMENT" }, build);
+}
+
+function checkPropertiesOfAType(Database, build) {
   // nwind.mdb has a form, a macro and a table all named Customers.
   const nwind = Database.open(read("V1997/nwind.mdb"));
   assert.throws(
@@ -478,11 +515,9 @@ function checkProperties(Database, build) {
     build,
   );
   assert.ok(nwind.properties("Customers", { type: "Table" }).columns.some((c) => c.name === "CustomerID"), build);
-  assert.match(value(nwind.properties("Customers", { type: "Form" }).object, "Description"), /Single-column form/, build);
+  assert.match(propertyValue(nwind.properties("Customers", { type: "Form" }).object, "Description"), /Single-column form/, build);
   assert.throws(() => nwind.properties("Customers", { type: "Query" }), { name: "JetdbError", code: "OBJECT_NOT_FOUND" }, build);
   assert.throws(() => nwind.properties("Customers", { type: "View" }), { name: "JetdbError", code: "INVALID_ARGUMENT" }, build);
-  assert.throws(() => db.properties("NoSuchObject"), { name: "JetdbError", code: "OBJECT_NOT_FOUND" }, build);
-  assert.throws(() => db.properties(42), { name: "JetdbError", code: "INVALID_ARGUMENT" }, build);
 }
 
 function checkOpen(Database, build) {
