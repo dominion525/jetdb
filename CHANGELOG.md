@@ -33,6 +33,7 @@
 - Timestamps before 1899-12-30 lost the time of day.
 - A Jet3 row whose variable data ends on a 256-byte boundary.
 - Broken data could make jetdb panic: property chunk lengths, Jet3 null masks, index counts, Decimal scales, form property lengths, and deeply nested macro XML.
+- The ON conditions of a join of two tables that were already joined inside another join were left out of the SQL of a query, or put on the outer join rather than where Access puts them.
 
 For 0.2.0 to 0.3.3, see the [GitHub releases](https://github.com/dominion525/jetdb/releases).
 
