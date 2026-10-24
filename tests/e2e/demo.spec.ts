@@ -1,6 +1,6 @@
 // デモのページ: サンプルを開き、右の中身・タブ・URL の #・狭い幅・言語の切り替えを確かめる
 import { expect, test } from "@playwright/test";
-import { needWasm, openDemo } from "./helpers.ts";
+import { needWasm, openDemo, openFile, testdata } from "./helpers.ts";
 
 test.beforeEach(() => needWasm());
 
@@ -204,4 +204,53 @@ test("日英のデモの間を、言語の切り替えで行き来する", async
   await page.getByRole("link", { name: "English" }).click();
   await expect(page).toHaveURL(/\/demo\/$|\/demo\/#/);
   await expect(page.locator("h1")).toHaveText("Demo in the browser");
+});
+
+test("サンプルを取得している間に選んだファイルを開き、あとから届いたサンプルで上書きしない", async ({
+  page,
+}) => {
+  const file = testdata("V2007/complexDataTestV2007.accdb");
+  // サンプルの応答を、自分のファイルが開くまで止めておく
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/assets/jetdb-sample.accdb", async (route) => {
+    await held;
+    await route.continue();
+  });
+  await page.goto("/demo/");
+  await expect(page.locator("#demo-file")).toBeEnabled();
+  await expect(page.locator("#demo-status")).toHaveText("Opening the sample…");
+  await openFile(page, file);
+  await expect(page.locator("#demo-current")).toHaveText(
+    "complexDataTestV2007.accdb",
+  );
+  const sample = page.waitForResponse("**/assets/jetdb-sample.accdb");
+  release();
+  await sample;
+  await expect(page.locator("#demo-current")).toHaveText(
+    "complexDataTestV2007.accdb",
+  );
+  await expect(page.locator("#demo-status")).toHaveText("");
+});
+
+test("サンプルだけ読めなかったら、そう書いて、自分のファイルは開ける", async ({
+  page,
+}) => {
+  const file = testdata("V2007/complexDataTestV2007.accdb");
+  await page.route("**/assets/jetdb-sample.accdb", (route) =>
+    route.fulfill({ status: 404 }),
+  );
+  await page.goto("/ja/demo/");
+  await expect(page.locator("#demo-status")).toHaveText(
+    "サンプルを読み込めませんでした（HTTP 404）。自分のファイルは開けます。",
+  );
+  await expect(page.locator("#demo-file")).toBeEnabled();
+  await expect(page.locator("#demo-result")).toBeHidden();
+  await openFile(page, file);
+  await expect(page.locator("#demo-current")).toHaveText(
+    "complexDataTestV2007.accdb",
+  );
+  await expect(page.locator("#demo-result")).toBeVisible();
 });

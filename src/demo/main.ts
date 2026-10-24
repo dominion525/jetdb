@@ -278,19 +278,8 @@ systemToggle.addEventListener("change", () => {
   selectFromHash({ replace: true });
 });
 
-try {
-  jetdb = await import("/assets/wasm/jetdb_wasm.js");
-  await jetdb.default();
-  input.disabled = false;
-  status.textContent = T.openingSample;
-  const response = await fetch(SAMPLE_URL);
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  open(bytes, T.sample(SAMPLE_NAME), SAMPLE_NAME, null);
-} catch (e) {
-  status.textContent = T.loadFailed(messageOf(e));
-}
-
+// ファイルを選んだときとパスワードを入れたときの処理は、起動より先に付ける。
+// サンプルを取得している間（入力欄はもう有効）に選んだファイルも受け取るため
 input.addEventListener("change", async () => {
   const file = input.files?.[0];
   if (!file) return;
@@ -313,3 +302,26 @@ passwordForm.addEventListener("submit", (event) => {
   if (!pending) return;
   open(pending.bytes, pending.label, pending.name, passwordInput.value);
 });
+
+// 起動: jetdb-wasm を読む。読めなければデモは動かない（入力欄は無効のまま）
+try {
+  jetdb = await import("/assets/wasm/jetdb_wasm.js");
+  await jetdb.default();
+} catch (e) {
+  status.textContent = T.loadFailed(messageOf(e));
+}
+
+// サンプルを取得して開く。取得している間に自分のファイルを開いた（パスワード待ちを含む）ときは、
+// 届いたサンプルで上書きしない。サンプルだけ読めなくても、自分のファイルは開ける
+if (jetdb) {
+  input.disabled = false;
+  status.textContent = T.openingSample;
+  try {
+    const response = await fetch(SAMPLE_URL);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (!db && !pending) open(bytes, T.sample(SAMPLE_NAME), SAMPLE_NAME, null);
+  } catch (e) {
+    if (!db && !pending) status.textContent = T.sampleFailed(messageOf(e));
+  }
+}

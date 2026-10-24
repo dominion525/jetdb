@@ -30,6 +30,8 @@ const en = {
   openingSample: "Opening the sample…",
   opening: (name: string) => `Opening ${name}…`,
   loadFailed: (msg: string) => `Could not load the demo: ${msg}`,
+  sampleFailed: (msg: string) =>
+    `Could not load the sample (${msg}). You can still open your own file.`,
   passwordRequired: (name: string) =>
     `${name} is password-protected. Enter its password.`,
   passwordWrong: "The password is wrong. Try again.",
@@ -156,6 +158,8 @@ const ja: Messages = {
   openingSample: "サンプルを開いています…",
   opening: (name) => `${name} を開いています…`,
   loadFailed: (msg) => `デモを読み込めませんでした: ${msg}`,
+  sampleFailed: (msg) =>
+    `サンプルを読み込めませんでした（${msg}）。自分のファイルは開けます。`,
   passwordRequired: (name) =>
     `${name} はパスワード付きです。パスワードを入れてください。`,
   passwordWrong: "パスワードが違います。もう一度入れてください。",
