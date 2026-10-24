@@ -1978,18 +1978,11 @@ mod tests {
     #[test]
     fn japanese_identifiers_sqlite() {
         let d = sqlite();
+        let id = column_flags::FIXED | column_flags::AUTO_LONG;
         let tdef = table(
             "jp_テーブル2",
             vec![
-                col_with_num(
-                    "ID",
-                    ColumnType::Long,
-                    0,
-                    column_flags::FIXED | column_flags::AUTO_LONG,
-                    0,
-                    0,
-                    1,
-                ),
+                col_with_num("ID", ColumnType::Long, 0, id, 0, 0, 1),
                 col_with_num(
                     "商品名",
                     ColumnType::Text,
@@ -2011,22 +2004,13 @@ mod tests {
             )],
         );
         let result = generate_create_table(&*d, &tdef, &[]);
-        assert!(
-            result.contains("\"jp_テーブル2\""),
-            "should quote Japanese table name, got:\n{result}"
-        );
-        assert!(
-            result.contains("\"商品名\""),
-            "should quote Japanese column name 商品名, got:\n{result}"
-        );
-        assert!(
-            result.contains("\"単価\""),
-            "should quote Japanese column name 単価, got:\n{result}"
-        );
-        assert!(
-            result.contains("\"個数\""),
-            "should quote Japanese column name 個数, got:\n{result}"
-        );
+        // The table name and the Japanese column names are quoted.
+        for name in ["jp_テーブル2", "商品名", "単価", "個数"] {
+            assert!(
+                result.contains(&format!("\"{name}\"")),
+                "should quote {name}, got:\n{result}"
+            );
+        }
     }
 
     #[test]
