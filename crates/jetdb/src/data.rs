@@ -2050,30 +2050,43 @@ mod tests {
         (reader, table)
     }
 
-    #[test]
-    fn table_rows_pass_over_deleted_and_unreadable_rows() {
-        // Table1's two rows are on page 27 of the 4096-byte pages; the
-        // pointer of the second row is at byte 16 of the page.
-        let path = skip_if_missing!("V2003/testV2003.mdb");
+    /// The bytes of testV2003.mdb, and the position in them of the pointer of
+    /// the second row of Table1: its two rows are on page 27 of the 4096-byte
+    /// pages, and the pointer is at byte 16 of the page.
+    fn test_v2003_second_row_pointer(path: &std::path::Path) -> (Vec<u8>, usize) {
         let bytes = std::fs::read(path).unwrap();
         let pos = 27 * 4096 + 16;
         assert_eq!(u16::from_le_bytes([bytes[pos], bytes[pos + 1]]), 0x0F89);
-        let calculated = HashMap::new();
-        let second = RowPosition { page: 0, row: 1 };
+        (bytes, pos)
+    }
 
-        let (mut reader, table) = test_v2003_table1(bytes.clone());
+    const SECOND_ROW: RowPosition = RowPosition { page: 0, row: 1 };
+
+    #[test]
+    fn table_rows_read_both_rows_of_table1() {
+        let path = skip_if_missing!("V2003/testV2003.mdb");
+        let (bytes, _) = test_v2003_second_row_pointer(&path);
+        let calculated = HashMap::new();
+        let (mut reader, table) = test_v2003_table1(bytes);
         assert_eq!(table.data_pages, [27]);
         let mut rows = TableRows::new(&table, &calculated);
         assert!(rows.next_row(&mut reader).unwrap().is_some());
-        assert_eq!(rows.peek(&mut reader).unwrap(), Some(second));
-        assert!(read_row_at(&mut reader, &table, &calculated, second, None)
-            .unwrap()
-            .is_some());
+        assert_eq!(rows.peek(&mut reader).unwrap(), Some(SECOND_ROW));
+        assert!(
+            read_row_at(&mut reader, &table, &calculated, SECOND_ROW, None)
+                .unwrap()
+                .is_some()
+        );
+    }
 
+    #[test]
+    fn table_rows_pass_over_a_deleted_row() {
         // A deleted row is passed over and not counted.
-        let mut deleted = bytes.clone();
-        deleted[pos + 1] |= (row::DELETE_FLAG >> 8) as u8;
-        let (mut reader, table) = test_v2003_table1(deleted);
+        let path = skip_if_missing!("V2003/testV2003.mdb");
+        let (mut bytes, pos) = test_v2003_second_row_pointer(&path);
+        bytes[pos + 1] |= (row::DELETE_FLAG >> 8) as u8;
+        let calculated = HashMap::new();
+        let (mut reader, table) = test_v2003_table1(bytes);
         let mut rows = TableRows::new(&table, &calculated);
         assert_eq!(
             rows.next_row(&mut reader).unwrap().unwrap().position,
@@ -2082,15 +2095,20 @@ mod tests {
         assert!(rows.next_row(&mut reader).unwrap().is_none());
         assert_eq!(rows.skipped_rows(), 0);
         assert_eq!(
-            read_row_at(&mut reader, &table, &calculated, second, None).unwrap(),
+            read_row_at(&mut reader, &table, &calculated, SECOND_ROW, None).unwrap(),
             None
         );
+    }
 
+    #[test]
+    fn table_rows_pass_over_an_unreadable_row() {
         // A row given the offset of the first has no bytes, so it cannot be
         // read; it is passed over and counted once, however often peek looks.
-        let mut broken = bytes;
-        broken[pos..pos + 2].copy_from_slice(&0x0FB8u16.to_le_bytes());
-        let (mut reader, table) = test_v2003_table1(broken);
+        let path = skip_if_missing!("V2003/testV2003.mdb");
+        let (mut bytes, pos) = test_v2003_second_row_pointer(&path);
+        bytes[pos..pos + 2].copy_from_slice(&0x0FB8u16.to_le_bytes());
+        let calculated = HashMap::new();
+        let (mut reader, table) = test_v2003_table1(bytes);
         let mut rows = TableRows::new(&table, &calculated);
         assert!(rows.next_row(&mut reader).unwrap().is_some());
         assert_eq!(rows.peek(&mut reader).unwrap(), None);
@@ -2098,7 +2116,7 @@ mod tests {
         assert!(rows.next_row(&mut reader).unwrap().is_none());
         assert_eq!(rows.skipped_rows(), 1);
         assert_eq!(
-            read_row_at(&mut reader, &table, &calculated, second, None).unwrap(),
+            read_row_at(&mut reader, &table, &calculated, SECOND_ROW, None).unwrap(),
             None
         );
     }
@@ -2124,44 +2142,25 @@ mod tests {
 
     fn assert_msysobjects_rows(rows: &[Vec<Value>], table: &TableDef) {
         assert!(!rows.is_empty(), "MSysObjects should have at least one row");
-
-        // Find column indices
-        let id_idx = table
-            .columns
-            .iter()
-            .position(|c| c.name == "Id")
-            .expect("Id column");
-        let name_idx = table
-            .columns
-            .iter()
-            .position(|c| c.name == "Name")
-            .expect("Name column");
-        let type_idx = table
-            .columns
-            .iter()
-            .position(|c| c.name == "Type")
-            .expect("Type column");
+        let column = |name: &str| {
+            table
+                .columns
+                .iter()
+                .position(|c| c.name == name)
+                .unwrap_or_else(|| panic!("{name} column"))
+        };
+        let (id, name, kind) = (column("Id"), column("Name"), column("Type"));
 
         for row in rows {
             assert_eq!(row.len(), table.columns.len());
-
-            // Id should be a non-null Long
-            match &row[id_idx] {
-                Value::Long(_) => {}
-                other => panic!("Expected Long for Id, got: {other:?}"),
-            }
-
-            // Name should be a non-null non-empty Text
-            match &row[name_idx] {
-                Value::Text(s) => assert!(!s.is_empty(), "Name should not be empty"),
-                other => panic!("Expected Text for Name, got: {other:?}"),
-            }
-
-            // Type should be a non-null Int
-            match &row[type_idx] {
-                Value::Int(_) => {}
-                other => panic!("Expected Int for Type, got: {other:?}"),
-            }
+            // Id is a Long, Name a Text that is not empty, and Type an Int.
+            assert!(matches!(row[id], Value::Long(_)), "Id: {:?}", row[id]);
+            assert!(
+                matches!(&row[name], Value::Text(s) if !s.is_empty()),
+                "Name: {:?}",
+                row[name]
+            );
+            assert!(matches!(row[kind], Value::Int(_)), "Type: {:?}", row[kind]);
         }
     }
 
@@ -2535,26 +2534,13 @@ mod tests {
 
     // -- read_column_value dispatch -------------------------------------------
 
-    #[test]
-    fn dispatch_boolean_from_null_mask() {
-        let path = skip_if_missing!("V2003/testV2003.mdb");
-        let mut reader = PageReader::open(&path).unwrap();
-        let _table =
-            crate::table::read_table_def(&mut reader, "MSysObjects", crate::format::CATALOG_PAGE)
-                .unwrap();
-
-        // Synthesize a cracked row with a Boolean ColumnDef.
-        let mut row_data = vec![0x02, 0x00]; // col_count = 2
-        row_data.extend_from_slice(&[0x00, 0x00]); // fixed data placeholder
-        row_data.extend_from_slice(&4u16.to_le_bytes()); // EOD
-        row_data.extend_from_slice(&0u16.to_le_bytes()); // var_col_count = 0
-        row_data.push(0b00000010); // null_mask: col 1 NOT NULL, col 0 NULL
-
-        let cracked = crack_row_jet4(&row_data).unwrap();
-        let bool_col = ColumnDef {
+    /// A Boolean column of the number `col_num`, whose value is its bit of the
+    /// null mask.
+    fn boolean_column(col_num: u16) -> ColumnDef {
+        ColumnDef {
             name: "Flag".into(),
             col_type: ColumnType::Boolean,
-            col_num: 1, // bit 1 is set → true
+            col_num,
             var_col_num: 0,
             fixed_offset: 0,
             col_size: 0,
@@ -2565,27 +2551,29 @@ mod tests {
             is_calculated: false,
             display_index: 0,
             complex_id: None,
-        };
-        assert_eq!(
-            read_column_value(&cracked, &bool_col, false, &mut reader, &HashMap::new()),
-            Value::Bool(true)
-        );
+        }
+    }
 
-        // col_num 0 → bit 0 is clear → false
-        let bool_col_false = ColumnDef {
-            col_num: 0,
-            ..bool_col.clone()
+    #[test]
+    fn dispatch_boolean_from_null_mask() {
+        let path = skip_if_missing!("V2003/testV2003.mdb");
+        let mut reader = PageReader::open(&path).unwrap();
+
+        // Synthesize a cracked row with a Boolean ColumnDef.
+        let mut row_data = vec![0x02, 0x00]; // col_count = 2
+        row_data.extend_from_slice(&[0x00, 0x00]); // fixed data placeholder
+        row_data.extend_from_slice(&4u16.to_le_bytes()); // EOD
+        row_data.extend_from_slice(&0u16.to_le_bytes()); // var_col_count = 0
+        row_data.push(0b00000010); // null_mask: col 1 NOT NULL, col 0 NULL
+        let cracked = crack_row_jet4(&row_data).unwrap();
+
+        let mut read = |col_num| {
+            let column = boolean_column(col_num);
+            read_column_value(&cracked, &column, false, &mut reader, &HashMap::new())
         };
-        assert_eq!(
-            read_column_value(
-                &cracked,
-                &bool_col_false,
-                false,
-                &mut reader,
-                &HashMap::new()
-            ),
-            Value::Bool(false)
-        );
+        // Bit 1 is set, so column 1 is true; bit 0 is clear, so column 0 is false.
+        assert_eq!(read(1), Value::Bool(true));
+        assert_eq!(read(0), Value::Bool(false));
     }
 
     #[test]
@@ -3765,11 +3753,22 @@ mod tests {
         assert_eq!(types.len(), 11);
     }
 
-    /// Calculated columns of Table1 in calcFieldTestV2010.accdb. Expected
-    /// values are taken from Jackcess (`CalcFieldTest.testReadCalcFields`),
-    /// which reads the same file.
-    #[test]
-    fn calculated_field_values_match_jackcess() {
+    fn text(s: &str) -> Value {
+        Value::Text(s.to_string())
+    }
+
+    fn money(s: &str) -> Value {
+        Value::Money(s.to_string())
+    }
+
+    fn numeric(s: &str) -> Value {
+        Value::Numeric(s.to_string())
+    }
+
+    /// Checks calculated columns of the four rows of Table1 of
+    /// calcFieldTestV2010.accdb against `expected`, the values Jackcess reads,
+    /// column by column.
+    fn assert_calculated_values_match(expected: &[(&str, [Value; 4])]) {
         let path = skip_if_missing!("V2010/calcFieldTestV2010.accdb");
         let mut reader = PageReader::open(&path).unwrap();
         let catalog = crate::catalog::read_catalog(&mut reader).unwrap();
@@ -3782,72 +3781,14 @@ mod tests {
         let result = read_table_rows(&mut reader, &table).unwrap();
         assert_eq!(result.rows.len(), 4);
 
-        let text = |s: &str| Value::Text(s.to_string());
-        let money = |s: &str| Value::Money(s.to_string());
-        let numeric = |s: &str| Value::Numeric(s.to_string());
-        let expected: [Vec<(&str, Value)>; 4] = [
-            vec![
-                ("LastFirst", text("Wayne, Bruce")),
-                ("LastFirstLen", Value::Long(12)),
-                ("MonthlySalary", money("83333.3333")),
-                ("IsRich", Value::Bool(true)),
-                ("AllNames", text("Wayne, Bruce=Wayne, Bruce")),
-                ("WeeklySalary", numeric("19230.7692307692")),
-                ("SalaryTest", money("1000000.0000")),
-                ("BoolTest", Value::Bool(true)),
-                ("DecimalTest", numeric("50.325000")),
-                ("FloatTest", Value::Float(2583.2092)),
-                ("BigNumTest", numeric("56505085819.424791296572280180")),
-            ],
-            vec![
-                ("LastFirst", text("Simpson, Bart")),
-                ("LastFirstLen", Value::Long(13)),
-                ("MonthlySalary", money("-0.0833")),
-                ("IsRich", Value::Bool(false)),
-                ("AllNames", text("Simpson, Bart=Simpson, Bart")),
-                ("WeeklySalary", numeric("-0.0192307692307692")),
-                ("SalaryTest", money("-1.0000")),
-                ("BoolTest", Value::Bool(true)),
-                ("DecimalTest", numeric("-36.222200")),
-                ("FloatTest", Value::Float(0.0035889593)),
-                ("BigNumTest", numeric("-0.0784734499180612994241100748")),
-            ],
-            vec![
-                ("LastFirst", text("Doe, John")),
-                ("LastFirstLen", Value::Long(9)),
-                ("MonthlySalary", money("0.0000")),
-                ("IsRich", Value::Bool(false)),
-                ("AllNames", text("Doe, John=Doe, John")),
-                ("WeeklySalary", numeric("0")),
-                ("SalaryTest", money("0.0000")),
-                ("BoolTest", Value::Bool(true)),
-                ("DecimalTest", numeric("0.012300")),
-                ("FloatTest", Value::Float(0.0)),
-                ("BigNumTest", numeric("0.00000000")),
-            ],
-            vec![
-                ("LastFirst", text("User, Test")),
-                ("LastFirstLen", Value::Long(10)),
-                ("MonthlySalary", money("8.3333")),
-                ("IsRich", Value::Bool(false)),
-                ("AllNames", text("User, Test=User, Test")),
-                ("WeeklySalary", numeric("1.92307692307692")),
-                ("SalaryTest", money("100.0000")),
-                ("BoolTest", Value::Bool(true)),
-                ("DecimalTest", numeric("102030405060.654321")),
-                ("FloatTest", Value::Float(1.27413e-10)),
-                ("BigNumTest", numeric("0.0000002787019289824216980830")),
-            ],
-        ];
-
         let mut mismatches = Vec::new();
-        for (row_idx, (row, expected_row)) in result.rows.iter().zip(&expected).enumerate() {
-            for (name, expected_value) in expected_row {
-                let col_idx = table
-                    .columns
-                    .iter()
-                    .position(|c| c.name == *name)
-                    .unwrap_or_else(|| panic!("column {name} not found"));
+        for (name, values) in expected {
+            let col_idx = table
+                .columns
+                .iter()
+                .position(|c| c.name == *name)
+                .unwrap_or_else(|| panic!("column {name} not found"));
+            for (row_idx, (row, expected_value)) in result.rows.iter().zip(values).enumerate() {
                 if row[col_idx] != *expected_value {
                     mismatches.push(format!(
                         "row {row_idx} {name}: got {:?}, expected {expected_value:?}",
@@ -3857,6 +3798,108 @@ mod tests {
             }
         }
         assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
+    }
+
+    #[test]
+    fn calculated_text_values_match_jackcess() {
+        assert_calculated_values_match(&[
+            (
+                "LastFirst",
+                [
+                    text("Wayne, Bruce"),
+                    text("Simpson, Bart"),
+                    text("Doe, John"),
+                    text("User, Test"),
+                ],
+            ),
+            (
+                "AllNames",
+                [
+                    text("Wayne, Bruce=Wayne, Bruce"),
+                    text("Simpson, Bart=Simpson, Bart"),
+                    text("Doe, John=Doe, John"),
+                    text("User, Test=User, Test"),
+                ],
+            ),
+        ]);
+    }
+
+    #[test]
+    fn calculated_number_values_match_jackcess() {
+        assert_calculated_values_match(&[
+            (
+                "LastFirstLen",
+                [
+                    Value::Long(12),
+                    Value::Long(13),
+                    Value::Long(9),
+                    Value::Long(10),
+                ],
+            ),
+            (
+                "WeeklySalary",
+                [
+                    numeric("19230.7692307692"),
+                    numeric("-0.0192307692307692"),
+                    numeric("0"),
+                    numeric("1.92307692307692"),
+                ],
+            ),
+            (
+                "DecimalTest",
+                [
+                    numeric("50.325000"),
+                    numeric("-36.222200"),
+                    numeric("0.012300"),
+                    numeric("102030405060.654321"),
+                ],
+            ),
+            (
+                "FloatTest",
+                [
+                    Value::Float(2583.2092),
+                    Value::Float(0.0035889593),
+                    Value::Float(0.0),
+                    Value::Float(1.27413e-10),
+                ],
+            ),
+            (
+                "BigNumTest",
+                [
+                    numeric("56505085819.424791296572280180"),
+                    numeric("-0.0784734499180612994241100748"),
+                    numeric("0.00000000"),
+                    numeric("0.0000002787019289824216980830"),
+                ],
+            ),
+        ]);
+    }
+
+    #[test]
+    fn calculated_currency_and_yes_no_values_match_jackcess() {
+        let (yes, no) = (Value::Bool(true), Value::Bool(false));
+        assert_calculated_values_match(&[
+            (
+                "MonthlySalary",
+                [
+                    money("83333.3333"),
+                    money("-0.0833"),
+                    money("0.0000"),
+                    money("8.3333"),
+                ],
+            ),
+            (
+                "SalaryTest",
+                [
+                    money("1000000.0000"),
+                    money("-1.0000"),
+                    money("0.0000"),
+                    money("100.0000"),
+                ],
+            ),
+            ("IsRich", [yes.clone(), no.clone(), no.clone(), no]),
+            ("BoolTest", [yes.clone(), yes.clone(), yes.clone(), yes]),
+        ]);
     }
 
     /// The text values of every row of `table` in the Jet3 file `file`.

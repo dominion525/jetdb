@@ -1079,43 +1079,40 @@ mod tests {
         assert!(!column(ColumnType::Long, column_flags::NULLABLE).is_auto_number());
     }
 
+    /// The names of the columns of `table` in `path` that are AutoNumber.
+    fn auto_number_columns(path: &std::path::Path, table: &str) -> Vec<String> {
+        let mut reader = crate::PageReader::open(path).unwrap();
+        let catalog = crate::read_catalog(&mut reader).unwrap();
+        let entry = crate::find_table(&catalog, table).unwrap();
+        let tdef = read_table_def(&mut reader, &entry.name, entry.table_page).unwrap();
+        tdef.columns
+            .iter()
+            .filter(|c| c.is_auto_number())
+            .map(|c| c.name.clone())
+            .collect()
+    }
+
     #[test]
-    fn is_auto_number_of_real_columns() {
-        let columns = |file: &str, table: &str| -> Option<Vec<(String, bool)>> {
-            let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("../../testdata")
-                .join(file);
-            let mut reader = crate::PageReader::open(&path).ok()?;
-            let catalog = crate::read_catalog(&mut reader).unwrap();
-            let entry = crate::find_table(&catalog, table).unwrap();
-            let tdef = read_table_def(&mut reader, &entry.name, entry.table_page).unwrap();
-            Some(
-                tdef.columns
-                    .iter()
-                    .map(|c| (c.name.clone(), c.is_auto_number()))
-                    .collect(),
-            )
-        };
-        let auto = |columns: &[(String, bool)]| -> Vec<String> {
-            columns
-                .iter()
-                .filter(|(_, a)| *a)
-                .map(|(n, _)| n.clone())
-                .collect()
-        };
+    fn is_auto_number_of_jet3_columns() {
         // CategoryName (Text) carries 0x40 in Jet3, as several other columns
         // of nwind.mdb do.
-        if let Some(c) = columns("V1997/nwind.mdb", "Categories") {
-            assert_eq!(auto(&c), ["CategoryID"]);
-        }
+        let path = skip_if_missing!("V1997/nwind.mdb");
+        assert_eq!(auto_number_columns(&path, "Categories"), ["CategoryID"]);
+    }
+
+    #[test]
+    fn is_auto_number_of_complex_columns() {
         // Attachment, multiple values and version history columns carry 0x04;
         // the table has no AutoNumber column.
-        if let Some(c) = columns("V2010/complexDataTestV2010.accdb", "Table1") {
-            assert!(auto(&c).is_empty(), "{c:?}");
-        }
-        if let Some(c) = columns("V2010/testV2010.accdb", "Table4") {
-            assert_eq!(auto(&c), ["data"]);
-        }
+        let path = skip_if_missing!("V2010/complexDataTestV2010.accdb");
+        let auto = auto_number_columns(&path, "Table1");
+        assert!(auto.is_empty(), "{auto:?}");
+    }
+
+    #[test]
+    fn is_auto_number_of_an_ace_column() {
+        let path = skip_if_missing!("V2010/testV2010.accdb");
+        assert_eq!(auto_number_columns(&path, "Table4"), ["data"]);
     }
 
     // -- is_hidden tests ----------------------------------------------------
