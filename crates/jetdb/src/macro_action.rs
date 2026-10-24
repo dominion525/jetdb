@@ -812,6 +812,32 @@ mod tests {
         assert_eq!(checked, 56 + 56);
     }
 
+    fn text_of(v: &Value) -> String {
+        match v {
+            Value::Text(s) => s.clone(),
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    /// Checks a row of tblGenLog, of `kind`, the action `name` and its
+    /// `result`, and gives whether it was a count of arguments.
+    fn check_log_row(kind: &str, name: &str, result: &str) -> bool {
+        match (kind, result) {
+            // A reference name Access rejects is either renamed (its earlier
+            // name is the text name) or used only by data macros.
+            ("probe-action" | "probe-args", "rejected") => {
+                assert!(MACRO_ACTIONS.iter().all(|a| a.text_name != name), "{name}");
+                false
+            }
+            ("probe-args", count) => {
+                let action = find_by_name(name).unwrap_or_else(|| panic!("{name}"));
+                assert_eq!(action.arguments.len().to_string(), count, "{name}");
+                true
+            }
+            _ => false,
+        }
+    }
+
     #[test]
     fn argument_counts_match_the_generated_log() {
         let Some(path) = test_data_path(GENERATED) else {
@@ -826,29 +852,10 @@ mod tests {
             .unwrap()
             .table_page;
         let tdef = read_table_def(&mut reader, "tblGenLog", page).unwrap();
-        let text = |v: &Value| match v {
-            Value::Text(s) => s.clone(),
-            other => panic!("unexpected {other:?}"),
-        };
         let mut checked = 0;
         for row in read_table_rows(&mut reader, &tdef).unwrap().rows {
-            let (kind, name, result) = (text(&row[1]), text(&row[2]), text(&row[3]));
-            match (kind.as_str(), result.as_str()) {
-                // A reference name Access rejects is either renamed (its
-                // earlier name is the text name) or used only by data macros.
-                ("probe-action", "rejected") => {
-                    assert!(MACRO_ACTIONS.iter().all(|a| a.text_name != name), "{name}");
-                }
-                ("probe-args", "rejected") => {
-                    assert!(MACRO_ACTIONS.iter().all(|a| a.text_name != name), "{name}");
-                }
-                ("probe-args", count) => {
-                    let action = find_by_name(&name).unwrap_or_else(|| panic!("{name}"));
-                    assert_eq!(action.arguments.len().to_string(), count, "{name}");
-                    checked += 1;
-                }
-                _ => {}
-            }
+            let (kind, name, result) = (text_of(&row[1]), text_of(&row[2]), text_of(&row[3]));
+            checked += usize::from(check_log_row(&kind, &name, &result));
         }
         assert_eq!(checked, 56 + 20);
     }
