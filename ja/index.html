@@ -147,10 +147,10 @@
 
   Columns:
     OrderID     Long       AUTO
-    CustomerID  Long
-    ProductID   Long
-    Quantity    Int
-    OrderDate   Timestamp
+    CustomerID  Long       NOT NULL
+    ProductID   Long       NOT NULL
+    Quantity    Int        NOT NULL
+    OrderDate   Timestamp  NOT NULL
     Shipped     Boolean
 
   Indexes:
@@ -169,10 +169,10 @@
                 <summary>出力を見る</summary>
                 <pre><code>CREATE TABLE &quot;tblOrders&quot; (
     &quot;OrderID&quot; INTEGER NOT NULL GENERATED ALWAYS AS IDENTITY,
-    &quot;CustomerID&quot; INTEGER,
-    &quot;ProductID&quot; INTEGER,
-    &quot;Quantity&quot; SMALLINT,
-    &quot;OrderDate&quot; TIMESTAMP WITHOUT TIME ZONE,
+    &quot;CustomerID&quot; INTEGER NOT NULL,
+    &quot;ProductID&quot; INTEGER NOT NULL,
+    &quot;Quantity&quot; SMALLINT NOT NULL,
+    &quot;OrderDate&quot; TIMESTAMP WITHOUT TIME ZONE NOT NULL,
     &quot;Shipped&quot; BOOLEAN,
     PRIMARY KEY (&quot;OrderID&quot;)
 );
@@ -261,20 +261,27 @@ End</code></pre>
   …
 
   Control: txtQuantity (TextBox)
+    Left           1800
+    Top            1560
+    Width          2400
+    Height         300
+    TabIndex       3
     Name           txtQuantity
     ControlSource  Quantity
     StatusBarText  Number of units
-    0x0178         {dcda3ded-1a23-4514-a941-330580135978}
-    0x0000         -1
+    …
 
   …
 
   Control: btnShowTotal (CommandButton)
-    Name     btnShowTotal
-    Caption  Show total
-    OnClick  [Event Procedure]
-    0x0178   {7b9ce7cf-e676-4e99-9adb-0fbee36e25b7}
-    0x0000   -1</code></pre>
+    Left          1800
+    Top           2940
+    Width         2400
+    Height        400
+    Name          btnShowTotal
+    Caption       Show total
+    OnClick       [Event Procedure]
+    …</code></pre>
               </details>
             </li>
             <li class="read">
