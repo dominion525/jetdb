@@ -1714,6 +1714,76 @@ mod tests {
         assert_eq!(all[4..], ["~TMPCLPMacro"]);
     }
 
+    /// Compares every named macro as `db` and the library read it, and gives
+    /// how many were compared.
+    fn compare_named_macros(db: &mut Database, reader: &mut PageReader, file: &str) -> usize {
+        let mut names: Vec<String> = list_macros(reader)
+            .unwrap()
+            .into_iter()
+            .map(|m| m.name)
+            .collect();
+        names.sort_unstable();
+        assert_eq!(db.macros(true).unwrap(), names, "{file}");
+        for name in &names {
+            let def = read_macro(reader, name).unwrap();
+            let read = db.named_macro(name).unwrap();
+            assert_eq!(read.text, def.grid.as_ref().map(MacroGrid::to_text));
+            assert_eq!(read.def, def, "{file}: {name}");
+        }
+        names.len()
+    }
+
+    /// Compares every embedded macro in the same way.
+    fn compare_embedded_macros(db: &mut Database, reader: &mut PageReader) -> usize {
+        let mut compared = 0;
+        for form in list_forms(reader).unwrap() {
+            let defs = read_embedded_macros(reader, &form.name).unwrap();
+            let read = db.embedded_macros(&form.name, None).unwrap();
+            let texts: Vec<_> = defs.iter().map(embedded_macro_to_text).collect();
+            assert_eq!(
+                read.iter().map(|m| m.text.clone()).collect::<Vec<_>>(),
+                texts
+            );
+            assert_eq!(read.into_iter().map(|m| m.def).collect::<Vec<_>>(), defs);
+            compared += defs.len();
+        }
+        compared
+    }
+
+    /// Compares every data macro in the same way.
+    fn compare_data_macros(db: &mut Database, reader: &mut PageReader) -> usize {
+        let mut compared = 0;
+        for table in db.tables(false).unwrap() {
+            let defs = read_data_macros(reader, &table).unwrap();
+            let read = db.data_macros(&table).unwrap();
+            assert!(read.iter().all(|m| m.text.is_none()));
+            assert_eq!(read.into_iter().map(|m| m.def).collect::<Vec<_>>(), defs);
+            assert_eq!(
+                db.data_macros_text(&table).unwrap(),
+                data_macros_to_text(&defs)
+            );
+            compared += defs.len();
+        }
+        compared
+    }
+
+    /// Checks the errors of `db` for a macro, a form and a table that are not
+    /// there.
+    fn assert_macros_not_found(db: &mut Database) {
+        assert!(matches!(
+            db.named_macro("NoSuchMacro"),
+            Err(FileError::MacroNotFound { .. })
+        ));
+        assert!(matches!(
+            db.embedded_macros("NoSuchForm", None),
+            Err(PropertiesError::File(FileError::FormNotFound { .. }))
+        ));
+        assert!(matches!(
+            db.data_macros("NoSuchTable"),
+            Err(FileError::TableNotFound { .. })
+        ));
+    }
+
     #[test]
     fn macros_as_jetdb_macro_shows_them() {
         // Every named, embedded and data macro is the macro the library reads,
@@ -1728,58 +1798,10 @@ mod tests {
             let mut db = Database::open(bytes.clone(), None).unwrap();
             let mut reader =
                 PageReader::open_reader_with_password(Cursor::new(bytes), None).unwrap();
-
-            let mut names: Vec<String> = list_macros(&mut reader)
-                .unwrap()
-                .into_iter()
-                .map(|m| m.name)
-                .collect();
-            names.sort_unstable();
-            assert_eq!(db.macros(true).unwrap(), names, "{file}");
-            for name in &names {
-                let def = read_macro(&mut reader, name).unwrap();
-                let read = db.named_macro(name).unwrap();
-                assert_eq!(read.text, def.grid.as_ref().map(MacroGrid::to_text));
-                assert_eq!(read.def, def, "{file}: {name}");
-                compared.0 += 1;
-            }
-
-            for form in list_forms(&mut reader).unwrap() {
-                let defs = read_embedded_macros(&mut reader, &form.name).unwrap();
-                let read = db.embedded_macros(&form.name, None).unwrap();
-                let texts: Vec<_> = defs.iter().map(embedded_macro_to_text).collect();
-                assert_eq!(
-                    read.iter().map(|m| m.text.clone()).collect::<Vec<_>>(),
-                    texts
-                );
-                assert_eq!(read.into_iter().map(|m| m.def).collect::<Vec<_>>(), defs);
-                compared.1 += defs.len();
-            }
-
-            for table in db.tables(false).unwrap() {
-                let defs = read_data_macros(&mut reader, &table).unwrap();
-                let read = db.data_macros(&table).unwrap();
-                assert!(read.iter().all(|m| m.text.is_none()));
-                assert_eq!(read.into_iter().map(|m| m.def).collect::<Vec<_>>(), defs);
-                assert_eq!(
-                    db.data_macros_text(&table).unwrap(),
-                    data_macros_to_text(&defs)
-                );
-                compared.2 += defs.len();
-            }
-
-            assert!(matches!(
-                db.named_macro("NoSuchMacro"),
-                Err(FileError::MacroNotFound { .. })
-            ));
-            assert!(matches!(
-                db.embedded_macros("NoSuchForm", None),
-                Err(PropertiesError::File(FileError::FormNotFound { .. }))
-            ));
-            assert!(matches!(
-                db.data_macros("NoSuchTable"),
-                Err(FileError::TableNotFound { .. })
-            ));
+            compared.0 += compare_named_macros(&mut db, &mut reader, file);
+            compared.1 += compare_embedded_macros(&mut db, &mut reader);
+            compared.2 += compare_data_macros(&mut db, &mut reader);
+            assert_macros_not_found(&mut db);
         }
         // Named, embedded and data macros were all compared.
         assert!(
@@ -2033,6 +2055,19 @@ mod tests {
         assert!(forms.windows(2).all(|w| w[0].name < w[1].name));
     }
 
+    /// Each property by its number and its name.
+    fn property_names(properties: &[FormProperty]) -> Vec<(u16, String)> {
+        properties.iter().map(|p| (p.id, p.name.clone())).collect()
+    }
+
+    /// Each property the library reads by its number and its name.
+    fn read_property_names(properties: &[BlobProperty]) -> Vec<(u16, String)> {
+        properties
+            .iter()
+            .map(|p| (p.prop_id, p.display_name()))
+            .collect()
+    }
+
     #[test]
     fn form_properties_as_jetdb_form_props_shows_them() {
         for (file, name) in [
@@ -2047,28 +2082,26 @@ mod tests {
             let mut reader =
                 PageReader::open_reader_with_password(Cursor::new(bytes), None).unwrap();
             let read = read_form_properties(&mut reader, name).unwrap();
-            // Each property by its number and its name.
-            let names = |properties: &[FormProperty]| -> Vec<(u16, String)> {
-                properties.iter().map(|p| (p.id, p.name.clone())).collect()
-            };
-            let read_names = |properties: &[BlobProperty]| -> Vec<(u16, String)> {
-                properties
-                    .iter()
-                    .map(|p| (p.prop_id, p.display_name()))
-                    .collect()
-            };
             assert_eq!(design.name, name);
-            assert_eq!(names(&design.properties), read_names(&read.properties));
+            assert_eq!(
+                property_names(&design.properties),
+                read_property_names(&read.properties)
+            );
             assert_eq!(design.controls.len(), read.controls.len(), "{name}");
             for (control, read) in design.controls.iter().zip(&read.controls) {
                 assert_eq!(control.name, read.name);
                 assert_eq!(control.type_name, control_type_label(read.type_code));
                 assert_eq!(control.type_code, read.type_code);
-                assert_eq!(names(&control.properties), read_names(&read.properties));
+                assert_eq!(
+                    property_names(&control.properties),
+                    read_property_names(&read.properties)
+                );
             }
         }
+    }
 
-        // Values in the types JavaScript gets.
+    #[test]
+    fn form_property_values_in_the_types_javascript_gets() {
         let bytes = skip_if_missing!("formPropTest.accdb");
         let mut db = Database::open(bytes, None).unwrap();
         let design = db.form_properties("jp_フォーム_2", None).unwrap();
@@ -2091,7 +2124,10 @@ mod tests {
             db.form_properties("NoSuchForm", None),
             Err(PropertiesError::File(FileError::FormNotFound { .. }))
         ));
+    }
 
+    #[test]
+    fn report_property_values_in_the_types_javascript_gets() {
         let bytes = skip_if_missing!("saveastext/SportsAdmin/Sports.accdb");
         let mut db = Database::open(bytes, None).unwrap();
         let design = db.form_properties("Field (High Jump)", None).unwrap();

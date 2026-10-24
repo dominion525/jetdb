@@ -1344,26 +1344,36 @@ mod tests {
         assert!(names.contains(&"DataDefinitionQuery"));
     }
 
+    /// The queries of the queryTest databases, and the type of each.
+    const QUERY_TEST_TYPES: [(&str, QueryType); 9] = [
+        ("SelectQuery", QueryType::Select),
+        ("DeleteQuery", QueryType::Delete),
+        ("UpdateQuery", QueryType::Update),
+        ("AppendQuery", QueryType::Append),
+        ("MakeTableQuery", QueryType::MakeTable),
+        ("CrosstabQuery", QueryType::Crosstab),
+        ("UnionQuery", QueryType::Union),
+        ("PassthroughQuery", QueryType::Passthrough),
+        ("DataDefinitionQuery", QueryType::Ddl),
+    ];
+
+    /// Checks that each of `queries` is of the type QUERY_TEST_TYPES gives it.
+    fn assert_query_types(queries: &[QueryDef]) {
+        for q in queries {
+            let (_, expected) = QUERY_TEST_TYPES
+                .iter()
+                .find(|(name, _)| *name == q.name)
+                .unwrap_or_else(|| panic!("unexpected query name: {}", q.name));
+            assert_eq!(q.query_type, *expected, "type mismatch for {}", q.name);
+        }
+    }
+
     #[test]
     fn read_queries_types() {
         let path = skip_if_missing!("V2003/queryTestV2003.mdb");
         let mut reader = PageReader::open(&path).unwrap();
         let queries = read_queries(&mut reader).unwrap();
-        for q in &queries {
-            let expected = match q.name.as_str() {
-                "SelectQuery" => QueryType::Select,
-                "DeleteQuery" => QueryType::Delete,
-                "UpdateQuery" => QueryType::Update,
-                "AppendQuery" => QueryType::Append,
-                "MakeTableQuery" => QueryType::MakeTable,
-                "CrosstabQuery" => QueryType::Crosstab,
-                "UnionQuery" => QueryType::Union,
-                "PassthroughQuery" => QueryType::Passthrough,
-                "DataDefinitionQuery" => QueryType::Ddl,
-                other => panic!("unexpected query name: {other}"),
-            };
-            assert_eq!(q.query_type, expected, "type mismatch for {}", q.name);
-        }
+        assert_query_types(&queries);
     }
 
     fn find_query<'a>(queries: &'a [QueryDef], name: &str) -> &'a QueryDef {
@@ -2266,21 +2276,7 @@ mod tests {
         let names: Vec<&str> = queries.iter().map(|q| q.name.as_str()).collect();
         assert!(names.contains(&"SelectQuery"), "should contain SelectQuery");
         assert!(names.contains(&"UnionQuery"), "should contain UnionQuery");
-        for q in &queries {
-            let expected = match q.name.as_str() {
-                "SelectQuery" => QueryType::Select,
-                "DeleteQuery" => QueryType::Delete,
-                "UpdateQuery" => QueryType::Update,
-                "AppendQuery" => QueryType::Append,
-                "MakeTableQuery" => QueryType::MakeTable,
-                "CrosstabQuery" => QueryType::Crosstab,
-                "UnionQuery" => QueryType::Union,
-                "PassthroughQuery" => QueryType::Passthrough,
-                "DataDefinitionQuery" => QueryType::Ddl,
-                other => panic!("unexpected query name: {other}"),
-            };
-            assert_eq!(q.query_type, expected, "type mismatch for {}", q.name);
-        }
+        assert_query_types(&queries);
     }
 
     #[test]
@@ -2296,21 +2292,7 @@ mod tests {
         let names: Vec<&str> = queries.iter().map(|q| q.name.as_str()).collect();
         assert!(names.contains(&"SelectQuery"), "should contain SelectQuery");
         assert!(names.contains(&"UnionQuery"), "should contain UnionQuery");
-        for q in &queries {
-            let expected = match q.name.as_str() {
-                "SelectQuery" => QueryType::Select,
-                "DeleteQuery" => QueryType::Delete,
-                "UpdateQuery" => QueryType::Update,
-                "AppendQuery" => QueryType::Append,
-                "MakeTableQuery" => QueryType::MakeTable,
-                "CrosstabQuery" => QueryType::Crosstab,
-                "UnionQuery" => QueryType::Union,
-                "PassthroughQuery" => QueryType::Passthrough,
-                "DataDefinitionQuery" => QueryType::Ddl,
-                other => panic!("unexpected query name: {other}"),
-            };
-            assert_eq!(q.query_type, expected, "type mismatch for {}", q.name);
-        }
+        assert_query_types(&queries);
     }
 
     #[test]
@@ -2323,20 +2305,6 @@ mod tests {
             "queryTestV2007.accdb should have at least 9 queries, got {}",
             queries.len()
         );
-        for q in &queries {
-            let expected = match q.name.as_str() {
-                "SelectQuery" => QueryType::Select,
-                "DeleteQuery" => QueryType::Delete,
-                "UpdateQuery" => QueryType::Update,
-                "AppendQuery" => QueryType::Append,
-                "MakeTableQuery" => QueryType::MakeTable,
-                "CrosstabQuery" => QueryType::Crosstab,
-                "UnionQuery" => QueryType::Union,
-                "PassthroughQuery" => QueryType::Passthrough,
-                "DataDefinitionQuery" => QueryType::Ddl,
-                other => panic!("unexpected query name: {other}"),
-            };
-            assert_eq!(q.query_type, expected, "type mismatch for {}", q.name);
-        }
+        assert_query_types(&queries);
     }
 }
