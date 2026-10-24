@@ -283,3 +283,29 @@ test("前のファイルにしか無い # に戻っても、履歴が足され�
   await expect(page).toHaveURL(/\/$/);
   await expect(page.locator("h1")).not.toHaveText("Demo in the browser");
 });
+
+test("320px と 390px: ファイルを選ぶ欄がはみ出さず、ページャの前へ・次へは同じ行にある", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 800 });
+  await openDemo(page, "/ja/demo/#table/tblOrders");
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBeLessThanOrEqual(320);
+  const input = page.locator("#demo-file");
+  const card = page.locator(".demo-source");
+  const inputBox = await input.boundingBox();
+  const cardBox = await card.boundingBox();
+  expect(
+    inputBox && cardBox && inputBox.x + inputBox.width,
+  ).toBeLessThanOrEqual((cardBox?.x ?? 0) + (cardBox?.width ?? 0) + 0.5);
+
+  await page.setViewportSize({ width: 390, height: 800 });
+  const buttons = detail(page).locator(".viewer-pager button");
+  await expect(buttons).toHaveCount(2);
+  const [previous, next] = await Promise.all([
+    buttons.nth(0).boundingBox(),
+    buttons.nth(1).boundingBox(),
+  ]);
+  expect(previous?.y).toBe(next?.y);
+});

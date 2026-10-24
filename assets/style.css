@@ -802,10 +802,15 @@ pre {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 16px;
+  min-width: 0;
+  max-width: 100%;
   font-weight: 600;
 }
 
+/* ファイルの入力欄は固有の幅が広い（「ファイルを選択 選択されていません」）ので、狭い幅ではカードに収める */
 .demo-file input {
+  min-width: 0;
+  max-width: 100%;
   min-height: 44px;
   font: inherit;
   font-weight: 400;
@@ -1060,6 +1065,12 @@ pre {
 
 .viewer-pager span {
   margin-right: auto;
+}
+
+/* 前へ・次へは、折り返すときも 2 つそろって次の行に落とす */
+.viewer-pager-buttons {
+  display: flex;
+  gap: 8px 12px;
 }
 
 .viewer-save {

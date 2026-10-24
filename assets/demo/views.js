@@ -26,7 +26,9 @@ export function tableData({ db, t }, name) {
         const first = page * PAGE_SIZE + 1;
         const last = page * PAGE_SIZE + rows.rows.length;
         const range = rows.rows.length === 0 ? t.noRows : t.rows(first, last, total);
-        const pager = el("div", { class: "viewer-pager" }, el("span", {}, range), el("button", {
+        const pager = el("div", { class: "viewer-pager" }, el("span", {}, range), 
+        // 2 つのボタンは 1 つにまとめ、狭い幅で折り返すときもそろって次の行に落とす
+        el("div", { class: "viewer-pager-buttons" }, el("button", {
             type: "button",
             class: "viewer-save",
             onclick: () => show(page - 1),
@@ -36,7 +38,7 @@ export function tableData({ db, t }, name) {
             class: "viewer-save",
             onclick: () => show(page + 1),
             ...(rows.next === null ? { disabled: "" } : {}),
-        }, t.next));
+        }, t.next)));
         const skipped = rows.skipped > 0 ? note(t.skipped(rows.skipped)) : null;
         box.replaceChildren(pager, skipped ?? "", table(rows.columns, rows.rows.map((row) => rows.columns.map((c) => value(t, row[c])))));
     }

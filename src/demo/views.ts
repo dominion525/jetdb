@@ -75,25 +75,30 @@ export function tableData({ db, t }: ViewContext, name: string) {
       "div",
       { class: "viewer-pager" },
       el("span", {}, range),
+      // 2 つのボタンは 1 つにまとめ、狭い幅で折り返すときもそろって次の行に落とす
       el(
-        "button",
-        {
-          type: "button",
-          class: "viewer-save",
-          onclick: () => show(page - 1),
-          ...(page === 0 ? { disabled: "" } : {}),
-        },
-        t.previous,
-      ),
-      el(
-        "button",
-        {
-          type: "button",
-          class: "viewer-save",
-          onclick: () => show(page + 1),
-          ...(rows.next === null ? { disabled: "" } : {}),
-        },
-        t.next,
+        "div",
+        { class: "viewer-pager-buttons" },
+        el(
+          "button",
+          {
+            type: "button",
+            class: "viewer-save",
+            onclick: () => show(page - 1),
+            ...(page === 0 ? { disabled: "" } : {}),
+          },
+          t.previous,
+        ),
+        el(
+          "button",
+          {
+            type: "button",
+            class: "viewer-save",
+            onclick: () => show(page + 1),
+            ...(rows.next === null ? { disabled: "" } : {}),
+          },
+          t.next,
+        ),
       ),
     );
     const skipped = rows.skipped > 0 ? note(t.skipped(rows.skipped)) : null;
