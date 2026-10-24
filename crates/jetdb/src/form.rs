@@ -2685,6 +2685,18 @@ mod tests {
         }
     }
 
+    /// The Caption of a form or report.
+    fn caption(p: &FormProperties) -> Option<String> {
+        p.properties
+            .iter()
+            .find(|x| x.name() == Some("Caption"))
+            .map(|x| x.value.to_string())
+    }
+
+    fn has_control(p: &FormProperties, name: &str) -> bool {
+        p.controls.iter().any(|c| c.name == name)
+    }
+
     #[test]
     fn form_and_report_of_the_same_name() {
         // Made by testdata/form-generators/same-name-generator.bas: a form and
@@ -2692,14 +2704,6 @@ mod tests {
         // its own.
         let path = skip_if_missing!("V2007/sameNameTestV2007.accdb");
         let mut reader = PageReader::open(&path).unwrap();
-        let caption = |p: &FormProperties| {
-            p.properties
-                .iter()
-                .find(|x| x.name() == Some("Caption"))
-                .map(|x| x.value.to_string())
-        };
-        let has_control =
-            |p: &FormProperties, name: &str| p.controls.iter().any(|c| c.name == name);
 
         let form =
             read_form_properties_of_type(&mut reader, "Shared", FormObjectType::Form).unwrap();
@@ -2716,37 +2720,30 @@ mod tests {
         // Without a type, the form, as before.
         let either = read_form_properties(&mut reader, "Shared").unwrap();
         assert_eq!(either.object_type, FormObjectType::Form);
+    }
+
+    #[test]
+    fn streams_of_a_form_and_report_of_the_same_name() {
+        let path = skip_if_missing!("V2007/sameNameTestV2007.accdb");
+        let mut reader = PageReader::open(&path).unwrap();
+        let mut stream = |object_type, kind| {
+            read_form_stream_of_type(&mut reader, "Shared", object_type, kind).unwrap()
+        };
 
         // The TypeInfo of the report. (Objects made with CreateForm and
         // CreateReport have an empty TypeInfo, so only which object it is of
-        // is checked; the Blob above shows the two apart.)
-        let report_type_info = read_form_stream_of_type(
-            &mut reader,
-            "Shared",
-            FormObjectType::Report,
-            StreamKind::TypeInfo,
-        )
-        .unwrap();
+        // is checked; the Blob below shows the two apart.)
+        let report_type_info = stream(FormObjectType::Report, StreamKind::TypeInfo);
         assert_eq!(report_type_info.object_type, FormObjectType::Report);
 
-        let form_blob = read_form_stream_of_type(
-            &mut reader,
-            "Shared",
-            FormObjectType::Form,
-            StreamKind::Blob,
-        )
-        .unwrap();
-        let report_blob = read_form_stream_of_type(
-            &mut reader,
-            "Shared",
-            FormObjectType::Report,
-            StreamKind::Blob,
-        )
-        .unwrap();
+        let form_blob = stream(FormObjectType::Form, StreamKind::Blob);
+        let report_blob = stream(FormObjectType::Report, StreamKind::Blob);
         assert_eq!(report_blob.object_type, FormObjectType::Report);
         assert_ne!(form_blob.data, report_blob.data);
+    }
 
-        // A type that the name does not have is not found.
+    #[test]
+    fn a_type_that_the_name_does_not_have_is_not_found() {
         let path = skip_if_missing!("formPropTest.accdb");
         let mut reader = PageReader::open(&path).unwrap();
         assert!(matches!(
@@ -2826,106 +2823,127 @@ mod tests {
         assert_eq!(left.name(), None);
     }
 
-    #[test]
-    fn form_and_report_match_saveastext_of_access() {
-        // Fetched by scripts/fetch-testdata.sh: a form and a report with many
-        // controls, and the SaveAsText output of each from Access.
-        let path = skip_if_missing!("saveastext/SportsAdmin/Sports.accdb");
-        let mut reader = PageReader::open(&path).unwrap();
-        let keys = ["RecordSource", "Caption", "ControlSource"];
-        let value = |properties: &[BlobProperty], key: &str| {
-            properties
+    /// The properties compared one by one with SaveAsText.
+    const SAVED_KEYS: [&str; 3] = ["RecordSource", "Caption", "ControlSource"];
+
+    fn property_value(properties: &[BlobProperty], key: &str) -> Option<String> {
+        properties
+            .iter()
+            .find(|p| p.name() == Some(key))
+            .map(|p| p.value.to_string())
+    }
+
+    /// Checks that every property jetdb names holds the value Access saved
+    /// under that name, and gives how many were checked. SaveAsText writes the
+    /// right and bottom of a form only, so `report` passes them over.
+    fn check_named(
+        properties: &[BlobProperty],
+        saved: &HashMap<String, String>,
+        at: &str,
+        report: bool,
+    ) -> usize {
+        let mut named = 0;
+        for p in properties {
+            // Values SaveAsText writes on a line of their own; those in its
+            // binary blocks are checked by every_value_is_one_save_as_text_writes.
+            if matches!(
+                p.value,
+                BlobValue::Binary(_) | BlobValue::Guid(_) | BlobValue::Double(_)
+            ) {
+                continue;
+            }
+            let Some(key) = p.name() else { continue };
+            if report && matches!(key, "Right" | "Bottom") {
+                continue;
+            }
+            let saved_value = saved.get(key);
+            assert!(
+                saved_value.is_some_and(|v| saved_forms(&p.value).contains(v)),
+                "{at}.{key}: {} against {saved_value:?}",
+                p.value
+            );
+            named += 1;
+        }
+        named
+    }
+
+    /// Checks the type and the SAVED_KEYS of each control against the object
+    /// of the same name in SaveAsText, and gives how many values were compared.
+    fn check_controls(read: &FormProperties, saved: &Saved, name: &str) -> usize {
+        let mut compared = 0;
+        for object in &saved.objects {
+            let control = read
+                .controls
                 .iter()
-                .find(|p| p.name() == Some(key))
-                .map(|p| p.value.to_string())
-        };
-        for (name, file, controls, report) in [
-            (
-                "Statistical Reports",
-                "forms/Statistical Reports.bas",
-                69,
-                false,
-            ),
-            (
-                "Field (High Jump)",
-                "reports/Field (High Jump).bas",
-                78,
-                true,
-            ),
-        ] {
-            let text = std::fs::read_to_string(path.parent().unwrap().join(file)).unwrap();
-            let saved = read_saveastext(&text);
-            let read = read_form_properties(&mut reader, name).unwrap();
-            for key in keys {
+                .find(|c| c.name == object.name)
+                .unwrap_or_else(|| panic!("{name}: no control {}", object.name));
+            assert_eq!(
+                control_type_name(control.type_code),
+                Some(jetdb_type_name(&object.type_name)),
+                "{name}: {}",
+                object.name
+            );
+            for key in SAVED_KEYS {
+                let saved_value = object.properties.get(key).cloned();
+                compared += usize::from(saved_value.is_some());
                 assert_eq!(
-                    value(&read.properties, key),
-                    saved.properties.get(key).cloned(),
-                    "{name}: {key}"
-                );
-            }
-            // Every property jetdb names holds the value Access saved under
-            // that name. SaveAsText writes the right and bottom of a form
-            // only.
-            let mut named = 0;
-            let mut check_named =
-                |properties: &[BlobProperty], saved: &HashMap<String, String>, at: &str| {
-                    for p in properties {
-                        // Values SaveAsText writes on a line of their own;
-                        // those in its binary blocks are checked by
-                        // every_value_is_one_save_as_text_writes.
-                        if matches!(
-                            p.value,
-                            BlobValue::Binary(_) | BlobValue::Guid(_) | BlobValue::Double(_)
-                        ) {
-                            continue;
-                        }
-                        let Some(key) = p.name() else { continue };
-                        if report && at == "(itself)" && matches!(key, "Right" | "Bottom") {
-                            continue;
-                        }
-                        let saved_value = saved.get(key);
-                        assert!(
-                            saved_value.is_some_and(|v| saved_forms(&p.value).contains(v)),
-                            "{name}: {at}.{key}: {} against {saved_value:?}",
-                            p.value
-                        );
-                        named += 1;
-                    }
-                };
-            check_named(&read.properties, &saved.properties, "(itself)");
-            for object in &saved.objects {
-                if let Some(control) = read.controls.iter().find(|c| c.name == object.name) {
-                    check_named(&control.properties, &object.properties, &object.name);
-                }
-            }
-            assert!(named > controls, "{name}: {named}");
-            assert_eq!(read.controls.len(), controls, "{name}");
-            assert_eq!(saved.objects.len(), controls, "{name}");
-            let mut compared = 0;
-            for object in &saved.objects {
-                let control = read
-                    .controls
-                    .iter()
-                    .find(|c| c.name == object.name)
-                    .unwrap_or_else(|| panic!("{name}: no control {}", object.name));
-                assert_eq!(
-                    control_type_name(control.type_code),
-                    Some(jetdb_type_name(&object.type_name)),
-                    "{name}: {}",
+                    property_value(&control.properties, key),
+                    saved_value,
+                    "{name}: {}.{key}",
                     object.name
                 );
-                for key in keys {
-                    let saved_value = object.properties.get(key).cloned();
-                    compared += usize::from(saved_value.is_some());
-                    assert_eq!(
-                        value(&control.properties, key),
-                        saved_value,
-                        "{name}: {}.{key}",
-                        object.name
-                    );
-                }
             }
-            assert!(compared > 0, "{name}");
         }
+        compared
+    }
+
+    /// Checks the form or report `name` of Sports.accdb, with `controls`
+    /// controls, against `file`, its SaveAsText output from Access. Fetched by
+    /// scripts/fetch-testdata.sh.
+    fn assert_matches_saveastext(name: &str, file: &str, controls: usize, report: bool) {
+        let path = skip_if_missing!("saveastext/SportsAdmin/Sports.accdb");
+        let mut reader = PageReader::open(&path).unwrap();
+        let text = std::fs::read_to_string(path.parent().unwrap().join(file)).unwrap();
+        let saved = read_saveastext(&text);
+        let read = read_form_properties(&mut reader, name).unwrap();
+        for key in SAVED_KEYS {
+            assert_eq!(
+                property_value(&read.properties, key),
+                saved.properties.get(key).cloned(),
+                "{name}: {key}"
+            );
+        }
+
+        let mut named = check_named(&read.properties, &saved.properties, name, report);
+        for object in &saved.objects {
+            if let Some(control) = read.controls.iter().find(|c| c.name == object.name) {
+                let at = format!("{name}: {}", object.name);
+                named += check_named(&control.properties, &object.properties, &at, false);
+            }
+        }
+        assert!(named > controls, "{name}: {named}");
+        assert_eq!(read.controls.len(), controls, "{name}");
+        assert_eq!(saved.objects.len(), controls, "{name}");
+        assert!(check_controls(&read, &saved, name) > 0, "{name}");
+    }
+
+    #[test]
+    fn form_matches_saveastext_of_access() {
+        assert_matches_saveastext(
+            "Statistical Reports",
+            "forms/Statistical Reports.bas",
+            69,
+            false,
+        );
+    }
+
+    #[test]
+    fn report_matches_saveastext_of_access() {
+        assert_matches_saveastext(
+            "Field (High Jump)",
+            "reports/Field (High Jump).bas",
+            78,
+            true,
+        );
     }
 }

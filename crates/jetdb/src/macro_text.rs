@@ -440,17 +440,63 @@ mod tests {
         assert_eq!(compared, ["tblItems", "tblNamed", "tblOrderA", "tblOrderB"]);
     }
 
+    /// The `<event>EmMacro = Begin` blocks of SaveAsText output `content`,
+    /// each with its event and its text without its indentation.
+    fn saved_embedded_macros(content: &str) -> Vec<(String, String)> {
+        let lines: Vec<&str> = content.split("\r\n").collect();
+        let mut blocks = Vec::new();
+        for (i, line) in lines.iter().enumerate() {
+            let Some(key) = line.trim_start().strip_suffix("EmMacro = Begin") else {
+                continue;
+            };
+            let indent = line.len() - line.trim_start().len();
+            let end = (i..lines.len())
+                .find(|&j| lines[j] == format!("{}End", &line[..indent]))
+                .unwrap();
+            let text: String = lines[i..=end]
+                .iter()
+                .map(|l| format!("{}\r\n", &l[indent..]))
+                .collect();
+            blocks.push((key.to_string(), text));
+        }
+        blocks
+    }
+
+    /// The SaveAsText output of the forms and reports in tblGenExport, each
+    /// with the name of its object.
+    fn saved_forms_and_reports(reader: &mut crate::file::PageReader) -> Vec<(String, String)> {
+        use crate::catalog::read_catalog;
+        use crate::data::{read_table_rows, Value};
+        use crate::table::read_table_def;
+
+        let page = read_catalog(reader)
+            .unwrap()
+            .into_iter()
+            .find(|e| e.name == "tblGenExport")
+            .unwrap()
+            .table_page;
+        let tdef = read_table_def(reader, "tblGenExport", page).unwrap();
+        let mut saved = Vec::new();
+        for row in read_table_rows(reader, &tdef).unwrap().rows {
+            if let (Value::Text(kind), Value::Text(object), Value::Text(content)) =
+                (&row[1], &row[2], &row[3])
+            {
+                if kind == "form" || kind == "report" {
+                    saved.push((object.clone(), content.clone()));
+                }
+            }
+        }
+        saved
+    }
+
     #[test]
     fn embedded_macros_match_access_output_in_generated_test_data() {
         // tblGenExport holds Access's SaveAsText output of frmEmbedded (kind
         // `form`) and rptEmbedded (kind `report`). Each `<event>EmMacro = Begin`
         // block in it, without its indentation, is compared with the text of
         // the embedded macro for that event.
-        use crate::catalog::read_catalog;
-        use crate::data::{read_table_rows, Value};
         use crate::file::PageReader;
         use crate::macro_def::read_embedded_macros;
-        use crate::table::read_table_def;
 
         let relative = "V2010/macroGeneratedTestV2010.accdb";
         let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -461,40 +507,13 @@ mod tests {
             return;
         }
         let mut reader = PageReader::open(&path).unwrap();
-        let page = read_catalog(&mut reader)
-            .unwrap()
-            .into_iter()
-            .find(|e| e.name == "tblGenExport")
-            .unwrap()
-            .table_page;
-        let tdef = read_table_def(&mut reader, "tblGenExport", page).unwrap();
         let mut compared = Vec::new();
-        for row in read_table_rows(&mut reader, &tdef).unwrap().rows {
-            let (Value::Text(kind), Value::Text(object), Value::Text(content)) =
-                (&row[1], &row[2], &row[3])
-            else {
-                continue;
-            };
-            if kind != "form" && kind != "report" {
-                continue;
-            }
-            let macros = read_embedded_macros(&mut reader, object).unwrap();
-            let lines: Vec<&str> = content.split("\r\n").collect();
-            for (i, line) in lines.iter().enumerate() {
-                let Some(key) = line.trim_start().strip_suffix("EmMacro = Begin") else {
-                    continue;
-                };
-                let indent = line.len() - line.trim_start().len();
-                let end = (i..lines.len())
-                    .find(|&j| lines[j] == format!("{}End", &line[..indent]))
-                    .unwrap();
-                let expected: String = lines[i..=end]
-                    .iter()
-                    .map(|l| format!("{}\r\n", &l[indent..]))
-                    .collect();
+        for (object, content) in saved_forms_and_reports(&mut reader) {
+            let macros = read_embedded_macros(&mut reader, &object).unwrap();
+            for (key, expected) in saved_embedded_macros(&content) {
                 let def = macros
                     .iter()
-                    .find(|m| matches!(&m.source, MacroSource::Embedded { event, .. } if event == key))
+                    .find(|m| matches!(&m.source, MacroSource::Embedded { event, .. } if *event == key))
                     .unwrap_or_else(|| panic!("{object}: no {key} macro"));
                 assert_eq!(
                     embedded_macro_to_text(def).unwrap(),

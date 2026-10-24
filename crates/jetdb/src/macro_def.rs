@@ -1512,6 +1512,14 @@ mod tests {
         "V2000/macroTestV2000.mdb",
     ];
 
+    /// The databases that testdata/macro-generators made: the accdb and its
+    /// two .mdb copies.
+    const MACRO_GENERATED_FILES: [&str; 3] = [
+        "V2010/macroGeneratedTestV2010.accdb",
+        "V2003/macroGeneratedTestV2003.mdb",
+        "V2000/macroGeneratedTestV2000.mdb",
+    ];
+
     fn expected_macro_statements() -> Vec<(&'static str, Vec<MacroStatement>)> {
         let message = |text: &str| action("MessageBox", &[("Message", text)]);
         vec![
@@ -1624,6 +1632,16 @@ mod tests {
         ));
     }
 
+    /// The source of a macro embedded in the form tblItems.
+    fn embedded_in_tbl_items(control: Option<&str>, event: &str) -> MacroSource {
+        MacroSource::Embedded {
+            object_kind: FormObjectType::Form,
+            object_name: "tblItems".to_string(),
+            control: control.map(str::to_string),
+            event: event.to_string(),
+        }
+    }
+
     #[test]
     fn read_embedded_macros_real_files() {
         // The form tblItems has a BeforeUpdate macro on the form itself and an
@@ -1632,14 +1650,12 @@ mod tests {
             let path = skip_if_missing!(file);
             let mut reader = PageReader::open(&path).unwrap();
             let macros = read_embedded_macros(&mut reader, "tblItems").unwrap();
-            let embedded = |control: Option<&str>, event: &str| MacroSource::Embedded {
-                object_kind: FormObjectType::Form,
-                object_name: "tblItems".to_string(),
-                control: control.map(str::to_string),
-                event: event.to_string(),
-            };
             assert_eq!(macros.len(), 2, "{file}");
-            assert_eq!(macros[0].source, embedded(None, "BeforeUpdate"), "{file}");
+            assert_eq!(
+                macros[0].source,
+                embedded_in_tbl_items(None, "BeforeUpdate"),
+                "{file}"
+            );
             assert_eq!(
                 macros[0].statements,
                 [MacroStatement::Conditional {
@@ -1652,7 +1668,7 @@ mod tests {
             );
             assert_eq!(
                 macros[1].source,
-                embedded(Some("btnHello"), "OnClick"),
+                embedded_in_tbl_items(Some("btnHello"), "OnClick"),
                 "{file}"
             );
             assert_eq!(
@@ -1660,8 +1676,16 @@ mod tests {
                 [action("MessageBox", &[("Message", "button clicked")])],
                 "{file}"
             );
+        }
+    }
 
-            // Each macro's grid has its compiled rows, then its XML as comment rows.
+    #[test]
+    fn grids_of_embedded_macros_real_files() {
+        // Each macro's grid has its compiled rows, then its XML as comment rows.
+        for file in MACRO_TEST_FILES {
+            let path = skip_if_missing!(file);
+            let mut reader = PageReader::open(&path).unwrap();
+            let macros = read_embedded_macros(&mut reader, "tblItems").unwrap();
             let grids: Vec<&MacroGrid> = macros.iter().map(|m| m.grid.as_ref().unwrap()).collect();
             assert_eq!(
                 grids[0].rows[0],
@@ -1670,14 +1694,7 @@ mod tests {
             );
             assert_eq!(
                 grids[1].rows[0],
-                grid_row(
-                    1,
-                    22,
-                    None,
-                    None,
-                    None,
-                    &[Some("button clicked"), Some("-1"), Some("0")]
-                ),
+                action_row(1, 22, &[Some("button clicked"), Some("-1"), Some("0")]),
                 "{file}"
             );
             assert!(grids.iter().all(|g| g.header == "33"
@@ -1691,11 +1708,7 @@ mod tests {
         // frmEmbedded has an OnLoad macro and an OnClick macro on btnHello, and
         // rptEmbedded an OnOpen macro. They were loaded from text holding only
         // their XML, so their grids have only comment rows.
-        for file in [
-            "V2010/macroGeneratedTestV2010.accdb",
-            "V2003/macroGeneratedTestV2003.mdb",
-            "V2000/macroGeneratedTestV2000.mdb",
-        ] {
+        for file in MACRO_GENERATED_FILES {
             let path = skip_if_missing!(file);
             let mut reader = PageReader::open(&path).unwrap();
             let mut found = Vec::new();
@@ -1778,13 +1791,8 @@ mod tests {
 
     #[test]
     fn read_data_macros_generated_files() {
-        // tblItems has two table events and tblNamed one named data macro with
-        // a parameter, in the accdb and its two .mdb copies.
-        for file in [
-            "V2010/macroGeneratedTestV2010.accdb",
-            "V2003/macroGeneratedTestV2003.mdb",
-            "V2000/macroGeneratedTestV2000.mdb",
-        ] {
+        // tblItems has two table events, in the accdb and its two .mdb copies.
+        for file in MACRO_GENERATED_FILES {
             let path = skip_if_missing!(file);
             let mut reader = PageReader::open(&path).unwrap();
             let events: Vec<Option<String>> = read_data_macros(&mut reader, "tblItems")
@@ -1803,7 +1811,15 @@ mod tests {
                 ],
                 "{file}"
             );
+        }
+    }
 
+    #[test]
+    fn read_named_data_macros_generated_files() {
+        // tblNamed has one named data macro with a parameter.
+        for file in MACRO_GENERATED_FILES {
+            let path = skip_if_missing!(file);
+            let mut reader = PageReader::open(&path).unwrap();
             let macros = read_data_macros(&mut reader, "tblNamed").unwrap();
             assert_eq!(macros.len(), 1, "{file}");
             assert_eq!(
@@ -1999,56 +2015,52 @@ mod tests {
         ));
     }
 
+    /// A row of the grid of an action alone, without a macro name, a
+    /// condition or a comment.
+    fn action_row(row: u16, action_code: u16, arguments: &[Option<&str>]) -> MacroGridRow {
+        grid_row(row, action_code, None, None, None, arguments)
+    }
+
     #[test]
     fn read_macro_grid_real_files() {
         for file in MACRO_TEST_FILES {
             let path = skip_if_missing!(file);
             let mut reader = PageReader::open(&path).unwrap();
-
             let grid = read_macro(&mut reader, "mcrSimple").unwrap().grid.unwrap();
             assert_eq!(grid.columns_shown, 0, "{file}");
+            let open_form = [
+                Some("frmEmbedded"),
+                Some("0"),
+                None,
+                None,
+                Some("-1"),
+                Some("0"),
+            ];
             assert_eq!(
                 grid.rows[..3],
                 [
-                    grid_row(
-                        1,
-                        0x17,
-                        None,
-                        None,
-                        None,
-                        &[
-                            Some("frmEmbedded"),
-                            Some("0"),
-                            None,
-                            None,
-                            Some("-1"),
-                            Some("0")
-                        ]
-                    ),
-                    grid_row(
+                    action_row(1, 0x17, &open_form),
+                    action_row(
                         2,
                         0x16,
-                        None,
-                        None,
-                        None,
                         &[Some("Hello"), Some("0"), Some("4"), Some("Title")]
                     ),
-                    grid_row(
-                        3,
-                        0x16,
-                        None,
-                        None,
-                        None,
-                        &[Some("Default"), Some("-1"), Some("0")]
-                    ),
+                    action_row(3, 0x16, &[Some("Default"), Some("-1"), Some("0")]),
                 ],
                 "{file}"
             );
             // The XML follows as comment rows.
             assert!(grid.rows[3..].iter().all(|r| r.action_code == 0
                 && r.comment.as_deref().is_some_and(|c| c.starts_with("_AXL:"))));
+        }
+    }
 
-            // An If block is stored as conditions on internal SetLocalVar rows.
+    #[test]
+    fn read_macro_grid_of_conditions_real_files() {
+        // An If block is stored as conditions on internal SetLocalVar rows.
+        for file in MACRO_TEST_FILES {
+            let path = skip_if_missing!(file);
+            let mut reader = PageReader::open(&path).unwrap();
             let grid = read_macro(&mut reader, "mcrConditions")
                 .unwrap()
                 .grid
@@ -2060,14 +2072,7 @@ mod tests {
             );
             assert_eq!(
                 grid.rows[1],
-                grid_row(
-                    2,
-                    0x52,
-                    None,
-                    None,
-                    None,
-                    &[Some("__*L0_"), Some("[TempVars]![x]=1")]
-                ),
+                action_row(2, 0x52, &[Some("__*L0_"), Some("[TempVars]![x]=1")]),
                 "{file}"
             );
             assert_eq!(
@@ -2110,49 +2115,63 @@ mod tests {
                 "Suppliers"
             ]
         );
+    }
 
+    /// The statements of the macro Customers of nwind.mdb.
+    fn customers_statements() -> Vec<MacroStatement> {
+        let comment = |text: &str| MacroStatement::Comment(text.to_string());
+        vec![
+            comment("Attached to the Customers form."),
+            comment("Attached to the BeforeUpdate event of the CustomerID field."),
+            MacroStatement::SubMacro {
+                name: "ValidateID".to_string(),
+                statements: vec![
+                    MacroStatement::Conditional {
+                        branches: vec![MacroBranch {
+                            condition: Some("DLookUp(\"[CustomerID]\",\"[Customers]\",\"[CustomerID] = Form.[CustomerID] \") Is Not Null".to_string()),
+                            statements: vec![
+                                comment("If the value of CustomerID is not unique, display a message."),
+                                action(
+                                    "MessageBox",
+                                    &[
+                                        ("Message", "The Customer ID you entered already exists. Enter a unique ID."),
+                                        ("Beep", "Yes"),
+                                        ("Type", "Information"),
+                                        ("Title", "Duplicate Customer ID"),
+                                    ]
+                                ),
+                                comment("Return to the CustomerID control."),
+                                action("CancelEvent", &[]),
+                            ],
+                        }],
+                    },
+                    comment("Attached to the AfterUpdate event of the form."),
+                ],
+            },
+            MacroStatement::SubMacro {
+                name: "Update Country List".to_string(),
+                statements: vec![
+                    comment("Requery the Country control."),
+                    action("Requery", &[("ControlName", "Country")]),
+                ],
+            },
+        ]
+    }
+
+    #[test]
+    fn access_97_macro_statements() {
+        let path = skip_if_missing!("V1997/nwind.mdb");
+        let mut reader = PageReader::open(&path).unwrap();
         let def = read_macro(&mut reader, "Customers").unwrap();
         assert_eq!(def.xml, "");
-        let comment = |text: &str| MacroStatement::Comment(text.to_string());
-        assert_eq!(
-            def.statements,
-            [
-                comment("Attached to the Customers form."),
-                comment("Attached to the BeforeUpdate event of the CustomerID field."),
-                MacroStatement::SubMacro {
-                    name: "ValidateID".to_string(),
-                    statements: vec![
-                        MacroStatement::Conditional {
-                            branches: vec![MacroBranch {
-                                condition: Some("DLookUp(\"[CustomerID]\",\"[Customers]\",\"[CustomerID] = Form.[CustomerID] \") Is Not Null".to_string()),
-                                statements: vec![
-                                    comment("If the value of CustomerID is not unique, display a message."),
-                                    action(
-                                        "MessageBox",
-                                        &[
-                                            ("Message", "The Customer ID you entered already exists. Enter a unique ID."),
-                                            ("Beep", "Yes"),
-                                            ("Type", "Information"),
-                                            ("Title", "Duplicate Customer ID"),
-                                        ]
-                                    ),
-                                    comment("Return to the CustomerID control."),
-                                    action("CancelEvent", &[]),
-                                ],
-                            }],
-                        },
-                        comment("Attached to the AfterUpdate event of the form."),
-                    ],
-                },
-                MacroStatement::SubMacro {
-                    name: "Update Country List".to_string(),
-                    statements: vec![
-                        comment("Requery the Country control."),
-                        action("Requery", &[("ControlName", "Country")]),
-                    ],
-                },
-            ]
-        );
+        assert_eq!(def.statements, customers_statements());
+    }
+
+    #[test]
+    fn access_97_macro_grid() {
+        let path = skip_if_missing!("V1997/nwind.mdb");
+        let mut reader = PageReader::open(&path).unwrap();
+        let def = read_macro(&mut reader, "Customers").unwrap();
         let grid = def.grid.unwrap();
         assert_eq!(grid.columns_shown, 3);
         assert_eq!(
@@ -2178,7 +2197,12 @@ mod tests {
                 grid_row(8, 0x1C, Some("Update Country List"), None, Some("Requery the Country control."), &[Some("Country")]),
             ]
         );
+    }
 
+    #[test]
+    fn access_97_macro_grid_of_autokeys() {
+        let path = skip_if_missing!("V1997/nwind.mdb");
+        let mut reader = PageReader::open(&path).unwrap();
         let grid = read_macro(&mut reader, "Sample Autokeys")
             .unwrap()
             .grid
