@@ -1,6 +1,6 @@
 // デモのページ: 右に出す中身を、オブジェクトの種類ごとに作る。
 // 開いているデータベースと文字の表は、ViewContext として引数でもらう
-import { codeOf, el, failure, fileName, messageOf, saveButton, sizeOf, table, tabs, textView, value, } from "./dom.js";
+import { codeOf, el, failure, fileName, reasonOf, saveButton, sizeOf, table, tabs, textView, value, } from "./dom.js";
 // URL の # の形: #database、#table/<名前> など
 export const hashOf = (kind, name) => kind === "database"
     ? "#database"
@@ -135,8 +135,11 @@ export function ddlView({ db, t }, tableName) {
 // ---- リレーションシップ ----
 export function showRelationship({ db, t }, name) {
     const r = db.relationships({ system: true }).find((x) => x.name === name);
+    // 無い名前は jetdb のエラーと同じ形（code 付き）で投げる。code の無いエラーは、止まった知らせになる
     if (!r)
-        throw new Error(`no relationship named ${name}`);
+        throw Object.assign(new Error(`no relationship named ${name}`), {
+            code: "RELATIONSHIP_NOT_FOUND",
+        });
     const tableLink = (n) => el("a", { href: hashOf("table", n) }, n);
     return [
         el("p", { class: "viewer-relation" }, tableLink(r.fromTable), " → ", tableLink(r.toTable)),
@@ -223,7 +226,7 @@ export function formStreams({ db, t }, name, type) {
             size =
                 codeOf(e) === "FORM_NOT_FOUND"
                     ? t.noStream
-                    : t.couldNotRead(messageOf(e));
+                    : t.couldNotRead(reasonOf(t, e));
         }
         return [stream, t.streamKinds[stream], size];
     })));

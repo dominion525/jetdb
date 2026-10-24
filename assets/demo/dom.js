@@ -22,8 +22,14 @@ export const messageOf = (e) => e instanceof Error ? e.message : String(e);
 export const codeOf = (e) => e instanceof Error && "code" in e && typeof e.code === "string"
     ? e.code
     : undefined;
+/**
+ * 読めなかった理由の文。jetdb のエラー（code がある）はその文のまま。
+ * code の無いエラーは、jetdb-wasm が途中で止まった（パニックした）しるしで、
+ * その Database はもう使えないので、別のファイルを開くよう促す文に元の文を添える
+ */
+export const reasonOf = (t, e) => codeOf(e) === undefined ? t.stopped(messageOf(e)) : messageOf(e);
 // 読めなかったときに、その場に出す一文
-export const failure = (t, e) => el("p", { class: "viewer-error" }, t.couldNotRead(messageOf(e)));
+export const failure = (t, e) => el("p", { class: "viewer-error" }, t.couldNotRead(reasonOf(t, e)));
 // 見出しの行と行の配列から表を作る。値は文字列か要素
 export function table(headers, rows) {
     return el("div", { class: "viewer-table-wrap" }, el("table", { class: "viewer-table" }, el("thead", {}, el("tr", {}, headers.map((h) => el("th", { scope: "col" }, h)))), el("tbody", {}, rows.map((r) => el("tr", {}, r.map((c) => el("td", {}, c)))))));

@@ -43,9 +43,17 @@ export const codeOf = (e: unknown): string | undefined =>
     ? e.code
     : undefined;
 
+/**
+ * 読めなかった理由の文。jetdb のエラー（code がある）はその文のまま。
+ * code の無いエラーは、jetdb-wasm が途中で止まった（パニックした）しるしで、
+ * その Database はもう使えないので、別のファイルを開くよう促す文に元の文を添える
+ */
+export const reasonOf = (t: Messages, e: unknown): string =>
+  codeOf(e) === undefined ? t.stopped(messageOf(e)) : messageOf(e);
+
 // 読めなかったときに、その場に出す一文
 export const failure = (t: Messages, e: unknown) =>
-  el("p", { class: "viewer-error" }, t.couldNotRead(messageOf(e)));
+  el("p", { class: "viewer-error" }, t.couldNotRead(reasonOf(t, e)));
 
 // 見出しの行と行の配列から表を作る。値は文字列か要素
 export function table(headers: string[], rows: Child[][]) {

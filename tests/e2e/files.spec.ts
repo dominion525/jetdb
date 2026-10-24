@@ -1,6 +1,9 @@
 // デモで jetdb 本体の testdata のファイルを開く: パスワード付き、Access でないもの、
-// 添付ファイルなどの複合列、マクロの多いファイル
-import { readFileSync } from "node:fs";
+// 添付ファイルなどの複合列、マクロの多いファイル、jetdb-wasm が途中で止まる壊れたファイル
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
 import { needWasm, openDemo, openFile, testdata } from "./helpers.ts";
 
@@ -141,4 +144,55 @@ test("Access 2000 の形式のフォーム: プロパティを名前で出し、
   const list = detail.locator("table").first();
   await expect(list.locator("th")).toHaveText(["Name", "Type", "Index"]);
   expect(await list.locator("tbody tr").count()).toBeGreaterThan(0);
+});
+
+const SAMPLE = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "../../assets/jetdb-sample.accdb",
+);
+
+/**
+ * サンプルのバイトを決まった種で書き換えて壊したファイルを、一時の場所に作る。
+ * モジュールの一覧を読む所で jetdb-wasm がパニックする（jetdb 本体が VBA を読む ovba の中）。
+ * 本体がこれをエラーとして返すようになると、このテストは落ちるので、そのときに見直す
+ */
+function corruptedSample(): string {
+  const src = readFileSync(SAMPLE);
+  const page = 4096;
+  let seed = 12345;
+  const rnd = () => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed / 0x7fffffff;
+  };
+  // 400 バイトずつ書き換えた写しの 3 つ目（最初の 2 つは止まらない）
+  let bytes = Buffer.from(src);
+  for (let k = 0; k < 3; k++) {
+    bytes = Buffer.from(src);
+    for (let i = 0; i < 400; i++) {
+      const pos = page + Math.floor(rnd() * (bytes.length - page));
+      bytes[pos] = Math.floor(rnd() * 256);
+    }
+  }
+  const path = join(mkdtempSync(join(tmpdir(), "jetdb-demo-")), "broken.accdb");
+  writeFileSync(path, bytes);
+  return path;
+}
+
+test("jetdb-wasm が途中で止まる壊れたファイル: 止まった知らせを出し、次のファイルは開ける", async ({
+  page,
+}) => {
+  const file = corruptedSample();
+  await openDemo(page, "/demo/");
+  await openFile(page, file);
+  await expect(page.locator("#demo-current")).toHaveText("broken.accdb");
+  // モジュールの一覧で止まり、そのあとは何を読んでも止まった知らせになる
+  await expect(page.locator("#demo-counts li").nth(5)).toHaveText("— modules");
+  await expect(page.locator(".viewer-group .viewer-error").first()).toHaveText(
+    /^Could not read: jetdb stopped partway through this file\. Open another file or reload the page \(.+\)\.$/,
+  );
+  // 止まった Database を抱えたまま、別のファイルを開ける
+  await openFile(page, SAMPLE);
+  await expect(page.locator("#demo-current")).toHaveText("jetdb-sample.accdb");
+  await expect(page.locator("#demo-counts li").nth(5)).toHaveText("2 modules");
+  await expect(page.locator("#demo-status")).toHaveText("");
 });

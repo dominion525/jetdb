@@ -15,7 +15,7 @@ import {
   el,
   failure,
   fileName,
-  messageOf,
+  reasonOf,
   saveButton,
   sizeOf,
   table,
@@ -247,7 +247,11 @@ export function ddlView({ db, t }: ViewContext, tableName: string | null) {
 
 export function showRelationship({ db, t }: ViewContext, name: string) {
   const r = db.relationships({ system: true }).find((x) => x.name === name);
-  if (!r) throw new Error(`no relationship named ${name}`);
+  // 無い名前は jetdb のエラーと同じ形（code 付き）で投げる。code の無いエラーは、止まった知らせになる
+  if (!r)
+    throw Object.assign(new Error(`no relationship named ${name}`), {
+      code: "RELATIONSHIP_NOT_FOUND",
+    });
   const tableLink = (n: string) => el("a", { href: hashOf("table", n) }, n);
   return [
     el(
@@ -410,7 +414,7 @@ export function formStreams(
           size =
             codeOf(e) === "FORM_NOT_FOUND"
               ? t.noStream
-              : t.couldNotRead(messageOf(e));
+              : t.couldNotRead(reasonOf(t, e));
         }
         return [stream, t.streamKinds[stream], size];
       }),

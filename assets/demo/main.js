@@ -1,7 +1,7 @@
 // デモのページ（/demo/ と /ja/demo/）の入り口: jetdb（WebAssembly 版）でデータベースを開き、中身を見せる。
 // 最初はサイトに置いたサンプルを開く。利用者が選んだファイルはブラウザの外に送らない。
 // 紹介ページの動きは src/main.ts にある
-import { codeOf, el, messageOf } from "./dom.js";
+import { codeOf, el, messageOf, reasonOf } from "./dom.js";
 import { MESSAGES } from "./messages.js";
 import { detailView, hashOf } from "./views.js";
 // ページの言語の文字
@@ -64,7 +64,7 @@ function listObjects(db, system) {
             return { kind, one, many, title, names: read(db, system) };
         }
         catch (e) {
-            return { kind, one, many, title, error: messageOf(e) };
+            return { kind, one, many, title, error: reasonOf(T, e) };
         }
     });
 }
@@ -92,12 +92,17 @@ function open(bytes, label, name, password) {
         status.textContent =
             code === "INVALID_FILE"
                 ? T.invalidFile(name, messageOf(e))
-                : T.openFailed(name, messageOf(e));
+                : T.openFailed(name, reasonOf(T, e));
         return;
     }
     pending = null;
     passwordForm.hidden = true;
-    db?.free();
+    try {
+        db?.free();
+    }
+    catch {
+        // 途中で止まった（パニックした）Database は解放できない。残したまま差し替える
+    }
     db = next;
     byId("demo-current").textContent = label;
     showSummary(next, name);
@@ -245,10 +250,16 @@ input.addEventListener("change", async () => {
     if (!file)
         return;
     status.textContent = T.opening(file.name);
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    // 開いている間は画面が止まるので、先に「開いています」を描かせる
-    await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve)));
-    open(bytes, file.name, file.name, null);
+    try {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        // 開いている間は画面が止まるので、先に「開いています」を描かせる
+        await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve)));
+        open(bytes, file.name, file.name, null);
+    }
+    catch (e) {
+        // ファイルを読めなかった（選んだあとに消された、など）。開く処理のエラーは open() が出す
+        status.textContent = T.openFailed(file.name, messageOf(e));
+    }
 });
 passwordForm.addEventListener("submit", (event) => {
     event.preventDefault();

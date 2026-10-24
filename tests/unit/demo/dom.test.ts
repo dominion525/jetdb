@@ -5,6 +5,7 @@ import {
   failure,
   fileName,
   messageOf,
+  reasonOf,
   sizeOf,
   table,
   tabs,
@@ -64,10 +65,30 @@ describe("エラーの文と code", () => {
     expect(codeOf({ code: "INVALID_FILE" })).toBeUndefined();
   });
 
+  it("読めなかった理由: jetdb のエラーはその文、code の無いエラーは止まった知らせ", () => {
+    const jetdbError = Object.assign(new Error("bad page"), {
+      code: "INVALID_FILE",
+    });
+    expect(reasonOf(t, jetdbError)).toBe("bad page");
+    // jetdb-wasm がパニックすると、code の無い RuntimeError や Error が来る
+    expect(reasonOf(t, new WebAssembly.RuntimeError("unreachable"))).toBe(
+      "jetdb stopped partway through this file. Open another file or reload the page (unreachable).",
+    );
+    expect(reasonOf(MESSAGES.ja, new Error("recursive use"))).toBe(
+      "jetdb がこのファイルの途中で止まりました。別のファイルを開くか、ページを読み込み直してください（recursive use）。",
+    );
+  });
+
   it("読めなかったときの一文", () => {
-    const p = failure(t, new Error("bad page"));
+    const p = failure(
+      t,
+      Object.assign(new Error("bad page"), { code: "INVALID_FILE" }),
+    );
     expect(p.className).toBe("viewer-error");
     expect(p.textContent).toBe("Could not read: bad page");
+    expect(failure(t, new Error("unreachable")).textContent).toBe(
+      "Could not read: jetdb stopped partway through this file. Open another file or reload the page (unreachable).",
+    );
   });
 });
 
@@ -324,7 +345,9 @@ describe("タブ", () => {
 
   it("中身を作れなかったら、その場に読めなかった一文を出す", () => {
     const { panel, buttons } = setUp(() => {
-      throw new Error("no such table");
+      throw Object.assign(new Error("no such table"), {
+        code: "TABLE_NOT_FOUND",
+      });
     });
     buttons[1]?.click();
     expect(panel.textContent).toBe("Could not read: no such table");

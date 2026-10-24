@@ -37,6 +37,8 @@ const en = {
     `Could not open ${name}: it is not an Access database, or it is damaged (${msg}).`,
   openFailed: (name: string, msg: string) => `Could not open ${name}: ${msg}`,
   couldNotRead: (msg: string) => `Could not read: ${msg}`,
+  stopped: (msg: string) =>
+    `jetdb stopped partway through this file. Open another file or reload the page (${msg}).`,
   objectToShow: "Object to show",
   none: "None.",
   noneValue: "none",
@@ -161,6 +163,8 @@ const ja: Messages = {
     `${name} を開けませんでした。Access のデータベースではないか、壊れています（${msg}）。`,
   openFailed: (name, msg) => `${name} を開けませんでした: ${msg}`,
   couldNotRead: (msg) => `読めませんでした: ${msg}`,
+  stopped: (msg) =>
+    `jetdb がこのファイルの途中で止まりました。別のファイルを開くか、ページを読み込み直してください（${msg}）。`,
   objectToShow: "表示するオブジェクト",
   none: "ありません。",
   noneValue: "なし",
