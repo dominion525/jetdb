@@ -127,13 +127,13 @@ cargo install rust-code-analysis-cli --locked
 Measure test coverage using LLVM source-based code coverage.
 
 ```bash
-cargo llvm-cov --workspace
+cargo llvm-cov --workspace --ignore-filename-regex 'jetdb-wasm/src/js\.rs'
 ```
 
 HTML report:
 
 ```bash
-cargo llvm-cov --workspace --html
+cargo llvm-cov --workspace --html --ignore-filename-regex 'jetdb-wasm/src/js\.rs'
 ```
 
 The HTML report is output to `target/llvm-cov/html/index.html`.
@@ -149,6 +149,8 @@ cargo install cargo-llvm-cov
 CI measures the same in its Coverage job, after fetching the test data, and shows the table of files in the summary of the run. For a pull request from this repository, it also puts the table in a comment on the pull request, which each push updates.
 
 #### Coverage Notes
+
+`jetdb-wasm/src/js.rs`, which turns the values of the library into JavaScript values, is left out: the JavaScript tests of the package (`scripts/test-wasm-package.sh` and `scripts/test-wasm-browser.sh`) exercise it, and llvm-cov counts only what the Rust tests run.
 
 Most uncovered lines are error paths that valid database files do not reach: error-mapping closures (`.map_err`), `.ok_or()` error paths for missing columns, XML parse error branches, and `continue` branches for malformed data. llvm-cov counts each closure as a separate function, which makes the function coverage look lower than the line coverage. The coverage of each file is in the table of the Coverage job of CI.
 
@@ -171,7 +173,7 @@ The quality check script runs checks in the following order:
 3. Wasm — Run the library tests on WASI and the browser tests on Node.js, and build and test the npm package
 4. `cargo audit` — Check for security issues
 5. `cargo doc --workspace` — Verify documentation builds correctly, without warnings
-6. `cargo llvm-cov --workspace` — Measure test coverage
+6. `cargo llvm-cov --workspace` — Measure test coverage, without `jetdb-wasm/src/js.rs`
 7. `rust-code-analysis-cli` — Measure code complexity
 
 Tests and clippy are fatal — the script aborts if either fails. Coverage and complexity run last because they take the longest.
