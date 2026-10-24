@@ -224,7 +224,7 @@ fn main() -> Result<(), jetdb::FileError> {
     let catalog = read_catalog(&mut reader)?;
     let entry = find_table(&catalog, "Products")?;
     let table = read_table_def(&mut reader, &entry.name, entry.table_page)?;
-    let i = table.columns.iter().position(|c| c.name == "Tags").expect("column not found");
+    let i = table.columns.iter().position(|c| c.name == "Tags").expect("列が見つかりません");
     let Some(tags) = read_complex_column(&mut reader, &catalog, &table, &table.columns[i])? else {
         return Ok(());
     };
