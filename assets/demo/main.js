@@ -1,7 +1,6 @@
 // デモのページ（/demo/ と /ja/demo/）の入り口: jetdb（WebAssembly 版）でデータベースを開き、中身を見せる。
 // 最初はサイトに置いたサンプルを開く。利用者が選んだファイルはブラウザの外に送らない。
 // 紹介ページの動きは src/main.ts にある
-import init, { Database } from "/assets/wasm/jetdb_wasm.js";
 import { codeOf, el, messageOf } from "./dom.js";
 import { MESSAGES } from "./messages.js";
 import { detailView, hashOf } from "./views.js";
@@ -23,6 +22,9 @@ const passwordInput = byId("demo-password-input");
 const systemToggle = byId("demo-system");
 const nav = byId("demo-nav");
 const detail = byId("demo-detail");
+// jetdb-wasm。サイトの /assets/wasm/ から、起動の中で読む。
+// ファイルの頭の import で読むと、読めなかったときにモジュールごと止まり、エラーの一文も出せないため
+let jetdb = null;
 // 今開いているデータベースと、パスワードを待っているファイル
 let db = null;
 let pending = null;
@@ -68,9 +70,11 @@ function listObjects(db, system) {
 }
 // 開けたら、前のデータベースを解放して差し替える。パスワードが要るときは欄を出す
 function open(bytes, label, name, password) {
+    if (!jetdb)
+        return;
     let next;
     try {
-        next = Database.open(bytes, password);
+        next = jetdb.Database.open(bytes, password);
     }
     catch (e) {
         const code = codeOf(e);
@@ -223,7 +227,8 @@ systemToggle.addEventListener("change", () => {
     selectFromHash({ replace: true });
 });
 try {
-    await init();
+    jetdb = await import("/assets/wasm/jetdb_wasm.js");
+    await jetdb.default();
     input.disabled = false;
     status.textContent = T.openingSample;
     const response = await fetch(SAMPLE_URL);

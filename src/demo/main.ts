@@ -2,7 +2,7 @@
 // 最初はサイトに置いたサンプルを開く。利用者が選んだファイルはブラウザの外に送らない。
 // 紹介ページの動きは src/main.ts にある
 
-import init, { Database } from "/assets/wasm/jetdb_wasm.js";
+import type { Database } from "/assets/wasm/jetdb_wasm.js";
 import { codeOf, el, messageOf } from "./dom.js";
 import { MESSAGES } from "./messages.js";
 import { type DetailKind, detailView, hashOf, type Kind } from "./views.js";
@@ -26,6 +26,10 @@ const passwordInput = byId<HTMLInputElement>("demo-password-input");
 const systemToggle = byId<HTMLInputElement>("demo-system");
 const nav = byId("demo-nav");
 const detail = byId("demo-detail");
+
+// jetdb-wasm。サイトの /assets/wasm/ から、起動の中で読む。
+// ファイルの頭の import で読むと、読めなかったときにモジュールごと止まり、エラーの一文も出せないため
+let jetdb: typeof import("/assets/wasm/jetdb_wasm.js") | null = null;
 
 // 今開いているデータベースと、パスワードを待っているファイル
 let db: Database | null = null;
@@ -93,9 +97,10 @@ function open(
   name: string,
   password: string | null,
 ) {
+  if (!jetdb) return;
   let next: Database;
   try {
-    next = Database.open(bytes, password);
+    next = jetdb.Database.open(bytes, password);
   } catch (e) {
     const code = codeOf(e);
     if (code === "PASSWORD_REQUIRED" || code === "INVALID_PASSWORD") {
@@ -270,7 +275,8 @@ systemToggle.addEventListener("change", () => {
 });
 
 try {
-  await init();
+  jetdb = await import("/assets/wasm/jetdb_wasm.js");
+  await jetdb.default();
   input.disabled = false;
   status.textContent = T.openingSample;
   const response = await fetch(SAMPLE_URL);
