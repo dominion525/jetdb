@@ -95,3 +95,50 @@ test("マクロが 464 個あるファイル: そのまとまりだけ最初は�
     page.getByRole("button", { name: "n1_RunCode", exact: true }),
   ).toHaveAttribute("aria-current", "true");
 });
+
+test("日本語の Access 97: データベースのコードページで読み、日本語が化けない", async ({
+  page,
+}) => {
+  const file = testdata("V1997/japaneseTestV1997.mdb");
+  await openDemo(page, "/ja/demo/");
+  await openFile(page, file);
+  await expect(page.locator("#demo-current")).toHaveText(
+    "japaneseTestV1997.mdb",
+  );
+  await expect(page.locator("#demo-version")).toHaveText("JET3");
+  await expect(
+    page.getByRole("button", { name: "顧客一覧", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "顧客", exact: true }).click();
+  const cells = page.locator("#demo-detail tbody td");
+  await expect(cells.filter({ hasText: "山田太郎" })).toHaveCount(1);
+  await expect(cells.filter({ hasText: "①～髙" })).toHaveCount(1);
+});
+
+test("Access 2000 の形式のフォーム: プロパティを名前で出し、コントロールの一覧も出す", async ({
+  page,
+}) => {
+  const file = testdata("V2000/propertyIdTestV2000.mdb");
+  await openDemo(page, "/demo/");
+  await openFile(page, file);
+  await expect(page.locator("#demo-current")).toHaveText(
+    "propertyIdTestV2000.mdb",
+  );
+  await expect(page.locator("#demo-version")).toHaveText("JET4");
+  await expect(page.locator("#demo-counts li").nth(2)).toHaveText("87 forms");
+  await expect(page.locator("#demo-counts li").nth(3)).toHaveText("19 reports");
+  // 50 個を超えるまとまりは最初は閉じているので、開いてから選ぶ
+  const forms = page.locator(".viewer-group", {
+    has: page.locator("summary", { hasText: "Forms (87)" }),
+  });
+  await expect(forms).not.toHaveAttribute("open");
+  await forms.locator("summary").click();
+  await forms.locator(".viewer-item").first().click();
+  const detail = page.locator("#demo-detail");
+  await expect(detail.locator(".viewer-type")).toHaveText("form");
+  await expect(detail.locator("tbody")).toContainText("DividingLines");
+  await detail.getByRole("tab", { name: "Controls" }).click();
+  const list = detail.locator("table").first();
+  await expect(list.locator("th")).toHaveText(["Name", "Type", "Index"]);
+  expect(await list.locator("tbody tr").count()).toBeGreaterThan(0);
+});
