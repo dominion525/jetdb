@@ -254,3 +254,32 @@ test("サンプルだけ読めなかったら、そう書いて、自分のフ�
   );
   await expect(page.locator("#demo-result")).toBeVisible();
 });
+
+test("前のファイルにしか無い # に戻っても、履歴が足されずに抜け出せる", async ({
+  page,
+}) => {
+  const file = testdata("V2007/complexDataTestV2007.accdb");
+  // 紹介ページ → デモ → tblOrders → tblCustomers の順に履歴を作る
+  await page.goto("/");
+  await openDemo(page, "/demo/");
+  await page.getByRole("button", { name: "tblOrders", exact: true }).click();
+  await expect(detail(page).locator("h2")).toHaveText("tblOrders");
+  await page.getByRole("button", { name: "tblCustomers", exact: true }).click();
+  await expect(detail(page).locator("h2")).toHaveText("tblCustomers");
+  // tblOrders の無いファイルを開く
+  await openFile(page, file);
+  await expect(page.locator("#demo-current")).toHaveText(
+    "complexDataTestV2007.accdb",
+  );
+  await expect(page).toHaveURL(/#database$/);
+  // 戻ると tblOrders の # になるが、このファイルに無いので #database に置き換わる（履歴は足さない）
+  await page.goBack();
+  await expect(page).toHaveURL(/#database$/);
+  await expect(detail(page).locator("h2")).toHaveText("Database");
+  // さらに 2 回戻ると、紹介ページまで戻れる
+  await page.goBack();
+  await expect(page).toHaveURL(/\/demo\/#database$/);
+  await page.goBack();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.locator("h1")).not.toHaveText("Demo in the browser");
+});

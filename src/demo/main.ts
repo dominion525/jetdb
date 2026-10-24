@@ -131,7 +131,7 @@ function open(
   byId("demo-current").textContent = label;
   showSummary(next, name);
   showNav(next);
-  selectFromHash({ replace: true });
+  selectFromHash();
   status.textContent = "";
 }
 
@@ -251,16 +251,15 @@ function markCurrent() {
   if (select) select.value = location.hash;
 }
 
-// # のものを右に出す。開いたファイルに無いもの、# が無いときは Database を出す
-function selectFromHash({ replace = false } = {}) {
+// # のものを右に出す。開いたファイルに無いもの、# が無いときは Database を出す。
+// # の置き換えは replaceState で行う。location.hash に代入すると履歴に足され、hashchange も起きて
+// 中身を 2 回作り直す（戻るボタンで前のファイルにしか無い # に戻るたびに #database が足され、抜け出せなくなる）
+function selectFromHash() {
   if (!db) return;
   const known = [...nav.querySelectorAll<HTMLElement>(".viewer-item")].some(
     (b) => b.dataset.hash === location.hash,
   );
-  if (!known) {
-    if (replace) history.replaceState(null, "", "#database");
-    else location.hash = "#database";
-  }
+  if (!known) history.replaceState(null, "", "#database");
   const [kind, ...rest] = location.hash.slice(1).split("/");
   const name = rest.length ? decodeURIComponent(rest.join("/")) : "";
   markCurrent();
@@ -275,7 +274,7 @@ window.addEventListener("hashchange", () => selectFromHash());
 systemToggle.addEventListener("change", () => {
   if (!db) return;
   showNav(db);
-  selectFromHash({ replace: true });
+  selectFromHash();
 });
 
 // ファイルを選んだときとパスワードを入れたときの処理は、起動より先に付ける。
