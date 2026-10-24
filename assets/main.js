@@ -1,5 +1,5 @@
 "use strict";
-// 紹介ページの小さな動き: コマンドのコピーボタン、インストール方法のタブ、ダミーのリンク。
+// 紹介ページの小さな動き: コマンドのコピーボタンと、インストール方法のタブ。
 // HTML から <script defer> で読む（モジュールではない）ので、import / export は書かない。
 // サイトの全部のページが読む（コピーボタンとタブがあるのは紹介ページ）。デモの動きは src/demo/ にある
 document.documentElement.classList.add("js");
@@ -97,16 +97,9 @@ function setUpTabs(tablist) {
     const initial = tabs.findIndex((tab) => tab.getAttribute("aria-selected") === "true");
     select(initial === -1 ? 0 : initial, false);
 }
-// ---- まだ無いページへのダミーのリンク（公開の前に外す）----
-function disableDummyLink(link) {
-    link.addEventListener("click", (event) => event.preventDefault());
-}
 for (const button of document.querySelectorAll(".copy-btn")) {
     setUpCopyButton(button);
 }
 for (const tablist of document.querySelectorAll('[role="tablist"]')) {
     setUpTabs(tablist);
-}
-for (const link of document.querySelectorAll('a.dummy[aria-disabled="true"]')) {
-    disableDummyLink(link);
 }

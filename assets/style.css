@@ -787,29 +787,6 @@ pre {
   background: rgb(var(--accent-rgb) / 0.12);
 }
 
-/* ダミーの印（公開の前に外す） */
-
-.dummy-badge {
-  display: inline-block;
-  margin-left: 8px;
-  padding: 0 8px;
-  border: 1px dashed #b00020;
-  border-radius: 4px;
-  color: #b00020;
-  font-size: 0.75rem;
-  font-weight: 600;
-  vertical-align: middle;
-}
-
-.dummy-note .dummy-badge {
-  margin: 0 8px 0 0;
-}
-
-.dummy {
-  outline: 2px dashed #b00020;
-  outline-offset: 4px;
-}
-
 /* デモのページ */
 
 .demo {

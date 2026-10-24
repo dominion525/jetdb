@@ -157,18 +157,3 @@ describe("インストール方法のタブ", () => {
     ]);
   });
 });
-
-describe("ダミーのリンク", () => {
-  it("押しても飛ばない", async () => {
-    await loadMain(
-      '<a class="dummy" aria-disabled="true" href="#gone">soon</a><a id="real" href="#here">here</a>',
-    );
-    const dummy = new MouseEvent("click", { bubbles: true, cancelable: true });
-    $("a.dummy").dispatchEvent(dummy);
-    expect(dummy.defaultPrevented).toBe(true);
-    // ふつうのリンクは止めない（# だけのリンクなので、押してもページは移らない）
-    const real = new MouseEvent("click", { bubbles: true, cancelable: true });
-    $("#real").dispatchEvent(real);
-    expect(real.defaultPrevented).toBe(false);
-  });
-});
