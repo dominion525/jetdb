@@ -22,7 +22,7 @@ Microsoft Access データベースはファイル形式に応じて異なる暗
 
 vMajor=2/3/4, vMinor=2 の場合、flags フィールド（EncryptionInfo のオフセット 4）でサブタイプが決まります：
 - `FCRYPTO_API_FLAG (0x04)` + `FAES_FLAG (0x20)` の両方がセット: Standard AES
-- `FCRYPTO_API_FLAG (0x04)` のみセット: RC4 CryptoAPI または NonStandard AES（EncryptionHeader の algId で判定）
+- `FCRYPTO_API_FLAG (0x04)` がセットで `FAES_FLAG (0x20)` がセットでない: RC4 CryptoAPI または NonStandard AES（EncryptionHeader の algId で判定）
 
 ## アルゴリズム詳細
 
