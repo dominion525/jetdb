@@ -634,6 +634,20 @@ impl TableSource {
         }
     }
 
+    /// Adds `on`, a condition of a join of the tables `a` and `b`, to the
+    /// innermost join that holds both, when that join is of the type `jtype`,
+    /// as Access writes such a condition there.
+    fn add_join_condition(&mut self, a: &str, b: &str, jtype: i16, on: &str) -> bool {
+        if let TableSource::Join { from, to, .. } = self {
+            for side in [from, to] {
+                if side.contains_table(a) && side.contains_table(b) {
+                    return side.add_join_condition(a, b, jtype, on);
+                }
+            }
+        }
+        self.same_join(jtype, on)
+    }
+
     fn same_join(&mut self, jtype: i16, on: &str) -> bool {
         match self {
             TableSource::Join {
@@ -762,10 +776,12 @@ fn build_from_tables(rows: &[QueryRow]) -> Vec<String> {
 
         if same_source {
             if let Some(idx) = from_idx {
-                if sources[idx].same_join(jtype, on_expr) {
-                    continue;
+                if !sources[idx].add_join_condition(from_table, to_table, jtype, on_expr) {
+                    log::warn!(
+                        "join condition {on_expr} of {from_table} and {to_table} left out: \
+                         the join that holds both is of another type"
+                    );
                 }
-                // Inconsistent join types — skip
                 continue;
             }
         }
@@ -1352,6 +1368,60 @@ mod tests {
 
     fn find_query<'a>(queries: &'a [QueryDef], name: &str) -> &'a QueryDef {
         queries.iter().find(|q| q.name == name).unwrap()
+    }
+
+    /// Queries of Sports.accdb that join two tables by conditions after both
+    /// are inside one join, with the FROM clause of the SQL view of Access,
+    /// which puts the conditions on the innermost join that holds both,
+    /// whatever the type of the joins around it.
+    const INNERMOST_JOINS: [(&str, &str); 4] = [
+        (
+            "Statistics-Age Champion",
+            "FROM House RIGHT JOIN (EventType RIGHT JOIN (((([Sex Sub] RIGHT JOIN Events \
+             ON [Sex Sub].Sex = Events.Sex) INNER JOIN (CompetitorEventAge INNER JOIN \
+             Competitors ON CompetitorEventAge.Cage = Competitors.Age) ON Events.Age = \
+             CompetitorEventAge.Eage) INNER JOIN CompEvents ON Competitors.PIN = \
+             CompEvents.PIN) INNER JOIN Heats ON (Heats.Heat = CompEvents.Heat) AND \
+             (Heats.F_Lev = CompEvents.F_Lev) AND (Heats.E_Code = CompEvents.E_Code) AND \
+             (Events.E_Code = Heats.E_Code)) ON EventType.ET_Code = Events.ET_Code) ON \
+             House.H_Code = Competitors.H_Code",
+        ),
+        (
+            "All Points",
+            "FROM EventType INNER JOIN ((Events INNER JOIN CompEvents ON Events.E_Code = \
+             CompEvents.E_Code) INNER JOIN Heats ON (Heats.Heat = CompEvents.Heat) AND \
+             (Heats.F_Lev = CompEvents.F_Lev) AND (Heats.E_Code = CompEvents.E_Code) AND \
+             (Events.E_Code = Heats.E_Code)) ON EventType.ET_Code = Events.ET_Code",
+        ),
+        (
+            "CompetitorsSubform2",
+            "FROM EventType INNER JOIN (Competitors INNER JOIN ((CompEvents INNER JOIN \
+             Events ON CompEvents.E_Code = Events.E_Code) INNER JOIN (Heats INNER JOIN \
+             PointsScale ON Heats.PtScale = PointsScale.PtScale) ON (Heats.Heat = \
+             CompEvents.Heat) AND (Heats.E_Code = CompEvents.E_Code) AND \
+             (CompEvents.Place = PointsScale.Place)) ON Competitors.PIN = \
+             CompEvents.PIN) ON EventType.ET_Code = Events.ET_Code",
+        ),
+        (
+            "Stats_%_Pts",
+            "FROM House INNER JOIN (Competitors INNER JOIN (CompEvents INNER JOIN (Heats \
+             INNER JOIN PointsScale ON Heats.PtScale = PointsScale.PtScale) ON \
+             (Heats.Heat = CompEvents.Heat) AND (Heats.E_Code = CompEvents.E_Code) AND \
+             (CompEvents.Place = PointsScale.Place)) ON Competitors.PIN = \
+             CompEvents.PIN) ON House.H_Code = Competitors.H_Code",
+        ),
+    ];
+
+    #[test]
+    fn join_conditions_go_to_the_innermost_join_of_both_tables() {
+        let path = skip_if_missing!("saveastext/SportsAdmin/Sports.accdb");
+        let mut reader = PageReader::open(&path).unwrap();
+        let queries = read_queries(&mut reader).unwrap();
+        for (name, expected) in INNERMOST_JOINS {
+            let sql = query_to_sql(find_query(&queries, name));
+            let from = sql.lines().find(|l| l.starts_with("FROM ")).unwrap();
+            assert_eq!(from.trim_end_matches(';'), expected, "{name}");
+        }
     }
 
     #[test]
