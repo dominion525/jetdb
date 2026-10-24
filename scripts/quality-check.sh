@@ -168,7 +168,9 @@ doc_output=$(RUSTDOCFLAGS="-D warnings" cargo doc --workspace 2>&1) && {
 header "Coverage"
 if [ "$HAS_LLVM_COV" = true ]; then
     # Run with test output suppressed; capture only the summary table
-    cov_output=$(cargo llvm-cov --workspace 2>&1) && {
+    # jetdb-wasm/src/js.rs is exercised by the JavaScript tests of the package,
+    # which llvm-cov does not see, so it is left out.
+    cov_output=$(cargo llvm-cov --workspace --ignore-filename-regex 'jetdb-wasm/src/js\.rs' 2>&1) && {
         # Extract the summary table (lines starting with "Filename" through the blank line after TOTAL)
         coverage_summary=$(echo "$cov_output" | sed -n '/^Filename/,/^$/p')
         coverage_pct=$(echo "$cov_output" | grep '^TOTAL' | awk '{

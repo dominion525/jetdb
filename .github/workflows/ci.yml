@@ -157,7 +157,7 @@ jobs:
       - run: scripts/test-wasm-browser.sh
 
   # Measures the line coverage of the workspace, as scripts/quality-check.sh
-  # does, and shows the table of files on the page of the run and, for a pull
+  # does (without jetdb-wasm/src/js.rs, which the JavaScript tests exercise), and shows the table of files on the page of the run and, for a pull
   # request from this repository, in a comment on it. The test data is fetched
   # first: without it the tests that need it are skipped and the numbers
   # change.
@@ -180,7 +180,7 @@ jobs:
       - run: cargo llvm-cov --workspace --no-report
       - name: Show the coverage in the summary of the run
         run: |
-          cargo llvm-cov report --summary-only > coverage.txt
+          cargo llvm-cov report --summary-only --ignore-filename-regex 'jetdb-wasm/src/js\.rs' > coverage.txt
           {
             echo '## Coverage'
             echo

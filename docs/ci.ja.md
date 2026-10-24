@@ -127,13 +127,13 @@ cargo install rust-code-analysis-cli --locked
 LLVM ソースベースのコードカバレッジを使用してテストカバレッジを計測する。
 
 ```bash
-cargo llvm-cov --workspace
+cargo llvm-cov --workspace --ignore-filename-regex 'jetdb-wasm/src/js\.rs'
 ```
 
 HTML レポート:
 
 ```bash
-cargo llvm-cov --workspace --html
+cargo llvm-cov --workspace --html --ignore-filename-regex 'jetdb-wasm/src/js\.rs'
 ```
 
 HTML レポートは `target/llvm-cov/html/index.html` に出力される。
@@ -149,6 +149,8 @@ cargo install cargo-llvm-cov
 CI では、Coverage のジョブが、テストデータを取ってから同じものを測り、ファイル別の表を実行のサマリーに出す。このリポジトリのブランチからの PR では、同じ表を PR のコメントにも出し、push のたびにそのコメントを書き直す。
 
 #### カバレッジの注意点
+
+ライブラリの値を JavaScript の値に変える `jetdb-wasm/src/js.rs` は、計測から外す。パッケージの JavaScript のテスト（`scripts/test-wasm-package.sh` と `scripts/test-wasm-browser.sh`）がこれを動かすが、llvm-cov は Rust のテストが通った行しか数えないため。
 
 未カバー行の多くは、エラーマッピングクロージャ (`.map_err`)、カラム欠損時の `.ok_or()` エラーパス、XMLパースのエラー分岐、不正データ時の `continue` 分岐など、正常なデータベースでは到達しない異常系パスである。llvm-cov はクロージャを独立した関数としてカウントするため、関数カバレッジは行カバレッジより低く見える。ファイルごとのカバレッジは、CI の Coverage のジョブの表で見られる。
 
@@ -171,7 +173,7 @@ scripts/quality-check.sh
 3. Wasm — WASI でライブラリのテストを、Node.js 上でブラウザ用テストを実行し、npm パッケージをビルドしてテスト
 4. `cargo audit` — セキュリティ上の問題がないか確認
 5. `cargo doc --workspace` — ドキュメントが警告なしで正しく生成されるか確認
-6. `cargo llvm-cov --workspace` — テストカバレッジを計測
+6. `cargo llvm-cov --workspace` — テストカバレッジを計測（`jetdb-wasm/src/js.rs` を除く）
 7. `rust-code-analysis-cli` — コードの複雑度を計測
 
 テストと clippy は致命的 — いずれかが失敗するとスクリプトは中断する。カバレッジと複雑度は実行時間が長いため最後に実行する。
