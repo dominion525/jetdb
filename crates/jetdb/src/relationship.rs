@@ -268,76 +268,64 @@ mod tests {
         );
     }
 
-    #[test]
-    fn jet4_relationships() {
-        let path = skip_if_missing!("V2003/testV2003.mdb");
-        let mut reader = PageReader::open(&path).unwrap();
-        let rels = read_relationships(&mut reader).unwrap();
+    /// A relationship as names, the column pairs, and its flags of
+    /// referential integrity and cascades.
+    type Summary<'a> = (&'a str, &'a str, &'a str, Vec<(&'a str, &'a str)>, u32);
 
-        // testV2003.mdb should have relationships defined
-        // Each relationship should have non-empty name, tables, and columns
-        for rel in &rels {
-            assert!(
-                !rel.name.is_empty(),
-                "relationship name should not be empty"
-            );
-            assert!(!rel.from_table.is_empty(), "from_table should not be empty");
-            assert!(!rel.to_table.is_empty(), "to_table should not be empty");
-            assert!(
-                !rel.columns.is_empty(),
-                "relationship should have at least one column pair"
-            );
-            for col_pair in &rel.columns {
-                assert!(
-                    !col_pair.from_column.is_empty(),
-                    "from_column should not be empty"
-                );
-                assert!(
-                    !col_pair.to_column.is_empty(),
-                    "to_column should not be empty"
-                );
-            }
-        }
+    fn summary(r: &Relationship) -> Summary<'_> {
+        let kinds = relationship_flags::NO_REFERENTIAL_INTEGRITY
+            | relationship_flags::CASCADE_UPDATE
+            | relationship_flags::CASCADE_DELETE;
+        let columns = r
+            .columns
+            .iter()
+            .map(|c| (c.from_column.as_str(), c.to_column.as_str()))
+            .collect();
+        let tables = (r.from_table.as_str(), r.to_table.as_str());
+        (
+            r.name.as_str(),
+            tables.0,
+            tables.1,
+            columns,
+            r.flags & kinds,
+        )
     }
 
     #[test]
-    fn ace12_relationships() {
-        let path = skip_if_missing!("V2007/testV2007.accdb");
-        let mut reader = PageReader::open(&path).unwrap();
-        let rels = read_relationships(&mut reader).unwrap();
-
-        for rel in &rels {
-            assert!(!rel.name.is_empty());
-            assert!(!rel.from_table.is_empty());
-            assert!(!rel.to_table.is_empty());
-            assert!(!rel.columns.is_empty());
-        }
-    }
-
-    #[test]
-    fn jet3_relationships() {
-        let path = skip_if_missing!("V1997/testV1997.mdb");
-        let mut reader = PageReader::open(&path).unwrap();
-        // Should not panic; may or may not have relationships
-        let rels = read_relationships(&mut reader).unwrap();
-        for rel in &rels {
-            assert!(!rel.name.is_empty());
-        }
-    }
-
-    #[test]
-    fn relationship_flags_check() {
-        let path = skip_if_missing!("V2003/testV2003.mdb");
-        let mut reader = PageReader::open(&path).unwrap();
-        let rels = read_relationships(&mut reader).unwrap();
-
-        // Verify flags field is readable (valid u32)
-        for rel in &rels {
-            // flags should be a valid combination of known bits
-            // (may also include bits we don't define constants for)
-            let _ = rel.flags & relationship_flags::NO_REFERENTIAL_INTEGRITY;
-            let _ = rel.flags & relationship_flags::CASCADE_UPDATE;
-            let _ = rel.flags & relationship_flags::CASCADE_DELETE;
+    fn relationships_of_each_version() {
+        // indexTest of every version has the same two relationships with
+        // referential integrity, from Table1 to Table2 and to Table3. Newer
+        // Access adds some of its own system tables, which are left out.
+        let expected = [
+            (
+                "Table2Table1",
+                "Table1",
+                "Table2",
+                vec![("otherfk1", "id")],
+                relationship_flags::CASCADE_DELETE,
+            ),
+            (
+                "Table3Table1",
+                "Table1",
+                "Table3",
+                vec![("otherfk2", "id")],
+                relationship_flags::CASCADE_UPDATE,
+            ),
+        ];
+        for file in [
+            "V1997/indexTestV1997.mdb",
+            "V2000/indexTestV2000.mdb",
+            "V2003/indexTestV2003.mdb",
+            "V2007/indexTestV2007.accdb",
+            "V2010/indexTestV2010.accdb",
+        ] {
+            let path = skip_if_missing!(file);
+            let mut reader = PageReader::open(&path).unwrap();
+            let mut rels = read_relationships(&mut reader).unwrap();
+            rels.retain(|r| !r.from_table.starts_with("MSys"));
+            rels.sort_by(|a, b| a.name.cmp(&b.name));
+            let read: Vec<Summary> = rels.iter().map(summary).collect();
+            assert_eq!(read, expected, "{file}");
         }
     }
 }
