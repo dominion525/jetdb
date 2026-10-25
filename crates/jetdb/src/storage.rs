@@ -313,26 +313,30 @@ pub(crate) fn parse_dir_data(data: &[u8]) -> Result<Vec<(String, String)>, FileE
 
     let mut entries = Vec::new();
     let mut pos = 4; // skip header
-
-    while pos + 1 < data.len() {
-        if data[pos] != 0x04 {
-            break;
-        }
-        let declared_len = data[pos + 1] as usize;
-        pos += 2; // skip marker and len byte
-
-        if declared_len < 4 || pos + declared_len > data.len() {
-            break;
-        }
-
-        let actual_end = dir_data_payload_end(data, pos, declared_len);
-        if let Some(entry) = dir_data_entry(data, pos, actual_end)? {
+    while let Some((start, end)) = dir_data_payload_at(data, pos) {
+        if let Some(entry) = dir_data_entry(data, start, end)? {
             entries.push(entry);
         }
-        pos = actual_end;
+        pos = end;
     }
-
     Ok(entries)
+}
+
+/// The start and end of the payload of the DirData entry at `pos`, or `None`
+/// when there are no more entries: at another marker, at a declared length
+/// that goes past the data, or at an entry without a null before the end of
+/// the data, which is broken.
+fn dir_data_payload_at(data: &[u8], pos: usize) -> Option<(usize, usize)> {
+    if pos + 1 >= data.len() || data[pos] != 0x04 {
+        return None;
+    }
+    let declared_len = data[pos + 1] as usize;
+    let start = pos + 2; // skip marker and len byte
+    if declared_len < 4 || start + declared_len > data.len() {
+        return None;
+    }
+    let end = dir_data_payload_end(data, start, declared_len)?;
+    Some((start, end))
 }
 
 /// The name and storage index in the payload `data[start..end]` of a DirData
@@ -363,13 +367,13 @@ fn dir_data_entry(
 
 /// The end of the payload of a DirData entry at `pos`, of `declared_len`:
 /// past its null terminator when the payload ends with one; otherwise the
-/// declared length is wrong, and it is past the next u16-aligned 0x0000 (or
-/// the end of the data).
-fn dir_data_payload_end(data: &[u8], pos: usize, declared_len: usize) -> usize {
+/// declared length is wrong, and it is past the next u16-aligned 0x0000.
+/// `None` when there is none before the end of the data.
+fn dir_data_payload_end(data: &[u8], pos: usize, declared_len: usize) -> Option<usize> {
     // Try declared_len first: check if payload ends with 0x0000
     let payload_end = pos + declared_len;
     if payload_end >= 2 && data[payload_end - 2] == 0x00 && data[payload_end - 1] == 0x00 {
-        return payload_end;
+        return Some(payload_end);
     }
 
     // declared_len is wrong; scan forward for the null terminator.
@@ -377,11 +381,11 @@ fn dir_data_payload_end(data: &[u8], pos: usize, declared_len: usize) -> usize {
     let mut scan = payload_end;
     loop {
         if scan + 1 >= data.len() {
-            return scan + 1; // end of data
+            return None; // end of data
         }
         let val = u16::from_le_bytes([data[scan], data[scan + 1]]);
         if val == 0x0000 {
-            return scan + 2; // past the null terminator
+            return Some(scan + 2); // past the null terminator
         }
         scan += 2;
     }
@@ -571,7 +575,14 @@ mod tests {
                 ("Report1".to_string(), "12".to_string())
             ]
         );
+    }
+
+    #[test]
+    fn parse_dir_data_of_no_entries() {
+        // Only the header, and data too short for it.
+        assert_eq!(parse_dir_data(&[0, 0, 0, 0]).unwrap(), []);
         assert_eq!(parse_dir_data(&[0, 0, 0]).unwrap(), []);
+        assert_eq!(parse_dir_data(&[0]).unwrap(), []);
     }
 
     #[test]
@@ -610,16 +621,19 @@ mod tests {
     }
 
     #[test]
-    fn parse_dir_data_with_a_length_to_the_end_without_a_null() {
-        // The declared length reaches the end of the data, whose last two
-        // bytes are not a null. The end is then taken to be one past the
-        // data, so the name is read as the three bytes before the index,
-        // which are not UTF-16LE.
-        let payload = [0x41, 0x00, 0x07, 0x00, 0x01, 0x00];
-        let data = dir_data(&[(4, 6, &payload)]);
-        assert!(matches!(
-            parse_dir_data(&data),
-            Err(FileError::InvalidFormData { reason }) if reason == "invalid UTF-16LE in DirData name"
-        ));
+    fn parse_dir_data_stops_at_an_entry_without_a_null() {
+        // The declared length of the second entry reaches the end of the
+        // data, whose last two bytes are not a null, and no null follows: the
+        // entry is broken, and the entries before it are kept.
+        let form = dir_data_payload("Form1", 3);
+        let broken = [0x41, 0x00, 0x07, 0x00, 0x01, 0x00];
+        let data = dir_data(&[(4, form.len() as u8, &form), (4, 6, &broken)]);
+        assert_eq!(
+            parse_dir_data(&data).unwrap(),
+            [("Form1".to_string(), "3".to_string())]
+        );
+        // Nor when the length is too short and the data ends without a null.
+        let data = dir_data(&[(4, 4, &[0x41, 0x00, 0x42, 0x00, 0x43])]);
+        assert_eq!(parse_dir_data(&data).unwrap(), []);
     }
 }
