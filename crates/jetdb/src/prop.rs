@@ -102,24 +102,11 @@ fn read_properties(
     let result = data::read_table_rows(reader, &tdef)?;
     result.warn_skipped("MSysObjects");
 
-    // Locate Name, Type and LvProp column indices
-    let (mut name_idx, mut type_idx, mut lvprop_idx) = (None, None, None);
-    for (i, col) in tdef.columns.iter().enumerate() {
-        match col.name.as_str() {
-            "Name" => name_idx = Some(i),
-            "Type" => type_idx = Some(i),
-            "LvProp" => lvprop_idx = Some(i),
-            _ => {}
-        }
-    }
-    let name_idx = name_idx.ok_or(FileError::InvalidTableDef {
-        reason: "MSysObjects missing Name column",
-    })?;
-    let type_idx = type_idx.ok_or(FileError::InvalidTableDef {
-        reason: "MSysObjects missing Type column",
-    })?;
-
-    let lvprop_idx = match lvprop_idx {
+    let name_idx =
+        table::required_column(&tdef.columns, "Name", "MSysObjects missing Name column")?;
+    let type_idx =
+        table::required_column(&tdef.columns, "Type", "MSysObjects missing Type column")?;
+    let lvprop_idx = match table::column_index(&tdef.columns, "LvProp") {
         Some(i) => i,
         None => {
             return Ok(ObjectProperties {
