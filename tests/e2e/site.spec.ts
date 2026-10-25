@@ -47,3 +47,30 @@ for (const [path, tabNames] of [
     }
   });
 }
+
+test("375px: 全項目の比較表は jetdb の列が枠に収まり、右にスクロールしても項目名が見える", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 800 });
+  await page.goto("/compare/");
+  const wrap = page.locator(".table-wrap");
+  const wrapBox = await wrap.boundingBox();
+  const meBox = await page
+    .locator("table.compare tbody td.me")
+    .first()
+    .boundingBox();
+  expect(wrapBox && meBox && meBox.x + meBox.width).toBeLessThanOrEqual(
+    (wrapBox?.x ?? 0) + (wrapBox?.width ?? 0),
+  );
+  await wrap.evaluate((e) => {
+    e.scrollLeft = e.scrollWidth;
+  });
+  const label = page.locator("table.compare tbody th", { hasText: "Language" });
+  const labelBox = await label.boundingBox();
+  expect(labelBox && wrapBox && labelBox.x).toBeGreaterThanOrEqual(
+    wrapBox?.x ?? 0,
+  );
+  expect(
+    labelBox && wrapBox && labelBox.x + labelBox.width,
+  ).toBeLessThanOrEqual((wrapBox?.x ?? 0) + (wrapBox?.width ?? 0));
+});

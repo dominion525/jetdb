@@ -554,6 +554,20 @@ pre {
   text-align: left;
 }
 
+/* 1 列目（項目名）は固定し、表を右にスクロールしても見えるようにする。
+   背景を不透明にし、右の列との境に線を置く */
+.compare thead th:first-child,
+.compare tbody th {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--bg);
+  box-shadow: 1px 0 0 var(--border);
+}
+.compare-full .group th:first-child {
+  background: var(--surface);
+}
+
 .tool-notes h3 {
   margin: 24px 0 4px;
   font-size: 1rem;
@@ -1208,6 +1222,12 @@ pre {
 }
 
 @media (max-width: 720px) {
+  /* 狭い幅では、全項目の比較表の 1 列目の幅を抑えて項目名を折り返し、jetdb の列が枠に収まるようにする */
+  .compare-full tbody th {
+    width: 9em;
+    white-space: normal;
+  }
+
   .viewer {
     grid-template-columns: minmax(0, 1fr);
   }
