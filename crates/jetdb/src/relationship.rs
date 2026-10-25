@@ -6,7 +6,7 @@ use crate::catalog::{read_catalog, CatalogEntry};
 use crate::data::{self, Value};
 use crate::file::{FileError, PageReader};
 use crate::format::ObjectType;
-use crate::table;
+use crate::table::{self, required_column, ColumnDef};
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -73,151 +73,142 @@ pub fn read_relationships_in(
     reader: &mut PageReader,
     catalog: &[CatalogEntry],
 ) -> Result<Vec<Relationship>, FileError> {
-    let rel_entry = catalog
+    let Some(rel_entry) = catalog
         .iter()
-        .find(|e| e.name == "MSysRelationships" && e.object_type == ObjectType::Table);
-    let rel_page = match rel_entry {
-        Some(e) => e.table_page,
-        None => return Ok(Vec::new()),
+        .find(|e| e.name == "MSysRelationships" && e.object_type == ObjectType::Table)
+    else {
+        return Ok(Vec::new());
     };
 
     // Read table definition and rows
-    let tdef = table::read_table_def(reader, "MSysRelationships", rel_page)?;
+    let tdef = table::read_table_def(reader, "MSysRelationships", rel_entry.table_page)?;
     let result = data::read_table_rows(reader, &tdef)?;
     result.warn_skipped("MSysRelationships");
+    let columns = RelationshipColumns::of(&tdef.columns)?;
 
-    // Locate column indices
-    let mut rel_name_idx = None;
-    let mut col_idx = None;
-    let mut obj_idx = None;
-    let mut ref_col_idx = None;
-    let mut ref_obj_idx = None;
-    let mut grbit_idx = None;
+    Ok(group_relationship_rows(&result.rows, &columns)
+        .into_iter()
+        .map(|(name, rows)| relationship_of_rows(name, rows))
+        .collect())
+}
 
-    for (i, col) in tdef.columns.iter().enumerate() {
-        match col.name.as_str() {
-            "szRelationship" => rel_name_idx = Some(i),
-            "szColumn" => col_idx = Some(i),
-            "szObject" => obj_idx = Some(i),
-            "szReferencedColumn" => ref_col_idx = Some(i),
-            "szReferencedObject" => ref_obj_idx = Some(i),
-            "grbit" => grbit_idx = Some(i),
-            _ => {}
+/// The indexes of the columns of MSysRelationships.
+struct RelationshipColumns {
+    name: usize,
+    column: usize,
+    object: usize,
+    referenced_column: usize,
+    referenced_object: usize,
+    grbit: usize,
+}
+
+impl RelationshipColumns {
+    fn of(columns: &[ColumnDef]) -> Result<Self, FileError> {
+        let required = |name, missing| required_column(columns, name, missing);
+        Ok(Self {
+            name: required(
+                "szRelationship",
+                "MSysRelationships missing szRelationship column",
+            )?,
+            column: required("szColumn", "MSysRelationships missing szColumn column")?,
+            object: required("szObject", "MSysRelationships missing szObject column")?,
+            referenced_column: required(
+                "szReferencedColumn",
+                "MSysRelationships missing szReferencedColumn column",
+            )?,
+            referenced_object: required(
+                "szReferencedObject",
+                "MSysRelationships missing szReferencedObject column",
+            )?,
+            grbit: required("grbit", "MSysRelationships missing grbit column")?,
+        })
+    }
+}
+
+/// A row of MSysRelationships: one pair of columns of a relationship.
+struct RelationshipRow {
+    from_table: String,
+    to_table: String,
+    from_column: String,
+    to_column: String,
+    flags: u32,
+}
+
+/// The name of the relationship of `row` and its pair of columns, or `None`
+/// when the row lacks the name, a table or a column.
+fn relationship_row(
+    row: &[Value],
+    columns: &RelationshipColumns,
+) -> Option<(String, RelationshipRow)> {
+    let text = |i: usize| row.get(i).and_then(Value::as_text).map(str::to_string);
+    let name = text(columns.name).filter(|s| !s.is_empty())?;
+    let relationship_row = RelationshipRow {
+        from_table: text(columns.object)?,
+        to_table: text(columns.referenced_object)?,
+        from_column: text(columns.column)?,
+        to_column: text(columns.referenced_column)?,
+        flags: row
+            .get(columns.grbit)
+            .and_then(Value::as_long)
+            .map_or(0, |v| v as u32),
+    };
+    Some((name, relationship_row))
+}
+
+/// The rows of MSysRelationships grouped by the name of their relationship
+/// (supports compound foreign keys), in the order of the names.
+fn group_relationship_rows(
+    rows: &[Vec<Value>],
+    columns: &RelationshipColumns,
+) -> BTreeMap<String, Vec<RelationshipRow>> {
+    let mut groups: BTreeMap<String, Vec<RelationshipRow>> = BTreeMap::new();
+    for (name, row) in rows.iter().filter_map(|row| relationship_row(row, columns)) {
+        groups.entry(name).or_default().push(row);
+    }
+    groups
+}
+
+/// The relationship `name` of its rows, with the tables and flags of the
+/// first row, which it keeps when a later row has others.
+fn relationship_of_rows(name: String, rows: Vec<RelationshipRow>) -> Relationship {
+    let from_table = rows[0].from_table.clone();
+    let to_table = rows[0].to_table.clone();
+    let flags = rows[0].flags;
+
+    // Validate consistency within the group — use first row's values
+    // if later rows have inconsistent table references or flags.
+    for raw in &rows[1..] {
+        if raw.from_table != from_table || raw.to_table != to_table {
+            log::warn!(
+                "relationship '{}': inconsistent table references, using first row's values",
+                name
+            );
+            break;
+        }
+        if raw.flags != flags {
+            log::warn!(
+                "relationship '{}': inconsistent flags, using first row's values",
+                name
+            );
+            break;
         }
     }
 
-    let rel_name_idx = rel_name_idx.ok_or(FileError::InvalidTableDef {
-        reason: "MSysRelationships missing szRelationship column",
-    })?;
-    let col_idx = col_idx.ok_or(FileError::InvalidTableDef {
-        reason: "MSysRelationships missing szColumn column",
-    })?;
-    let obj_idx = obj_idx.ok_or(FileError::InvalidTableDef {
-        reason: "MSysRelationships missing szObject column",
-    })?;
-    let ref_col_idx = ref_col_idx.ok_or(FileError::InvalidTableDef {
-        reason: "MSysRelationships missing szReferencedColumn column",
-    })?;
-    let ref_obj_idx = ref_obj_idx.ok_or(FileError::InvalidTableDef {
-        reason: "MSysRelationships missing szReferencedObject column",
-    })?;
-    let grbit_idx = grbit_idx.ok_or(FileError::InvalidTableDef {
-        reason: "MSysRelationships missing grbit column",
-    })?;
+    let columns = rows
+        .into_iter()
+        .map(|r| RelationshipColumn {
+            from_column: r.from_column,
+            to_column: r.to_column,
+        })
+        .collect();
 
-    // Group rows by szRelationship name (supports compound foreign keys)
-    struct RawRow {
-        from_table: String,
-        to_table: String,
-        from_column: String,
-        to_column: String,
-        flags: u32,
+    Relationship {
+        name,
+        from_table,
+        to_table,
+        columns,
+        flags,
     }
-
-    let mut groups: BTreeMap<String, Vec<RawRow>> = BTreeMap::new();
-
-    for row in &result.rows {
-        let name = match row.get(rel_name_idx) {
-            Some(Value::Text(s)) if !s.is_empty() => s.clone(),
-            _ => continue,
-        };
-        let from_table = match row.get(obj_idx) {
-            Some(Value::Text(s)) => s.clone(),
-            _ => continue,
-        };
-        let to_table = match row.get(ref_obj_idx) {
-            Some(Value::Text(s)) => s.clone(),
-            _ => continue,
-        };
-        let from_column = match row.get(col_idx) {
-            Some(Value::Text(s)) => s.clone(),
-            _ => continue,
-        };
-        let to_column = match row.get(ref_col_idx) {
-            Some(Value::Text(s)) => s.clone(),
-            _ => continue,
-        };
-        let flags = match row.get(grbit_idx) {
-            Some(Value::Long(v)) => *v as u32,
-            _ => 0,
-        };
-
-        groups.entry(name).or_default().push(RawRow {
-            from_table,
-            to_table,
-            from_column,
-            to_column,
-            flags,
-        });
-    }
-
-    // Convert groups to Relationship structs
-    let mut relationships = Vec::with_capacity(groups.len());
-    for (name, raw_rows) in groups {
-        if raw_rows.is_empty() {
-            continue;
-        }
-        let from_table = raw_rows[0].from_table.clone();
-        let to_table = raw_rows[0].to_table.clone();
-        let flags = raw_rows[0].flags;
-
-        // Validate consistency within the group — use first row's values
-        // if later rows have inconsistent table references or flags.
-        for raw in &raw_rows[1..] {
-            if raw.from_table != from_table || raw.to_table != to_table {
-                log::warn!(
-                    "relationship '{}': inconsistent table references, using first row's values",
-                    name
-                );
-                break;
-            }
-            if raw.flags != flags {
-                log::warn!(
-                    "relationship '{}': inconsistent flags, using first row's values",
-                    name
-                );
-                break;
-            }
-        }
-
-        let columns = raw_rows
-            .into_iter()
-            .map(|r| RelationshipColumn {
-                from_column: r.from_column,
-                to_column: r.to_column,
-            })
-            .collect();
-
-        relationships.push(Relationship {
-            name,
-            from_table,
-            to_table,
-            columns,
-            flags,
-        });
-    }
-
-    Ok(relationships)
 }
 
 // ---------------------------------------------------------------------------
