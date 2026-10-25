@@ -211,6 +211,76 @@ pub struct DbHeader {
     pub code_page: u16,
 }
 
+impl DbHeader {
+    /// The header of `page0`, page 0 of a database of `version` with its
+    /// header region decrypted.
+    fn from_page0(page0: &[u8], version: JetVersion) -> Self {
+        let u16_at = |pos: usize| u16::from_le_bytes([page0[pos], page0[pos + 1]]);
+        let lang_id_offset = if version.is_jet3() {
+            db_header::LANG_ID_JET3
+        } else {
+            db_header::LANG_ID_JET4
+        };
+        Self {
+            version,
+            format: version.format(),
+            db_key: u32::from_le_bytes([
+                page0[db_header::DB_KEY],
+                page0[db_header::DB_KEY + 1],
+                page0[db_header::DB_KEY + 2],
+                page0[db_header::DB_KEY + 3],
+            ]),
+            lang_id: u16_at(lang_id_offset),
+            code_page: u16_at(db_header::CODE_PAGE),
+        }
+    }
+}
+
+/// Read page 0 of `file`, of `file_size` bytes, and give it with the version
+/// its version byte names. An error when the file is smaller than the version
+/// byte or a page, or lacks the signature of a database.
+fn read_page0(
+    file: &mut dyn DataSource,
+    file_size: u64,
+) -> Result<(JetVersion, Vec<u8>), FileError> {
+    // We need at least the version byte at offset 0x14.
+    const MIN_HEADER: u64 = (db_header::VERSION + 1) as u64;
+    if file_size < MIN_HEADER {
+        return Err(FileError::FileTooSmall {
+            expected: MIN_HEADER as usize,
+            actual: file_size,
+        });
+    }
+
+    // Read version byte to determine page size.
+    let mut ver_buf = [0u8; db_header::VERSION + 1];
+    file.read_exact(&mut ver_buf)?;
+    let version = JetVersion::from_byte(ver_buf[db_header::VERSION])?;
+    let format = version.format();
+
+    // File must be at least one page.
+    if file_size < format.page_size as u64 {
+        return Err(FileError::FileTooSmall {
+            expected: format.page_size,
+            actual: file_size,
+        });
+    }
+
+    // Read full page 0.
+    let mut page0_buf = vec![0u8; format.page_size];
+    file.seek(SeekFrom::Start(0))?;
+    file.read_exact(&mut page0_buf)?;
+
+    // The version byte alone lets other files through, such as a page of
+    // zeros, which reads as Jet3. The signature comes before the
+    // encrypted region of the header.
+    let signature = &page0_buf[db_header::SIGNATURE..db_header::SIGNATURE + 16];
+    if signature != db_header::SIGNATURE_JET && signature != db_header::SIGNATURE_ACE {
+        return Err(FileError::Format(FormatError::InvalidSignature));
+    }
+    Ok((version, page0_buf))
+}
+
 // ---------------------------------------------------------------------------
 // find_row — locate a row within a data page
 // ---------------------------------------------------------------------------
@@ -227,21 +297,15 @@ pub fn find_row(
     page: u32,
     row: u16,
 ) -> Result<(usize, usize), FileError> {
+    let invalid = |reason| FileError::InvalidRow { page, row, reason };
+    let u16_at = |pos: usize| u16::from_le_bytes([page_data[pos], page_data[pos + 1]]);
+
     let row_count_pos = format.data_row_count_pos;
     if page_data.len() < row_count_pos + 2 {
-        return Err(FileError::InvalidRow {
-            page,
-            row,
-            reason: "page too small for row count",
-        });
+        return Err(invalid("page too small for row count"));
     }
-    let num_rows = u16::from_le_bytes([page_data[row_count_pos], page_data[row_count_pos + 1]]);
-    if row >= num_rows {
-        return Err(FileError::InvalidRow {
-            page,
-            row,
-            reason: "row index exceeds row count",
-        });
+    if row >= u16_at(row_count_pos) {
+        return Err(invalid("row index exceeds row count"));
     }
 
     let table_start = row_count_pos + 2;
@@ -249,28 +313,18 @@ pub fn find_row(
     // Read offset for the requested row
     let entry_pos = table_start + (row as usize) * 2;
     if entry_pos + 2 > page_data.len() {
-        return Err(FileError::InvalidRow {
-            page,
-            row,
-            reason: "row offset table overflow",
-        });
+        return Err(invalid("row offset table overflow"));
     }
-    let row_start =
-        u16::from_le_bytes([page_data[entry_pos], page_data[entry_pos + 1]]) & row::OFFSET_MASK;
+    let row_start = u16_at(entry_pos) & row::OFFSET_MASK;
 
     let row_end = if row == 0 {
         format.page_size as u16
     } else {
-        let prev_pos = table_start + ((row as usize) - 1) * 2;
-        u16::from_le_bytes([page_data[prev_pos], page_data[prev_pos + 1]]) & row::OFFSET_MASK
+        u16_at(table_start + ((row as usize) - 1) * 2) & row::OFFSET_MASK
     };
 
     if row_start >= row_end || row_end as usize > page_data.len() {
-        return Err(FileError::InvalidRow {
-            page,
-            row,
-            reason: "invalid row offsets",
-        });
+        return Err(invalid("invalid row offsets"));
     }
 
     let start = row_start as usize;
@@ -298,6 +352,56 @@ enum EncryptionState {
         iter_hash: Zeroizing<Vec<u8>>,
         encoding_key: [u8; 4],
     },
+}
+
+impl EncryptionState {
+    /// Verify `password` against `params`, and give the state that decrypts
+    /// the pages; `encoding_key` is the database key of the header.
+    fn verify(
+        params: &EncryptionParams,
+        password: &str,
+        encoding_key: [u8; 4],
+    ) -> Result<Self, FileError> {
+        Ok(match params {
+            EncryptionParams::Agile(params) => Self::Agile {
+                db_key: crypto::verify_password(params, password)?,
+                params: params.clone(),
+            },
+            EncryptionParams::Rc4CryptoApi(params) => Self::Rc4CryptoApi {
+                base_hash: crypto::verify_password_rc4_cryptoapi(params, password)?,
+                key_size: params.key_size,
+                encoding_key,
+            },
+            EncryptionParams::StandardAes(params) => Self::StandardAes {
+                iter_hash: crypto::verify_password_standard_aes(params, password)?,
+                key_size: params.key_size,
+                encoding_key,
+            },
+        })
+    }
+
+    /// Decrypt `buf`, the page `page`, with `header_key` the database key of
+    /// the header.
+    fn decrypt_page(&self, buf: &mut [u8], header_key: u32, page: u32) -> Result<(), FileError> {
+        match self {
+            Self::Agile { params, db_key } => {
+                crypto::decrypt_page_agile(buf, params, db_key, header_key, page)
+            }
+            Self::Rc4CryptoApi {
+                base_hash,
+                key_size,
+                encoding_key,
+            } => {
+                crypto::decrypt_page_rc4_cryptoapi(buf, base_hash, encoding_key, *key_size, page);
+                Ok(())
+            }
+            Self::StandardAes {
+                iter_hash,
+                key_size,
+                encoding_key,
+            } => crypto::decrypt_page_standard_aes(buf, iter_hash, encoding_key, *key_size, page),
+        }
+    }
 }
 
 /// A random-access byte source that [`PageReader`] can read pages from.
@@ -402,86 +506,22 @@ impl PageReader {
         }
 
         // Check for EncryptionInfo on page 0
-        let enc_params = crypto::parse_encryption_info(&reader.page0_buf)?;
-        let enc_params = match enc_params {
-            Some(p) => p,
-            None => return Ok(reader),
+        let Some(enc_params) = crypto::parse_encryption_info(&reader.page0_buf)? else {
+            return Ok(reader);
         };
 
         // Password is required
         let password = password.ok_or(FileError::PasswordRequired)?;
 
-        let encoding_key = reader.header.db_key.to_le_bytes();
-
         // Verify password and establish encryption state
-        let enc_state = match &enc_params {
-            EncryptionParams::Agile(params) => {
-                let db_key = crypto::verify_password(params, password)?;
-                EncryptionState::Agile {
-                    params: params.clone(),
-                    db_key,
-                }
-            }
-            EncryptionParams::Rc4CryptoApi(params) => {
-                let base_hash = crypto::verify_password_rc4_cryptoapi(params, password)?;
-                EncryptionState::Rc4CryptoApi {
-                    key_size: params.key_size,
-                    base_hash,
-                    encoding_key,
-                }
-            }
-            EncryptionParams::StandardAes(params) => {
-                let iter_hash = crypto::verify_password_standard_aes(params, password)?;
-                EncryptionState::StandardAes {
-                    key_size: params.key_size,
-                    iter_hash,
-                    encoding_key,
-                }
-            }
-        };
+        let encoding_key = reader.header.db_key.to_le_bytes();
+        let enc_state = EncryptionState::verify(&enc_params, password, encoding_key)?;
 
         // Re-read and re-decrypt page 0 with the correct encryption
         reader.file.seek(SeekFrom::Start(0))?;
         reader.file.read_exact(&mut reader.page0_buf)?;
         decrypt_header(&mut reader.page0_buf, reader.header.version);
-
-        match &enc_state {
-            EncryptionState::Agile { params, db_key } => {
-                crypto::decrypt_page_agile(
-                    &mut reader.page0_buf,
-                    params,
-                    db_key,
-                    reader.header.db_key,
-                    0,
-                )?;
-            }
-            EncryptionState::Rc4CryptoApi {
-                base_hash,
-                key_size,
-                encoding_key,
-            } => {
-                crypto::decrypt_page_rc4_cryptoapi(
-                    &mut reader.page0_buf,
-                    base_hash,
-                    encoding_key,
-                    *key_size,
-                    0,
-                );
-            }
-            EncryptionState::StandardAes {
-                iter_hash,
-                key_size,
-                encoding_key,
-            } => {
-                crypto::decrypt_page_standard_aes(
-                    &mut reader.page0_buf,
-                    iter_hash,
-                    encoding_key,
-                    *key_size,
-                    0,
-                )?;
-            }
-        }
+        enc_state.decrypt_page(&mut reader.page0_buf, reader.header.db_key, 0)?;
 
         reader.encryption = Some(enc_state);
         Ok(reader)
@@ -512,75 +552,13 @@ impl PageReader {
         mut file: Box<dyn DataSource>,
         file_size: u64,
     ) -> Result<Self, FileError> {
-        // We need at least the version byte at offset 0x14.
-        const MIN_HEADER: u64 = (db_header::VERSION + 1) as u64;
-        if file_size < MIN_HEADER {
-            return Err(FileError::FileTooSmall {
-                expected: MIN_HEADER as usize,
-                actual: file_size,
-            });
-        }
-
-        // Read version byte to determine page size.
-        let mut ver_buf = [0u8; db_header::VERSION + 1];
-        file.read_exact(&mut ver_buf)?;
-        let version = JetVersion::from_byte(ver_buf[db_header::VERSION])?;
-        let format = version.format();
-
-        // File must be at least one page.
-        if file_size < format.page_size as u64 {
-            return Err(FileError::FileTooSmall {
-                expected: format.page_size,
-                actual: file_size,
-            });
-        }
-
-        // Read full page 0.
-        let mut page0_buf = vec![0u8; format.page_size];
-        file.seek(SeekFrom::Start(0))?;
-        file.read_exact(&mut page0_buf)?;
-
-        // The version byte alone lets other files through, such as a page of
-        // zeros, which reads as Jet3. The signature comes before the
-        // encrypted region of the header.
-        let signature = &page0_buf[db_header::SIGNATURE..db_header::SIGNATURE + 16];
-        if signature != db_header::SIGNATURE_JET && signature != db_header::SIGNATURE_ACE {
-            return Err(FileError::Format(FormatError::InvalidSignature));
-        }
+        let (version, mut page0_buf) = read_page0(file.as_mut(), file_size)?;
 
         // Decrypt header region.
         decrypt_header(&mut page0_buf, version);
+        let header = DbHeader::from_page0(&page0_buf, version);
 
-        // Extract header fields from decrypted page 0.
-        let db_key = u32::from_le_bytes([
-            page0_buf[db_header::DB_KEY],
-            page0_buf[db_header::DB_KEY + 1],
-            page0_buf[db_header::DB_KEY + 2],
-            page0_buf[db_header::DB_KEY + 3],
-        ]);
-
-        let lang_id_offset = if version.is_jet3() {
-            db_header::LANG_ID_JET3
-        } else {
-            db_header::LANG_ID_JET4
-        };
-        let lang_id =
-            u16::from_le_bytes([page0_buf[lang_id_offset], page0_buf[lang_id_offset + 1]]);
-
-        let code_page = u16::from_le_bytes([
-            page0_buf[db_header::CODE_PAGE],
-            page0_buf[db_header::CODE_PAGE + 1],
-        ]);
-
-        let header = DbHeader {
-            version,
-            format,
-            db_key,
-            lang_id,
-            code_page,
-        };
-
-        let page_buf = vec![0u8; format.page_size];
+        let page_buf = vec![0u8; header.format.page_size];
 
         Ok(Self {
             file,
@@ -644,44 +622,8 @@ impl PageReader {
         self.file.read_exact(&mut self.page_buf)?;
 
         match &self.encryption {
-            Some(EncryptionState::Agile { params, db_key }) => {
-                crypto::decrypt_page_agile(
-                    &mut self.page_buf,
-                    params,
-                    db_key,
-                    self.header.db_key,
-                    page,
-                )?;
-            }
-            Some(EncryptionState::Rc4CryptoApi {
-                base_hash,
-                key_size,
-                encoding_key,
-            }) => {
-                crypto::decrypt_page_rc4_cryptoapi(
-                    &mut self.page_buf,
-                    base_hash,
-                    encoding_key,
-                    *key_size,
-                    page,
-                );
-            }
-            Some(EncryptionState::StandardAes {
-                iter_hash,
-                key_size,
-                encoding_key,
-            }) => {
-                crypto::decrypt_page_standard_aes(
-                    &mut self.page_buf,
-                    iter_hash,
-                    encoding_key,
-                    *key_size,
-                    page,
-                )?;
-            }
-            None => {
-                decrypt_page(&mut self.page_buf, self.header.db_key, page);
-            }
+            Some(state) => state.decrypt_page(&mut self.page_buf, self.header.db_key, page)?,
+            None => decrypt_page(&mut self.page_buf, self.header.db_key, page),
         }
 
         self.cached_page = Some(page);
