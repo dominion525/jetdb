@@ -309,3 +309,35 @@ test("320px と 390px: ファイルを選ぶ欄がはみ出さず、ページャ
   ]);
   expect(previous?.y).toBe(next?.y);
 });
+
+test("続けて 2 つ選んだら、読み終わる順にかかわらず、最後に選んだ方が開いたままになる", async ({
+  page,
+}) => {
+  const first = testdata("V2010/macroGeneratedTestV2010.accdb");
+  const second = testdata("V2007/complexDataTestV2007.accdb");
+  // 最初に選んだファイルの読み取りだけを遅らせ、2 つ目の方を先に読み終わらせる
+  await page.addInitScript(() => {
+    const original = File.prototype.arrayBuffer;
+    let delayed = false;
+    File.prototype.arrayBuffer = async function () {
+      const buffer = await original.call(this);
+      if (!delayed) {
+        delayed = true;
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+      return buffer;
+    };
+  });
+  await openDemo(page, "/demo/");
+  await openFile(page, first);
+  await openFile(page, second);
+  await expect(page.locator("#demo-current")).toHaveText(
+    "complexDataTestV2007.accdb",
+  );
+  // 最初のファイルの読み取りが終わっても、2 つ目のまま
+  await page.waitForTimeout(1500);
+  await expect(page.locator("#demo-current")).toHaveText(
+    "complexDataTestV2007.accdb",
+  );
+  await expect(page.locator("#demo-status")).toHaveText("");
+});

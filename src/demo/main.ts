@@ -277,11 +277,15 @@ systemToggle.addEventListener("change", () => {
   selectFromHash();
 });
 
+// ファイルを選んだ回数。読み取りを待っている間に別のファイルを選んだら、前のものは開かない
+let chosen = 0;
+
 // ファイルを選んだときとパスワードを入れたときの処理は、起動より先に付ける。
 // サンプルを取得している間（入力欄はもう有効）に選んだファイルも受け取るため
 input.addEventListener("change", async () => {
   const file = input.files?.[0];
   if (!file) return;
+  const turn = ++chosen;
   status.textContent = T.opening(file.name);
   try {
     const bytes = new Uint8Array(await file.arrayBuffer());
@@ -289,9 +293,11 @@ input.addEventListener("change", async () => {
     await new Promise((resolve) =>
       requestAnimationFrame(() => setTimeout(resolve)),
     );
+    if (turn !== chosen) return;
     open(bytes, file.name, file.name, null);
   } catch (e) {
     // ファイルを読めなかった（選んだあとに消された、など）。開く処理のエラーは open() が出す
+    if (turn !== chosen) return;
     status.textContent = T.openFailed(file.name, messageOf(e));
   }
 });
@@ -310,7 +316,7 @@ try {
   status.textContent = T.loadFailed(messageOf(e));
 }
 
-// サンプルを取得して開く。取得している間に自分のファイルを開いた（パスワード待ちを含む）ときは、
+// サンプルを取得して開く。取得している間に自分のファイルを選んだ（読み取り中・パスワード待ちを含む）ときは、
 // 届いたサンプルで上書きしない。サンプルだけ読めなくても、自分のファイルは開ける
 if (jetdb) {
   input.disabled = false;
@@ -319,8 +325,8 @@ if (jetdb) {
     const response = await fetch(SAMPLE_URL);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const bytes = new Uint8Array(await response.arrayBuffer());
-    if (!db && !pending) open(bytes, T.sample(SAMPLE_NAME), SAMPLE_NAME, null);
+    if (chosen === 0) open(bytes, T.sample(SAMPLE_NAME), SAMPLE_NAME, null);
   } catch (e) {
-    if (!db && !pending) status.textContent = T.sampleFailed(messageOf(e));
+    if (chosen === 0) status.textContent = T.sampleFailed(messageOf(e));
   }
 }
