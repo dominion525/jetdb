@@ -571,7 +571,14 @@ mod tests {
                 ("Report1".to_string(), "12".to_string())
             ]
         );
+    }
+
+    #[test]
+    fn parse_dir_data_of_no_entries() {
+        // Only the header, and data too short for it.
+        assert_eq!(parse_dir_data(&[0, 0, 0, 0]).unwrap(), []);
         assert_eq!(parse_dir_data(&[0, 0, 0]).unwrap(), []);
+        assert_eq!(parse_dir_data(&[0]).unwrap(), []);
     }
 
     #[test]

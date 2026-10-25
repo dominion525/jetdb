@@ -1311,39 +1311,6 @@ mod tests {
 
     // -- DirData parser unit tests -------------------------------------------
 
-    #[test]
-    fn parse_dir_data_empty() {
-        // Just a 4-byte header
-        let data = [0x00, 0x00, 0x00, 0x00];
-        let result = storage::parse_dir_data(&data).unwrap();
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn parse_dir_data_too_short() {
-        let result = storage::parse_dir_data(&[0x00]).unwrap();
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn parse_dir_data_single_entry() {
-        // Header + one entry: name "AB" (UTF-16LE) + storage_index=5 + null
-        let mut data = vec![0x00, 0x00, 0x00, 0x00]; // header
-        data.push(0x04); // marker
-        data.push(0x08); // len = 4 (name) + 2 (index) + 2 (null)
-                         // name "AB" in UTF-16LE
-        data.extend_from_slice(&[0x41, 0x00, 0x42, 0x00]);
-        // storage_index = 5
-        data.extend_from_slice(&[0x05, 0x00]);
-        // null terminator
-        data.extend_from_slice(&[0x00, 0x00]);
-
-        let result = storage::parse_dir_data(&data).unwrap();
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].0, "AB");
-        assert_eq!(result[0].1, "5");
-    }
-
     // -- TypeInfo parser unit tests ------------------------------------------
 
     #[test]
