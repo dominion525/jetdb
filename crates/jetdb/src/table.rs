@@ -193,11 +193,7 @@ type PhysicalIndexEntry = (Vec<IndexColumn>, u8, u32);
 struct LogicalIndex {
     index_num: u16,
     index_col_entry: u32,
-    fk_index_type: u8,
-    fk_index_number: u32,
-    fk_table_page: u32,
-    update_action: u8,
-    delete_action: u8,
+    foreign_key: ForeignKeyReference,
     index_type: u8,
 }
 
@@ -215,7 +211,6 @@ pub fn read_table_def(
     tdef_page: u32,
 ) -> Result<TableDef, FileError> {
     let text_encoding = reader.text_encoding();
-    let is_jet3 = text_encoding.is_jet3();
 
     // 3a. Build TDEF buffer (multi-page support)
     let tdef_buf = build_tdef_buffer(reader, tdef_page)?;
@@ -224,63 +219,18 @@ pub fn read_table_def(
     let cursor = &mut TdefCursor::new(&tdef_buf, 0);
 
     // 3b. Header fields (positional reads)
-    let num_rows = cursor.u32_le_at(format.tdef_row_count_pos)?;
-    let num_var_cols = cursor.u16_le_at(format.tdef_var_col_count_pos)?;
-    let num_cols = cursor.u16_le_at(format.tdef_column_count_pos)?;
-    let num_idxs = cursor.u32_le_at(format.tdef_index_count_pos)?;
-    let num_real_idxs = cursor.u32_le_at(format.tdef_real_index_count_pos)?;
+    let header = TdefHeader::read(cursor, format)?;
 
     // 3c. Data pages via owned-pages usage map
-    let pg_row = cursor.u32_le_at(format.tdef_owned_pages_pos)?;
-    let data_pages = if pg_row != 0 {
-        let map_data = reader.read_pg_row(pg_row)?;
+    let data_pages = if header.owned_pages_row != 0 {
+        let map_data = reader.read_pg_row(header.owned_pages_row)?;
         map::collect_page_numbers(reader, &map_data)?
     } else {
         Vec::new()
     };
 
-    // 3d. Column entries
-    let col_entry_start = (num_real_idxs as usize)
-        .checked_mul(format.tdef_index_entry_span)
-        .and_then(|span| span.checked_add(format.tdef_index_entries_pos))
-        .ok_or(FileError::InvalidTableDef {
-            reason: "index count too large",
-        })?;
-    cursor.set_position(col_entry_start);
-    let mut columns = parse_column_entries(
-        cursor,
-        format.tdef_column_entry_span,
-        num_cols as usize,
-        is_jet3,
-        format,
-    )?;
-
-    // 3e. Column names (cursor is already at correct position)
-    let col_names = read_names(cursor, num_cols as usize, text_encoding)?;
-    for (col, col_name) in columns.iter_mut().zip(col_names) {
-        col.name = col_name;
-    }
-
-    // 3f. Index column definitions
-    let mut idx_col_defs = parse_index_column_defs(cursor, num_real_idxs, format)?;
-
-    // 3g. Logical index definitions
-    let logical_indexes = parse_logical_indexes(cursor, num_idxs, format)?;
-
-    // Adjust idx_col_defs length based on actual non-FK count in section [6].
-    let non_fk_count = logical_indexes
-        .iter()
-        .filter(|li| li.index_type != crate::format::index_type::FOREIGN_KEY)
-        .count();
-    if non_fk_count != idx_col_defs.len() {
-        idx_col_defs.truncate(non_fk_count);
-    }
-
-    // 3h. Index names
-    let idx_names = read_names(cursor, num_idxs as usize, text_encoding)?;
-
-    // 3i. Build index defs
-    let indexes = build_index_defs(&logical_indexes, &idx_col_defs, idx_names);
+    let mut columns = read_columns(cursor, &header, format, text_encoding)?;
+    let indexes = read_indexes(cursor, &header, format, text_encoding)?;
 
     // 3j. Sort columns by design-time field order (Table Designer / DAO
     // `Field.OrdinalPosition`), not `col_num` (creation order) -- these
@@ -292,14 +242,99 @@ pub fn read_table_def(
 
     Ok(TableDef {
         name: name.to_string(),
-        num_rows,
-        num_cols,
-        num_var_cols,
+        num_rows: header.num_rows,
+        num_cols: header.num_cols,
+        num_var_cols: header.num_var_cols,
         columns,
         indexes,
         data_pages,
         text_encoding,
     })
+}
+
+/// The header fields of a TDEF.
+struct TdefHeader {
+    num_rows: u32,
+    num_var_cols: u16,
+    num_cols: u16,
+    num_idxs: u32,
+    num_real_idxs: u32,
+    /// The row of the usage map of the pages the table owns, or 0.
+    owned_pages_row: u32,
+}
+
+impl TdefHeader {
+    fn read(cursor: &TdefCursor, format: &JetFormat) -> Result<Self, FileError> {
+        Ok(Self {
+            num_rows: cursor.u32_le_at(format.tdef_row_count_pos)?,
+            num_var_cols: cursor.u16_le_at(format.tdef_var_col_count_pos)?,
+            num_cols: cursor.u16_le_at(format.tdef_column_count_pos)?,
+            num_idxs: cursor.u32_le_at(format.tdef_index_count_pos)?,
+            num_real_idxs: cursor.u32_le_at(format.tdef_real_index_count_pos)?,
+            owned_pages_row: cursor.u32_le_at(format.tdef_owned_pages_pos)?,
+        })
+    }
+}
+
+/// Read the column entries and then the column names of a TDEF (3d and 3e).
+fn read_columns(
+    cursor: &mut TdefCursor,
+    header: &TdefHeader,
+    format: &JetFormat,
+    text_encoding: TextEncoding,
+) -> Result<Vec<ColumnDef>, FileError> {
+    // 3d. Column entries
+    let col_entry_start = (header.num_real_idxs as usize)
+        .checked_mul(format.tdef_index_entry_span)
+        .and_then(|span| span.checked_add(format.tdef_index_entries_pos))
+        .ok_or(FileError::InvalidTableDef {
+            reason: "index count too large",
+        })?;
+    cursor.set_position(col_entry_start);
+    let num_cols = header.num_cols as usize;
+    let mut columns = parse_column_entries(
+        cursor,
+        format.tdef_column_entry_span,
+        num_cols,
+        text_encoding.is_jet3(),
+        format,
+    )?;
+
+    // 3e. Column names (cursor is already at correct position)
+    let col_names = read_names(cursor, num_cols, text_encoding)?;
+    for (col, col_name) in columns.iter_mut().zip(col_names) {
+        col.name = col_name;
+    }
+    Ok(columns)
+}
+
+/// Read the indexes of a TDEF, after its columns (3f to 3i).
+fn read_indexes(
+    cursor: &mut TdefCursor,
+    header: &TdefHeader,
+    format: &JetFormat,
+    text_encoding: TextEncoding,
+) -> Result<Vec<IndexDef>, FileError> {
+    // 3f. Index column definitions
+    let mut idx_col_defs = parse_index_column_defs(cursor, header.num_real_idxs, format)?;
+
+    // 3g. Logical index definitions
+    let logical_indexes = parse_logical_indexes(cursor, header.num_idxs, format)?;
+
+    // Adjust idx_col_defs length based on actual non-FK count in section [6].
+    let non_fk_count = logical_indexes
+        .iter()
+        .filter(|li| li.index_type != crate::format::index_type::FOREIGN_KEY)
+        .count();
+    if non_fk_count != idx_col_defs.len() {
+        idx_col_defs.truncate(non_fk_count);
+    }
+
+    // 3h. Index names
+    let idx_names = read_names(cursor, header.num_idxs as usize, text_encoding)?;
+
+    // 3i. Build index defs
+    Ok(build_index_defs(&logical_indexes, &idx_col_defs, idx_names))
 }
 
 // ---------------------------------------------------------------------------
@@ -498,60 +533,91 @@ fn parse_column_entries(
     let mut columns = Vec::with_capacity(count);
     for _ in 0..count {
         let entry_start = cursor.position();
-
-        let col_type = ColumnType::try_from(cursor.u8_at(entry_start)?)?;
-
-        let (col_num, var_col_num) = if is_jet3 {
-            (
-                cursor.u8_at(entry_start + format.coldef_number_pos)? as u16,
-                cursor.u16_le_at(entry_start + format.coldef_var_col_index_pos)?,
-            )
-        } else {
-            (
-                cursor.u16_le_at(entry_start + format.coldef_number_pos)?,
-                cursor.u16_le_at(entry_start + format.coldef_var_col_index_pos)?,
-            )
-        };
-
-        let flags = cursor.u8_at(entry_start + format.coldef_flags_pos)?;
-        let is_fixed = (flags & crate::format::column_flags::FIXED) != 0;
-        let fixed_offset = cursor.u16_le_at(entry_start + format.coldef_fixed_data_pos)?;
-        let col_size = cursor.u16_le_at(entry_start + format.coldef_length_pos)?;
-        let scale = cursor.u8_at(entry_start + format.coldef_scale_pos)?;
-        let precision = cursor.u8_at(entry_start + format.coldef_precision_pos)?;
-        let is_calculated = !is_jet3
-            && (cursor.u8_at(entry_start + COLDEF_EXT_FLAGS_POS)? & CALCULATED_EXT_FLAG_MASK) != 0;
-        // A complex column keeps the ComplexID of its row in
-        // MSysComplexColumns where a numeric column keeps its precision,
-        // scale and sort order.
-        let complex_id = if !is_jet3 && col_type == ColumnType::ComplexType {
-            Some(cursor.u32_le_at(entry_start + COLDEF_COMPLEX_ID_POS)?)
-        } else {
-            None
-        };
-        let display_index = cursor
-            .u16_le_at(entry_start + format.coldef_display_index_pos)
-            .unwrap_or(col_num);
-
-        columns.push(ColumnDef {
-            name: String::new(), // filled by read_names
-            col_type,
-            col_num,
-            var_col_num,
-            fixed_offset,
-            col_size,
-            flags,
-            is_fixed,
-            scale,
-            precision,
-            is_calculated,
-            display_index,
-            complex_id,
-        });
-
+        columns.push(parse_column_entry(cursor, entry_start, is_jet3, format)?);
         cursor.set_position(entry_start + span);
     }
     Ok(columns)
+}
+
+/// Parse the column entry at `entry_start`.
+fn parse_column_entry(
+    cursor: &TdefCursor,
+    entry_start: usize,
+    is_jet3: bool,
+    format: &JetFormat,
+) -> Result<ColumnDef, FileError> {
+    let col_type = ColumnType::try_from(cursor.u8_at(entry_start)?)?;
+
+    let (col_num, var_col_num) = column_numbers(cursor, entry_start, is_jet3, format)?;
+
+    let flags = cursor.u8_at(entry_start + format.coldef_flags_pos)?;
+    let is_fixed = (flags & crate::format::column_flags::FIXED) != 0;
+    let fixed_offset = cursor.u16_le_at(entry_start + format.coldef_fixed_data_pos)?;
+    let col_size = cursor.u16_le_at(entry_start + format.coldef_length_pos)?;
+    let scale = cursor.u8_at(entry_start + format.coldef_scale_pos)?;
+    let precision = cursor.u8_at(entry_start + format.coldef_precision_pos)?;
+    let (is_calculated, complex_id) = if is_jet3 {
+        (false, None)
+    } else {
+        ace_column_extras(cursor, entry_start, col_type)?
+    };
+    let display_index = cursor
+        .u16_le_at(entry_start + format.coldef_display_index_pos)
+        .unwrap_or(col_num);
+
+    Ok(ColumnDef {
+        name: String::new(), // filled by read_names
+        col_type,
+        col_num,
+        var_col_num,
+        fixed_offset,
+        col_size,
+        flags,
+        is_fixed,
+        scale,
+        precision,
+        is_calculated,
+        display_index,
+        complex_id,
+    })
+}
+
+/// The number of the column of the entry at `entry_start`, a byte in Jet3
+/// and two bytes later, and its index among the variable-length columns.
+fn column_numbers(
+    cursor: &TdefCursor,
+    entry_start: usize,
+    is_jet3: bool,
+    format: &JetFormat,
+) -> Result<(u16, u16), FileError> {
+    let col_num = if is_jet3 {
+        cursor.u8_at(entry_start + format.coldef_number_pos)? as u16
+    } else {
+        cursor.u16_le_at(entry_start + format.coldef_number_pos)?
+    };
+    let var_col_num = cursor.u16_le_at(entry_start + format.coldef_var_col_index_pos)?;
+    Ok((col_num, var_col_num))
+}
+
+/// The values of a Jet4 or ACE column entry at `entry_start` that Jet3
+/// entries do not have: whether the column is calculated, and the ComplexID
+/// of a complex column.
+fn ace_column_extras(
+    cursor: &TdefCursor,
+    entry_start: usize,
+    col_type: ColumnType,
+) -> Result<(bool, Option<u32>), FileError> {
+    let is_calculated =
+        (cursor.u8_at(entry_start + COLDEF_EXT_FLAGS_POS)? & CALCULATED_EXT_FLAG_MASK) != 0;
+    // A complex column keeps the ComplexID of its row in
+    // MSysComplexColumns where a numeric column keeps its precision,
+    // scale and sort order.
+    let complex_id = if col_type == ColumnType::ComplexType {
+        Some(cursor.u32_le_at(entry_start + COLDEF_COMPLEX_ID_POS)?)
+    } else {
+        None
+    };
+    Ok((is_calculated, complex_id))
 }
 
 /// Position of the ComplexID of a complex column within an ACE column entry.
@@ -575,23 +641,7 @@ fn parse_index_column_defs(
     for _ in 0..count {
         cursor.skip(format.idx_col_skip_before)?;
 
-        let mut idx_columns = Vec::new();
-        for _ in 0..MAX_INDEX_COLUMNS {
-            let col_id = cursor.read_u16_le()?;
-            let order_flag = cursor.read_u8()?;
-
-            if col_id != 0xFFFF {
-                let order = if order_flag == 0x01 {
-                    IndexColumnOrder::Ascending
-                } else {
-                    IndexColumnOrder::Descending
-                };
-                idx_columns.push(IndexColumn {
-                    col_num: col_id,
-                    order,
-                });
-            }
-        }
+        let idx_columns = read_index_columns(cursor)?;
 
         cursor.skip(4)?; // usage map reference
         let first_pg = cursor.read_u32_le()?;
@@ -603,6 +653,28 @@ fn parse_index_column_defs(
     }
 
     Ok(idx_col_defs)
+}
+
+/// Read the slots of the columns of an index (an unused slot holds 0xFFFF).
+fn read_index_columns(cursor: &mut TdefCursor) -> Result<Vec<IndexColumn>, FileError> {
+    let mut idx_columns = Vec::new();
+    for _ in 0..MAX_INDEX_COLUMNS {
+        let col_id = cursor.read_u16_le()?;
+        let order_flag = cursor.read_u8()?;
+
+        if col_id != 0xFFFF {
+            let order = if order_flag == 0x01 {
+                IndexColumnOrder::Ascending
+            } else {
+                IndexColumnOrder::Descending
+            };
+            idx_columns.push(IndexColumn {
+                col_num: col_id,
+                order,
+            });
+        }
+    }
+    Ok(idx_columns)
 }
 
 /// Parse logical index definitions from TDEF section [6].
@@ -622,21 +694,13 @@ fn parse_logical_indexes(
         let index_num = cursor.read_u16_le()?;
         cursor.skip(2)?; // padding
         let index_col_entry = cursor.read_u32_le()?;
-        let fk_index_type = cursor.read_u8()?;
-        let fk_index_number = cursor.read_u32_le()?;
-        let fk_table_page = cursor.read_u32_le()?;
-        let update_action = cursor.read_u8()?;
-        let delete_action = cursor.read_u8()?;
+        let foreign_key = read_foreign_key(cursor)?;
         let index_type = cursor.u8_at(entry_start + format.idx_info_type_offset)?;
 
         logical_indexes.push(LogicalIndex {
             index_num,
             index_col_entry,
-            fk_index_type,
-            fk_index_number,
-            fk_table_page,
-            update_action,
-            delete_action,
+            foreign_key,
             index_type,
         });
 
@@ -644,6 +708,17 @@ fn parse_logical_indexes(
     }
 
     Ok(logical_indexes)
+}
+
+/// Read the foreign key of a logical index, which every entry has.
+fn read_foreign_key(cursor: &mut TdefCursor) -> Result<ForeignKeyReference, FileError> {
+    Ok(ForeignKeyReference {
+        fk_index_type: cursor.read_u8()?,
+        fk_index_number: cursor.read_u32_le()?,
+        fk_table_page: cursor.read_u32_le()?,
+        update_action: cursor.read_u8()?,
+        delete_action: cursor.read_u8()?,
+    })
 }
 
 /// Combine logical indexes, column definitions, and names into `IndexDef` entries.
@@ -655,48 +730,46 @@ fn build_index_defs(
     let mut indexes = Vec::with_capacity(logical_indexes.len());
     for (i, logical) in logical_indexes.iter().enumerate() {
         let name = idx_names.get(i).cloned().unwrap_or_default();
-
-        if logical.index_type == crate::format::index_type::FOREIGN_KEY {
-            indexes.push(IndexDef {
-                name,
-                index_num: logical.index_num,
-                index_type: logical.index_type,
-                columns: Vec::new(),
-                flags: 0,
-                first_data_page: 0,
-                foreign_key: Some(ForeignKeyReference {
-                    fk_index_type: logical.fk_index_type,
-                    fk_index_number: logical.fk_index_number,
-                    fk_table_page: logical.fk_table_page,
-                    update_action: logical.update_action,
-                    delete_action: logical.delete_action,
-                }),
-            });
-        } else {
-            let col_entry_idx = logical.index_col_entry as usize;
-            let (cols, flags, first_pg) = if col_entry_idx < idx_col_defs.len() {
-                idx_col_defs[col_entry_idx].clone()
+        let ((columns, flags, first_data_page), foreign_key) =
+            if logical.index_type == crate::format::index_type::FOREIGN_KEY {
+                ((Vec::new(), 0, 0), Some(logical.foreign_key.clone()))
             } else {
-                log::warn!(
-                    "index '{}': column entry index {} out of range (max {})",
-                    name,
-                    col_entry_idx,
-                    idx_col_defs.len()
-                );
-                (Vec::new(), 0, 0)
+                (physical_entry(logical, idx_col_defs, &name), None)
             };
-            indexes.push(IndexDef {
-                name,
-                index_num: logical.index_num,
-                index_type: logical.index_type,
-                columns: cols,
-                flags,
-                first_data_page: first_pg,
-                foreign_key: None,
-            });
-        }
+        indexes.push(IndexDef {
+            name,
+            index_num: logical.index_num,
+            index_type: logical.index_type,
+            columns,
+            flags,
+            first_data_page,
+            foreign_key,
+        });
     }
     indexes
+}
+
+/// The columns, flags and first page of the index `name`, from the entry of
+/// section [5] that `logical` names; none, with a warning, when it names no
+/// entry.
+fn physical_entry(
+    logical: &LogicalIndex,
+    idx_col_defs: &[PhysicalIndexEntry],
+    name: &str,
+) -> PhysicalIndexEntry {
+    let col_entry_idx = logical.index_col_entry as usize;
+    match idx_col_defs.get(col_entry_idx) {
+        Some(entry) => entry.clone(),
+        None => {
+            log::warn!(
+                "index '{}': column entry index {} out of range (max {})",
+                name,
+                col_entry_idx,
+                idx_col_defs.len()
+            );
+            (Vec::new(), 0, 0)
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1441,11 +1514,13 @@ mod tests {
         let logical = vec![LogicalIndex {
             index_num: 1,
             index_col_entry: 0,
-            fk_index_type: 0,
-            fk_index_number: 0,
-            fk_table_page: 0,
-            update_action: 0,
-            delete_action: 0,
+            foreign_key: ForeignKeyReference {
+                fk_index_type: 0,
+                fk_index_number: 0,
+                fk_table_page: 0,
+                update_action: 0,
+                delete_action: 0,
+            },
             index_type: crate::format::index_type::ORDINARY,
         }];
         let col = IndexColumn {
@@ -1471,11 +1546,13 @@ mod tests {
         let logical = vec![LogicalIndex {
             index_num: 2,
             index_col_entry: 0,
-            fk_index_type: 1,
-            fk_index_number: 5,
-            fk_table_page: 42,
-            update_action: 1,
-            delete_action: 2,
+            foreign_key: ForeignKeyReference {
+                fk_index_type: 1,
+                fk_index_number: 5,
+                fk_table_page: 42,
+                update_action: 1,
+                delete_action: 2,
+            },
             index_type: crate::format::index_type::FOREIGN_KEY,
         }];
         let physical: Vec<PhysicalIndexEntry> = vec![];
@@ -1499,11 +1576,13 @@ mod tests {
         let logical = vec![LogicalIndex {
             index_num: 3,
             index_col_entry: 99, // out of range
-            fk_index_type: 0,
-            fk_index_number: 0,
-            fk_table_page: 0,
-            update_action: 0,
-            delete_action: 0,
+            foreign_key: ForeignKeyReference {
+                fk_index_type: 0,
+                fk_index_number: 0,
+                fk_table_page: 0,
+                update_action: 0,
+                delete_action: 0,
+            },
             index_type: crate::format::index_type::ORDINARY,
         }];
         let physical: Vec<PhysicalIndexEntry> = vec![]; // empty → 99 is out of range
@@ -1544,21 +1623,25 @@ mod tests {
             LogicalIndex {
                 index_num: 0,
                 index_col_entry: 0,
-                fk_index_type: 0,
-                fk_index_number: 0,
-                fk_table_page: 0,
-                update_action: 0,
-                delete_action: 0,
+                foreign_key: ForeignKeyReference {
+                    fk_index_type: 0,
+                    fk_index_number: 0,
+                    fk_table_page: 0,
+                    update_action: 0,
+                    delete_action: 0,
+                },
                 index_type: crate::format::index_type::ORDINARY,
             },
             LogicalIndex {
                 index_num: 1,
                 index_col_entry: 0,
-                fk_index_type: 0,
-                fk_index_number: 0,
-                fk_table_page: 0,
-                update_action: 0,
-                delete_action: 0,
+                foreign_key: ForeignKeyReference {
+                    fk_index_type: 0,
+                    fk_index_number: 0,
+                    fk_table_page: 0,
+                    update_action: 0,
+                    delete_action: 0,
+                },
                 index_type: crate::format::index_type::ORDINARY,
             },
         ];
