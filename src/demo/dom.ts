@@ -200,8 +200,27 @@ function complex(
 /** タブ: [名前, 中身を作る関数]。中身は選んだときに作る */
 export type Tab = [label: string, render: () => Node];
 
+// キーで移る先。左右は端で反対の端へ回り、Home と End は先頭と末尾
+const TAB_KEYS = new Map<string, (i: number, n: number) => number>([
+  ["ArrowRight", (i, n) => (i + 1) % n],
+  ["ArrowLeft", (i, n) => (i - 1 + n) % n],
+  ["Home", () => 0],
+  ["End", (_, n) => n - 1],
+]);
+
+// タブの組の通し番号。id を組の間で重ねないため
+let tabSets = 0;
+
+// 作りは紹介ページのタブ（src/main.ts）と同じ: タブと中身を id で結び付け、
+// Tab キーでは選んでいるタブにだけ止まり、矢印・Home・End で移る
 export function tabs(t: Messages, items: Tab[]): [HTMLElement, HTMLElement] {
-  const panel = el("div", { class: "viewer-panel", role: "tabpanel" });
+  const set = ++tabSets;
+  const panelId = `viewer-panel-${set}`;
+  const panel = el("div", {
+    class: "viewer-panel",
+    role: "tabpanel",
+    id: panelId,
+  });
   const buttons = items.map(([label], i) =>
     el(
       "button",
@@ -209,7 +228,10 @@ export function tabs(t: Messages, items: Tab[]): [HTMLElement, HTMLElement] {
         type: "button",
         class: "tab",
         role: "tab",
+        id: `viewer-tab-${set}-${i}`,
+        "aria-controls": panelId,
         "aria-selected": "false",
+        tabindex: "-1",
         onclick: () => select(i),
       },
       label,
@@ -218,7 +240,9 @@ export function tabs(t: Messages, items: Tab[]): [HTMLElement, HTMLElement] {
   function select(i: number) {
     buttons.forEach((b, j) => {
       b.setAttribute("aria-selected", String(i === j));
+      b.tabIndex = i === j ? 0 : -1;
     });
+    panel.setAttribute("aria-labelledby", buttons[i]?.id ?? "");
     let content: Node;
     try {
       const render = items[i]?.[1];
@@ -236,14 +260,9 @@ export function tabs(t: Messages, items: Tab[]): [HTMLElement, HTMLElement] {
   );
   bar.addEventListener("keydown", (event) => {
     const i = buttons.indexOf(document.activeElement as HTMLButtonElement);
-    if (i < 0) return;
-    const next =
-      event.key === "ArrowRight"
-        ? (i + 1) % buttons.length
-        : event.key === "ArrowLeft"
-          ? (i - 1 + buttons.length) % buttons.length
-          : null;
-    if (next === null) return;
+    const move = TAB_KEYS.get(event.key);
+    if (i < 0 || !move) return;
+    const next = move(i, buttons.length);
     event.preventDefault();
     buttons[next]?.focus();
     select(next);

@@ -343,6 +343,39 @@ describe("タブ", () => {
     expect(selected()).toEqual([true, false, false]);
   });
 
+  it("タブと中身を id で結び付け、Tab キーでは選んでいるタブにだけ止まる", () => {
+    const { panel, buttons } = setUp();
+    const ids = buttons.map((b) => b.id);
+    expect(new Set(ids).size).toBe(3);
+    expect(panel.id).not.toBe("");
+    for (const b of buttons) {
+      expect(b.getAttribute("aria-controls")).toBe(panel.id);
+    }
+    expect(panel.getAttribute("aria-labelledby")).toBe(ids[0]);
+    expect(buttons.map((b) => b.tabIndex)).toEqual([0, -1, -1]);
+    buttons[2]?.click();
+    expect(panel.getAttribute("aria-labelledby")).toBe(ids[2]);
+    expect(buttons.map((b) => b.tabIndex)).toEqual([-1, -1, 0]);
+  });
+
+  it("別の組とは id が重ならない", () => {
+    const first = setUp();
+    const second = setUp();
+    expect(second.panel.id).not.toBe(first.panel.id);
+    expect(second.buttons[0]?.id).not.toBe(first.buttons[0]?.id);
+  });
+
+  it("Home と End で先頭と末尾へ移る", () => {
+    const { buttons, selected } = setUp();
+    buttons[1]?.focus();
+    press("End");
+    expect(selected()).toEqual([false, false, true]);
+    expect(document.activeElement).toBe(buttons[2]);
+    press("Home");
+    expect(selected()).toEqual([true, false, false]);
+    expect(document.activeElement).toBe(buttons[0]);
+  });
+
   it("中身を作れなかったら、その場に読めなかった一文を出す", () => {
     const { panel, buttons } = setUp(() => {
       throw Object.assign(new Error("no such table"), {

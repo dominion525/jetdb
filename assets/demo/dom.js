@@ -107,19 +107,41 @@ function complex(t, items) {
     }));
     return el("details", { class: "viewer-complex" }, el("summary", {}, t.complexCount(items.length, noun[0], noun[1])), list);
 }
+// キーで移る先。左右は端で反対の端へ回り、Home と End は先頭と末尾
+const TAB_KEYS = new Map([
+    ["ArrowRight", (i, n) => (i + 1) % n],
+    ["ArrowLeft", (i, n) => (i - 1 + n) % n],
+    ["Home", () => 0],
+    ["End", (_, n) => n - 1],
+]);
+// タブの組の通し番号。id を組の間で重ねないため
+let tabSets = 0;
+// 作りは紹介ページのタブ（src/main.ts）と同じ: タブと中身を id で結び付け、
+// Tab キーでは選んでいるタブにだけ止まり、矢印・Home・End で移る
 export function tabs(t, items) {
-    const panel = el("div", { class: "viewer-panel", role: "tabpanel" });
+    const set = ++tabSets;
+    const panelId = `viewer-panel-${set}`;
+    const panel = el("div", {
+        class: "viewer-panel",
+        role: "tabpanel",
+        id: panelId,
+    });
     const buttons = items.map(([label], i) => el("button", {
         type: "button",
         class: "tab",
         role: "tab",
+        id: `viewer-tab-${set}-${i}`,
+        "aria-controls": panelId,
         "aria-selected": "false",
+        tabindex: "-1",
         onclick: () => select(i),
     }, label));
     function select(i) {
         buttons.forEach((b, j) => {
             b.setAttribute("aria-selected", String(i === j));
+            b.tabIndex = i === j ? 0 : -1;
         });
+        panel.setAttribute("aria-labelledby", buttons[i]?.id ?? "");
         let content;
         try {
             const render = items[i]?.[1];
@@ -135,15 +157,10 @@ export function tabs(t, items) {
     const bar = el("div", { class: "tabs viewer-tabs", role: "tablist" }, buttons);
     bar.addEventListener("keydown", (event) => {
         const i = buttons.indexOf(document.activeElement);
-        if (i < 0)
+        const move = TAB_KEYS.get(event.key);
+        if (i < 0 || !move)
             return;
-        const next = event.key === "ArrowRight"
-            ? (i + 1) % buttons.length
-            : event.key === "ArrowLeft"
-                ? (i - 1 + buttons.length) % buttons.length
-                : null;
-        if (next === null)
-            return;
+        const next = move(i, buttons.length);
         event.preventDefault();
         buttons[next]?.focus();
         select(next);
