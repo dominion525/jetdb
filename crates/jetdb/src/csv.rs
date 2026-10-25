@@ -8,7 +8,7 @@
 use std::io::{self, Write};
 
 use crate::catalog::{find_table, CatalogEntry};
-use crate::complex::{read_complex_column, ComplexColumn, ComplexKind, ComplexValues};
+use crate::complex::{read_complex_column, Attachment, ComplexColumn, ComplexKind, ComplexValues};
 use crate::data::{calculated_column_types_in, TableRows, Value};
 use crate::file::{FileError, PageReader};
 use crate::table::TableDef;
@@ -84,21 +84,12 @@ pub fn write_csv(
     mut attachments: Option<&mut AttachmentWriter<'_>>,
 ) -> Result<usize, FileError> {
     let system_table = find_table(catalog, &table.name)?.is_system();
-    let columns: Vec<usize> = (0..table.columns.len())
-        .filter(|&i| options.system_columns || table.columns[i].is_shown(system_table))
-        .collect();
+    let columns = exported_columns(table, system_table, options);
     let delimiter = options.delimiter.to_string();
     if options.header {
-        let header: Vec<String> = columns
-            .iter()
-            .map(|&i| csv_escape(&table.columns[i].name, options.delimiter, false))
-            .collect();
-        writeln!(out, "{}", header.join(&delimiter)).map_err(FileError::Io)?;
+        write_header(out, table, &columns, options)?;
     }
-    let complex = columns
-        .iter()
-        .map(|&i| read_complex_column(reader, catalog, table, &table.columns[i]))
-        .collect::<Result<Vec<_>, _>>()?;
+    let complex = complex_columns(reader, catalog, table, &columns)?;
     let calculated = calculated_column_types_in(catalog, table);
     let mut rows = TableRows::new(table, &calculated).with_columns(&columns);
     while let Some(row) = rows.next_row(reader)? {
@@ -113,6 +104,42 @@ pub fn write_csv(
         writeln!(out, "{}", fields.join(&delimiter)).map_err(FileError::Io)?;
     }
     Ok(rows.skipped_rows())
+}
+
+/// The indexes of the columns of `table` to write: those Access shows, or all
+/// of them with [`CsvOptions::system_columns`].
+fn exported_columns(table: &TableDef, system_table: bool, options: &CsvOptions) -> Vec<usize> {
+    (0..table.columns.len())
+        .filter(|&i| options.system_columns || table.columns[i].is_shown(system_table))
+        .collect()
+}
+
+/// The complex columns of the columns at the indexes in `columns`, `None`
+/// for each that is not one.
+fn complex_columns(
+    reader: &mut PageReader,
+    catalog: &[CatalogEntry],
+    table: &TableDef,
+    columns: &[usize],
+) -> Result<Vec<Option<ComplexColumn>>, FileError> {
+    columns
+        .iter()
+        .map(|&i| read_complex_column(reader, catalog, table, &table.columns[i]))
+        .collect()
+}
+
+/// Write the line of the names of the columns at the indexes in `columns`.
+fn write_header(
+    out: &mut dyn Write,
+    table: &TableDef,
+    columns: &[usize],
+    options: &CsvOptions,
+) -> Result<(), FileError> {
+    let header: Vec<String> = columns
+        .iter()
+        .map(|&i| csv_escape(&table.columns[i].name, options.delimiter, false))
+        .collect();
+    writeln!(out, "{}", header.join(&options.delimiter.to_string())).map_err(FileError::Io)
 }
 
 // ---------------------------------------------------------------------------
@@ -166,19 +193,7 @@ fn csv_escape(value: &str, delimiter: char, always_quote: bool) -> String {
 fn format_value(value: &Value, opts: &CsvOptions) -> String {
     match value {
         Value::Null => csv_escape(&opts.null, opts.delimiter, false),
-        Value::Bool(b) => {
-            if opts.boolean_words {
-                if *b {
-                    "TRUE".to_string()
-                } else {
-                    "FALSE".to_string()
-                }
-            } else if *b {
-                "1".to_string()
-            } else {
-                "0".to_string()
-            }
-        }
+        Value::Bool(b) => bool_field(*b, opts),
         Value::Byte(v) => v.to_string(),
         Value::Int(v) => v.to_string(),
         Value::Long(v) => v.to_string(),
@@ -187,23 +202,43 @@ fn format_value(value: &Value, opts: &CsvOptions) -> String {
         Value::Double(v) => v.to_string(),
         Value::Money(s) | Value::Numeric(s) => s.clone(),
         Value::Text(s) | Value::Guid(s) => csv_escape(s, opts.delimiter, true),
-        Value::Binary(data) => {
-            let s = format_binary(data, opts.binary);
-            if opts.binary == BinaryFormat::Raw && !s.is_empty() {
-                csv_escape(&s, opts.delimiter, false)
-            } else {
-                s
-            }
-        }
-        Value::Timestamp(ts) => {
-            if timestamp::is_date_only(*ts) {
-                timestamp::format_timestamp(*ts, &opts.date_format)
-            } else {
-                timestamp::format_timestamp(*ts, &opts.datetime_format)
-            }
-        }
+        Value::Binary(data) => binary_field(data, opts),
+        Value::Timestamp(ts) => timestamp_field(*ts, opts),
         Value::DateTimeExtended(s) => csv_escape(s, opts.delimiter, true),
     }
+}
+
+/// The field of a Yes/No value: `1` or `0`, or `TRUE` or `FALSE` with
+/// [`CsvOptions::boolean_words`].
+fn bool_field(b: bool, opts: &CsvOptions) -> String {
+    let (yes, no) = if opts.boolean_words {
+        ("TRUE", "FALSE")
+    } else {
+        ("1", "0")
+    };
+    if b { yes } else { no }.to_string()
+}
+
+/// The field of binary data in the format of [`CsvOptions::binary`], quoted
+/// when it is raw and needs to be.
+fn binary_field(data: &[u8], opts: &CsvOptions) -> String {
+    let s = format_binary(data, opts.binary);
+    if opts.binary == BinaryFormat::Raw && !s.is_empty() {
+        csv_escape(&s, opts.delimiter, false)
+    } else {
+        s
+    }
+}
+
+/// The field of a Date/Time value, in the date format when it has no time of
+/// day.
+fn timestamp_field(ts: f64, opts: &CsvOptions) -> String {
+    let format = if timestamp::is_date_only(ts) {
+        &opts.date_format
+    } else {
+        &opts.datetime_format
+    };
+    timestamp::format_timestamp(ts, format)
 }
 
 /// A value as text, without the quotes of a CSV field: one of the values
@@ -261,21 +296,35 @@ fn complex_field(
             items.extend(values.iter().map(|v| plain_value(v, opts)));
         }
         ComplexValues::Attachment(files) => {
-            for file in files {
-                let name = safe_file_name(&plain_value(&file.name, opts));
-                match (attachments.as_mut(), &file.data) {
-                    (Some(write), Value::Binary(data)) => items.push(write(number, &name, data)?),
-                    (Some(_), _) => {
-                        log::warn!("the content of attachment {name} could not be read");
-                        items.push(name);
-                    }
-                    (None, _) => items.push(name),
-                }
-            }
+            items = attachment_items(files, number, opts, attachments)?;
         }
         ComplexValues::VersionHistory(_) | ComplexValues::Unknown => {}
     }
     Ok(joined_field(&items, opts))
+}
+
+/// The items of the field of the attached `files` of the attachment column
+/// that holds `number` in a row: their file names, or what `attachments`
+/// gives for each file whose content could be read.
+fn attachment_items(
+    files: Vec<Attachment>,
+    number: i32,
+    opts: &CsvOptions,
+    attachments: &mut Option<&mut AttachmentWriter<'_>>,
+) -> io::Result<Vec<String>> {
+    let mut items = Vec::new();
+    for file in files {
+        let name = safe_file_name(&plain_value(&file.name, opts));
+        match (attachments.as_mut(), &file.data) {
+            (Some(write), Value::Binary(data)) => items.push(write(number, &name, data)?),
+            (Some(_), _) => {
+                log::warn!("the content of attachment {name} could not be read");
+                items.push(name);
+            }
+            (None, _) => items.push(name),
+        }
+    }
+    Ok(items)
 }
 
 /// The field of `value`, with `column` its column if it is a complex column.
