@@ -63,7 +63,7 @@ function setUpCopyButton(button: HTMLButtonElement): void {
 // ---- インストール方法のタブ ----
 
 // タブの並びを、矢印・Home・End のキーでも切り替えられるようにする。
-// どのタブも aria-controls で中身を指している並びだけを扱う（デモのタブは demo.js が扱う）
+// どのタブも aria-controls で中身を指している並びだけを扱う（デモのタブは src/demo/dom.ts が扱う）
 function setUpTabs(tablist: Element): void {
   const tabs = [...tablist.querySelectorAll<HTMLElement>('[role="tab"]')];
   const panels = tabs.map((tab) => {
