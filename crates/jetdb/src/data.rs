@@ -47,6 +47,32 @@ pub enum Value {
     DateTimeExtended(String),
 }
 
+impl Value {
+    /// The text of a Text value.
+    pub(crate) fn as_text(&self) -> Option<&str> {
+        match self {
+            Value::Text(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    /// The number of a Long value.
+    pub(crate) fn as_long(&self) -> Option<i32> {
+        match self {
+            Value::Long(v) => Some(*v),
+            _ => None,
+        }
+    }
+
+    /// The bytes of a Binary value.
+    pub(crate) fn as_binary(&self) -> Option<&[u8]> {
+        match self {
+            Value::Binary(b) => Some(b),
+            _ => None,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // read_table_rows — public entry point
 // ---------------------------------------------------------------------------

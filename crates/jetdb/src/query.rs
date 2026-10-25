@@ -155,45 +155,24 @@ struct QueryColumnIndexes {
 }
 
 fn resolve_query_columns(columns: &[table::ColumnDef]) -> Result<QueryColumnIndexes, FileError> {
-    let mut object_id = None;
-    let mut attribute = None;
-    let mut order = None;
-    let mut name1 = None;
-    let mut name2 = None;
-    let mut expression = None;
-    let mut flag = None;
-    let mut extra = None;
-
-    for (i, col) in columns.iter().enumerate() {
-        match col.name.as_str() {
-            "ObjectId" => object_id = Some(i),
-            "Attribute" => attribute = Some(i),
-            "Order" => order = Some(i),
-            "Name1" => name1 = Some(i),
-            "Name2" => name2 = Some(i),
-            "Expression" => expression = Some(i),
-            "Flag" => flag = Some(i),
-            "LvExtra" => extra = Some(i),
-            _ => {}
-        }
-    }
-
-    let object_id = object_id.ok_or(FileError::InvalidTableDef {
-        reason: "MSysQueries missing ObjectId column",
-    })?;
-    let attribute = attribute.ok_or(FileError::InvalidTableDef {
-        reason: "MSysQueries missing Attribute column",
-    })?;
-
+    let optional = |name| table::column_index(columns, name);
     Ok(QueryColumnIndexes {
-        object_id,
-        attribute,
-        order,
-        name1,
-        name2,
-        expression,
-        flag,
-        extra,
+        object_id: table::required_column(
+            columns,
+            "ObjectId",
+            "MSysQueries missing ObjectId column",
+        )?,
+        attribute: table::required_column(
+            columns,
+            "Attribute",
+            "MSysQueries missing Attribute column",
+        )?,
+        order: optional("Order"),
+        name1: optional("Name1"),
+        name2: optional("Name2"),
+        expression: optional("Expression"),
+        flag: optional("Flag"),
+        extra: optional("LvExtra"),
     })
 }
 
