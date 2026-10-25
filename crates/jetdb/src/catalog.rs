@@ -3,7 +3,7 @@
 use crate::data::{self, Value};
 use crate::file::{FileError, PageReader};
 use crate::format::{catalog_flags, ObjectType, CATALOG_PAGE};
-use crate::table;
+use crate::table::{self, column_index, required_column, ColumnDef};
 
 // ---------------------------------------------------------------------------
 // CatalogEntry
@@ -50,84 +50,82 @@ pub fn read_catalog(reader: &mut PageReader) -> Result<Vec<CatalogEntry>, FileEr
     let tdef = table::read_table_def(reader, "MSysObjects", CATALOG_PAGE)?;
     let result = data::read_table_rows(reader, &tdef)?;
     result.warn_skipped("MSysObjects");
+    let columns = CatalogColumns::of(&tdef.columns)?;
+    Ok(result
+        .rows
+        .iter()
+        .filter_map(|row| catalog_entry(row, &columns))
+        .collect())
+}
 
-    // Locate required column indices in a single pass
-    let (mut id_idx, mut name_idx, mut type_idx, mut flags_idx, mut lvprop_idx, mut lvextra_idx) =
-        (None, None, None, None, None, None);
-    for (i, col) in tdef.columns.iter().enumerate() {
-        match col.name.as_str() {
-            "Id" => id_idx = Some(i),
-            "Name" => name_idx = Some(i),
-            "Type" => type_idx = Some(i),
-            "Flags" => flags_idx = Some(i),
-            "LvProp" => lvprop_idx = Some(i),
-            "LvExtra" => lvextra_idx = Some(i),
-            _ => {}
-        }
+/// The indexes of the columns of MSysObjects; Flags, LvProp and LvExtra may
+/// be absent.
+struct CatalogColumns {
+    id: usize,
+    name: usize,
+    object_type: usize,
+    flags: Option<usize>,
+    lv_prop: Option<usize>,
+    lv_extra: Option<usize>,
+}
+
+impl CatalogColumns {
+    fn of(columns: &[ColumnDef]) -> Result<Self, FileError> {
+        Ok(Self {
+            id: required_column(columns, "Id", "MSysObjects missing Id column")?,
+            name: required_column(columns, "Name", "MSysObjects missing Name column")?,
+            object_type: required_column(columns, "Type", "MSysObjects missing Type column")?,
+            flags: column_index(columns, "Flags"),
+            lv_prop: column_index(columns, "LvProp"),
+            lv_extra: column_index(columns, "LvExtra"),
+        })
     }
-    let id_idx = id_idx.ok_or(FileError::InvalidTableDef {
-        reason: "MSysObjects missing Id column",
-    })?;
-    let name_idx = name_idx.ok_or(FileError::InvalidTableDef {
-        reason: "MSysObjects missing Name column",
-    })?;
-    let type_idx = type_idx.ok_or(FileError::InvalidTableDef {
-        reason: "MSysObjects missing Type column",
-    })?;
+}
 
-    let mut entries = Vec::new();
+/// The value of `row` in the column at `index`, of a column that may be absent.
+fn optional_value(row: &[Value], index: Option<usize>) -> Option<&Value> {
+    index.and_then(|i| row.get(i))
+}
 
-    for row in &result.rows {
-        // Name must be non-null Text
-        let name = match row.get(name_idx) {
-            Some(Value::Text(s)) if !s.is_empty() => s.clone(),
-            _ => continue,
-        };
+/// The entry of `row`, or `None` when it has no name, no type jetdb knows or
+/// no Id.
+fn catalog_entry(row: &[Value], columns: &CatalogColumns) -> Option<CatalogEntry> {
+    // Name must be non-null Text
+    let name = row
+        .get(columns.name)
+        .and_then(Value::as_text)
+        .filter(|s| !s.is_empty())?
+        .to_string();
 
-        // Type must be convertible to ObjectType
-        let object_type = match row.get(type_idx) {
-            Some(Value::Int(v)) => match ObjectType::try_from(*v as i32) {
-                Ok(ot) => ot,
-                Err(_) => continue,
-            },
-            _ => continue,
-        };
+    // Type must be convertible to ObjectType
+    let object_type = match row.get(columns.object_type) {
+        Some(Value::Int(v)) => ObjectType::try_from(*v as i32).ok()?,
+        _ => return None,
+    };
 
-        // Id → table_page (lower 24 bits)
-        let table_page = match row.get(id_idx) {
-            Some(Value::Long(id)) => (*id & 0x00FF_FFFF) as u32,
-            _ => continue,
-        };
+    // Id → table_page (lower 24 bits)
+    let table_page = (row.get(columns.id).and_then(Value::as_long)? & 0x00FF_FFFF) as u32;
 
-        // Flags (optional column)
-        // Flags は i32 だが、ビットフラグとして解釈するため
-        // u32 にキャスト (ビットパターン保持: -2147483648i32 → 0x80000000u32)
-        let flags = match flags_idx.and_then(|i| row.get(i)) {
-            Some(Value::Long(f)) => *f as u32,
-            _ => 0,
-        };
+    // Flags (optional column)
+    // Flags は i32 だが、ビットフラグとして解釈するため
+    // u32 にキャスト (ビットパターン保持: -2147483648i32 → 0x80000000u32)
+    let flags = optional_value(row, columns.flags)
+        .and_then(Value::as_long)
+        .map_or(0, |f| f as u32);
 
-        let lv_prop = match lvprop_idx.and_then(|i| row.get(i)) {
-            Some(Value::Binary(b)) => Some(b.clone()),
-            _ => None,
-        };
-
-        let lv_extra = match lvextra_idx.and_then(|i| row.get(i)) {
-            Some(Value::Binary(b)) => Some(b.clone()),
-            _ => None,
-        };
-
-        entries.push(CatalogEntry {
-            name,
-            object_type,
-            table_page,
-            flags,
-            lv_prop,
-            lv_extra,
-        });
-    }
-
-    Ok(entries)
+    let binary = |i| {
+        optional_value(row, i)
+            .and_then(Value::as_binary)
+            .map(<[u8]>::to_vec)
+    };
+    Some(CatalogEntry {
+        name,
+        object_type,
+        table_page,
+        flags,
+        lv_prop: binary(columns.lv_prop),
+        lv_extra: binary(columns.lv_extra),
+    })
 }
 
 // ---------------------------------------------------------------------------
