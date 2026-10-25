@@ -14,7 +14,7 @@ use crate::catalog::{find_table, CatalogEntry};
 use crate::data::{read_row_at, read_table_rows_with, RowPosition, TableRows, Value};
 use crate::file::{FileError, PageReader};
 use crate::format::{ColumnType, ObjectType};
-use crate::table::{read_table_def, ColumnDef, TableDef};
+use crate::table::{column_index, read_table_def, ColumnDef, TableDef};
 
 /// One version of an append-only Long Text column.
 #[derive(Debug, Clone, PartialEq)]
@@ -359,19 +359,21 @@ fn kind_of(type_def: &TableDef, flat: &FlatTable) -> Kind {
 /// follows once inflated, then a header (its own 32-bit length, a 32-bit
 /// value, and the extension in UTF-16 ending with a zero) and the content.
 fn decode_attachment(stored: &[u8]) -> Option<Vec<u8>> {
-    let u32_at = |bytes: &[u8], at: usize| -> Option<usize> {
-        let b = bytes.get(at..at + 4)?;
-        usize::try_from(u32::from_le_bytes([b[0], b[1], b[2], b[3]])).ok()
-    };
-    let length = u32_at(stored, 4)?;
+    let length = u32_le_at(stored, 4)?;
     let body = stored.get(8..)?;
-    let body = match u32_at(stored, 0)? {
+    let body = match u32_le_at(stored, 0)? {
         0 => body.to_vec(),
         1 => miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(body, length).ok()?,
         _ => return None,
     };
-    let header = u32_at(&body, 0)?;
+    let header = u32_le_at(&body, 0)?;
     body.get(header..length).map(<[u8]>::to_vec)
+}
+
+/// The 32-bit little-endian number at `at` of `bytes`.
+fn u32_le_at(bytes: &[u8], at: usize) -> Option<usize> {
+    let b = bytes.get(at..at + 4)?;
+    usize::try_from(u32::from_le_bytes([b[0], b[1], b[2], b[3]])).ok()
 }
 
 /// The value of column `i` of `row`, leaving `Null` in its place.
@@ -421,6 +423,18 @@ struct ComplexLink {
     type_table_id: u32,
 }
 
+impl ComplexLink {
+    /// The link in a row of MSysComplexColumns, with the columns of its
+    /// ConceptualTableID, FlatTableID and ComplexTypeObjectID.
+    fn of(row: &[Value], [table, flat, type_table]: [Option<usize>; 3]) -> Option<Self> {
+        Some(Self {
+            table_id: link_id(row, table)?,
+            flat_table_id: link_id(row, flat)?,
+            type_table_id: link_id(row, type_table)?,
+        })
+    }
+}
+
 /// The row of MSysComplexColumns whose `ComplexID` is `complex_id`.
 fn find_link(
     reader: &mut PageReader,
@@ -435,26 +449,23 @@ fn find_link(
         "FlatTableID",
         "ComplexTypeObjectID",
     ]
-    .map(|name| tdef.columns.iter().position(|c| c.name == name));
+    .map(|name| column_index(&tdef.columns, name));
     let rows = read_table_rows_with(reader, &tdef, &Default::default())?;
     rows.warn_skipped(&tdef.name);
-    let id_at = |row: &[Value], i: Option<usize>| {
-        i.and_then(|i| long_at(row, i))
-            .and_then(|n| u32::try_from(n).ok())
-    };
     rows.rows
         .iter()
-        .find(|row| id_at(row, id) == Some(complex_id))
-        .and_then(|row| {
-            Some(ComplexLink {
-                table_id: id_at(row, table)?,
-                flat_table_id: id_at(row, flat)?,
-                type_table_id: id_at(row, type_table)?,
-            })
-        })
+        .find(|row| link_id(row, id) == Some(complex_id))
+        .and_then(|row| ComplexLink::of(row, [table, flat, type_table]))
         .ok_or(FileError::InvalidTableDef {
             reason: "complex column not found in MSysComplexColumns",
         })
+}
+
+/// The ID in the column at `i` of a row of MSysComplexColumns, when the
+/// table has the column and the ID is a Long that is not negative.
+fn link_id(row: &[Value], i: Option<usize>) -> Option<u32> {
+    i.and_then(|i| long_at(row, i))
+        .and_then(|n| u32::try_from(n).ok())
 }
 
 /// The definition of the table whose MSysObjects ID is `id`.

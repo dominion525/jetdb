@@ -393,28 +393,40 @@ impl ColumnType {
         }
     }
 
+    /// Every column type jetdb knows, which [`ColumnType::to_byte`] gives the
+    /// byte of; the other bytes are [`ColumnType::Unknown`].
+    const KNOWN: [ColumnType; 17] = [
+        Self::Boolean,
+        Self::Byte,
+        Self::Int,
+        Self::Long,
+        Self::Money,
+        Self::Float,
+        Self::Double,
+        Self::Timestamp,
+        Self::Binary,
+        Self::Text,
+        Self::Ole,
+        Self::Memo,
+        Self::Guid,
+        Self::Numeric,
+        Self::ComplexType,
+        Self::BigInt,
+        Self::DateTimeExtended,
+    ];
+
     /// Return the fixed byte-size for this column type, or `None` for
     /// variable-length types.
     pub fn fixed_size(&self) -> Option<usize> {
         match self {
-            Self::Boolean => Some(1),
-            Self::Byte => Some(1),
+            Self::Boolean | Self::Byte => Some(1),
             Self::Int => Some(2),
-            Self::Long => Some(4),
-            Self::Money => Some(8),
-            Self::Float => Some(4),
-            Self::Double => Some(8),
-            Self::Timestamp => Some(8),
-            Self::Binary => None,
-            Self::Text => None,
-            Self::Ole => None,
-            Self::Memo => None,
+            Self::Long | Self::Float | Self::ComplexType => Some(4),
+            Self::Money | Self::Double | Self::Timestamp | Self::BigInt => Some(8),
             Self::Guid => Some(16),
             Self::Numeric => Some(17),
-            Self::ComplexType => Some(4),
-            Self::BigInt => Some(8),
             Self::DateTimeExtended => Some(42),
-            Self::Unknown(_) => None,
+            Self::Binary | Self::Text | Self::Ole | Self::Memo | Self::Unknown(_) => None,
         }
     }
 
@@ -428,26 +440,10 @@ impl TryFrom<u8> for ColumnType {
     type Error = FormatError;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0x01 => Ok(Self::Boolean),
-            0x02 => Ok(Self::Byte),
-            0x03 => Ok(Self::Int),
-            0x04 => Ok(Self::Long),
-            0x05 => Ok(Self::Money),
-            0x06 => Ok(Self::Float),
-            0x07 => Ok(Self::Double),
-            0x08 => Ok(Self::Timestamp),
-            0x09 => Ok(Self::Binary),
-            0x0A => Ok(Self::Text),
-            0x0B => Ok(Self::Ole),
-            0x0C => Ok(Self::Memo),
-            0x0F => Ok(Self::Guid),
-            0x10 => Ok(Self::Numeric),
-            0x12 => Ok(Self::ComplexType),
-            0x13 => Ok(Self::BigInt),
-            0x14 => Ok(Self::DateTimeExtended),
-            other => Ok(Self::Unknown(other)),
-        }
+        Ok(Self::KNOWN
+            .into_iter()
+            .find(|t| t.to_byte() == value)
+            .unwrap_or(Self::Unknown(value)))
     }
 }
 
@@ -502,22 +498,10 @@ impl TryFrom<i32> for ObjectType {
     type Error = FormatError;
 
     fn try_from(value: i32) -> Result<Self, Self::Error> {
-        match value {
-            -32768 => Ok(Self::Form),
-            -32766 => Ok(Self::Macro),
-            -32764 => Ok(Self::Report),
-            -32761 => Ok(Self::Module),
-            -32758 => Ok(Self::UserInfo),
-            -32757 => Ok(Self::DatabaseProperty),
-            1 => Ok(Self::Table),
-            2 => Ok(Self::Database),
-            3 => Ok(Self::Container),
-            4 => Ok(Self::LinkedOdbcTable),
-            5 => Ok(Self::Query),
-            6 => Ok(Self::LinkedTable),
-            8 => Ok(Self::Relationship),
-            _ => Err(FormatError::UnknownObjectType(value)),
-        }
+        Self::ALL
+            .into_iter()
+            .find(|&t| t as i32 == value)
+            .ok_or(FormatError::UnknownObjectType(value))
     }
 }
 
@@ -844,6 +828,42 @@ mod tests {
             assert_eq!(ct, expected);
             assert_eq!(ct.to_byte(), byte);
         }
+    }
+
+    #[test]
+    fn column_type_known_holds_every_type() {
+        // The match makes a new type fail to compile here until it is
+        // placed in KNOWN, which try_from reads.
+        let known = |t: ColumnType| match t {
+            ColumnType::Boolean
+            | ColumnType::Byte
+            | ColumnType::Int
+            | ColumnType::Long
+            | ColumnType::Money
+            | ColumnType::Float
+            | ColumnType::Double
+            | ColumnType::Timestamp
+            | ColumnType::Binary
+            | ColumnType::Text
+            | ColumnType::Ole
+            | ColumnType::Memo
+            | ColumnType::Guid
+            | ColumnType::Numeric
+            | ColumnType::ComplexType
+            | ColumnType::BigInt
+            | ColumnType::DateTimeExtended => true,
+            ColumnType::Unknown(_) => false,
+        };
+        // Each byte is of one type, and the bytes of known types are those
+        // of KNOWN.
+        let mut known_bytes = 0;
+        for byte in 0..=u8::MAX {
+            let t = ColumnType::try_from(byte).unwrap();
+            assert_eq!(t.to_byte(), byte);
+            assert_eq!(known(t), ColumnType::KNOWN.contains(&t), "{byte:#04x}");
+            known_bytes += usize::from(known(t));
+        }
+        assert_eq!(known_bytes, ColumnType::KNOWN.len());
     }
 
     #[test]
