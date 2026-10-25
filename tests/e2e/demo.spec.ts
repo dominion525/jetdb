@@ -341,3 +341,34 @@ test("続けて 2 つ選んだら、読み終わる順にかかわらず、最�
   );
   await expect(page.locator("#demo-status")).toHaveText("");
 });
+
+test("選んだら読み上げには見出しだけを伝え、右の中身は丸ごと読み上げの対象にしない", async ({
+  page,
+}) => {
+  await openDemo(page, "/demo/");
+  const announce = page.locator("#demo-announce");
+  await expect(announce).toHaveText("Database");
+  await page.getByRole("button", { name: "tblOrders", exact: true }).click();
+  await expect(detail(page).locator("h2")).toHaveText("tblOrders");
+  await expect(announce).toHaveText("tblOrders");
+  expect(await detail(page).getAttribute("aria-live")).toBeNull();
+  // タブと中身が id で結び付き、Tab キーで止まるのは選んでいるタブだけ
+  const tabs = detail(page).getByRole("tab");
+  const panel = detail(page).getByRole("tabpanel");
+  await expect(tabs.first()).toHaveAttribute(
+    "aria-controls",
+    (await panel.getAttribute("id")) ?? "",
+  );
+  await expect(panel).toHaveAttribute(
+    "aria-labelledby",
+    (await tabs.first().getAttribute("id")) ?? "",
+  );
+  await expect(tabs.first()).toHaveAttribute("tabindex", "0");
+  await expect(tabs.nth(1)).toHaveAttribute("tabindex", "-1");
+  await tabs.first().focus();
+  await page.keyboard.press("End");
+  await expect(tabs.last()).toHaveAttribute("aria-selected", "true");
+  await expect(tabs.last()).toBeFocused();
+  await page.keyboard.press("Home");
+  await expect(tabs.first()).toHaveAttribute("aria-selected", "true");
+});

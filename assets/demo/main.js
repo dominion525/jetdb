@@ -22,6 +22,8 @@ const passwordInput = byId("demo-password-input");
 const systemToggle = byId("demo-system");
 const nav = byId("demo-nav");
 const detail = byId("demo-detail");
+// 読み上げに、右の中身の見出しだけを伝える欄（画面には出ない）
+const announce = byId("demo-announce");
 // jetdb-wasm。サイトの /assets/wasm/ から、起動の中で読む。
 // ファイルの頭の import で読むと、読めなかったときにモジュールごと止まり、エラーの一文も出せないため
 let jetdb = null;
@@ -221,6 +223,9 @@ function selectFromHash() {
     const name = rest.length ? decodeURIComponent(rest.join("/")) : "";
     markCurrent();
     detail.replaceChildren(...detailView({ db, t: T }, kind, name).filter((c) => c !== null && c !== undefined));
+    // 同じ見出しを続けて入れても読み上げられるように、一度空にする
+    announce.textContent = "";
+    announce.textContent = detail.querySelector("h2")?.textContent ?? "";
 }
 window.addEventListener("hashchange", () => selectFromHash());
 systemToggle.addEventListener("change", () => {
