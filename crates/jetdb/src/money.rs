@@ -39,23 +39,18 @@ pub fn numeric_to_string(bytes: &[u8; 17], scale: u8) -> String {
     }
     let value = u128::from_be_bytes(fixed);
 
-    if scale == 0 {
-        let s = value.to_string();
-        if negative && value != 0 {
-            format!("-{s}")
-        } else {
-            s
-        }
+    let digits = if scale == 0 {
+        value.to_string()
     } else {
         let divisor = 10u128.pow(scale as u32);
         let integer = value / divisor;
         let decimal = value % divisor;
-        let s = format!("{integer}.{decimal:0>width$}", width = scale as usize);
-        if negative && value != 0 {
-            format!("-{s}")
-        } else {
-            s
-        }
+        format!("{integer}.{decimal:0>width$}", width = scale as usize)
+    };
+    if negative && value != 0 {
+        format!("-{digits}")
+    } else {
+        digits
     }
 }
 
