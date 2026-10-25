@@ -157,3 +157,52 @@ describe("インストール方法のタブ", () => {
     ]);
   });
 });
+
+const CARDS_HTML = `
+  <style>
+    .reads { display: grid; grid-template-columns: repeat(3, 200px); align-items: start; gap: 16px; margin: 0; padding: 0; list-style: none; }
+    .read { display: flex; flex-direction: column; }
+    .read .cmd { display: block; margin-top: auto; }
+    .output pre { margin: 4px 0 0; }
+  </style>
+  <ul class="reads">
+    <li class="read" id="c1"><p>one</p><code class="cmd">a</code><details class="output"><summary>Show</summary><pre>x
+y
+z
+w</pre></details></li>
+    <li class="read" id="c2"><p>two<br>two<br>two</p><code class="cmd">b</code><details class="output"><summary>Show</summary><pre>x</pre></details></li>
+    <li class="read" id="c3"><p>three</p><code class="cmd">c</code><details class="output"><summary>Show</summary><pre>x</pre></details></li>
+    <li class="read" id="c4"><p>four<br>four</p><code class="cmd">d</code><details class="output"><summary>Show</summary><pre>x</pre></details></li>
+  </ul>`;
+
+describe("読めるもののカードの高さ", () => {
+  const heights = () =>
+    ["#c1", "#c2", "#c3", "#c4"].map((id) => $(id).offsetHeight);
+
+  it("同じ行のカードは閉じた高さをそろえ、次の行には合わせない", async () => {
+    await loadMain(CARDS_HTML);
+    const [h1, h2, h3, h4] = heights();
+    expect(h1).toBe(h2);
+    expect(h3).toBe(h2);
+    expect(h4).toBeLessThan(h2);
+    // コマンドの枠は、行の中で同じ高さに来る
+    expect($("#c1 .cmd").getBoundingClientRect().top).toBe(
+      $("#c2 .cmd").getBoundingClientRect().top,
+    );
+  });
+
+  it("出力を開いても、同じ行のほかのカードは伸びない", async () => {
+    await loadMain(CARDS_HTML);
+    const [, h2, h3] = heights();
+    $<HTMLDetailsElement>("#c1 details").open = true;
+    const after = heights();
+    expect(after[0]).toBeGreaterThan(h2);
+    expect(after[1]).toBe(h2);
+    expect(after[2]).toBe(h3);
+    // 開いたまま測り直しても、閉じた高さでそろえる
+    window.dispatchEvent(new Event("resize"));
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    expect(heights()[1]).toBe(h2);
+    expect($("#c1").style.minHeight).toBe(`${h2}px`);
+  });
+});

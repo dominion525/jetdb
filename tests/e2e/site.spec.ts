@@ -74,3 +74,27 @@ test("375px: 全項目の比較表は jetdb の列が枠に収まり、右にス
     labelBox && wrapBox && labelBox.x + labelBox.width,
   ).toBeLessThanOrEqual((wrapBox?.x ?? 0) + (wrapBox?.width ?? 0));
 });
+
+test("1280px: カードの出力を開いても、同じ行のほかのカードは伸びない", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto("/");
+  const cards = page.locator(".reads > li");
+  // カードの高さと、カードの中でのコマンドの枠の位置
+  const shape = (i: number) =>
+    cards.nth(i).evaluate((li) => ({
+      height: Math.round(li.getBoundingClientRect().height),
+      cmdTop: Math.round(
+        (li.querySelector(".cmd")?.getBoundingClientRect().top ?? 0) -
+          li.getBoundingClientRect().top,
+      ),
+    }));
+  // 07 と 08 は同じ行で、閉じた高さとコマンドの枠の位置が同じ
+  const before = await shape(7);
+  expect(await shape(6)).toEqual(before);
+  await cards.nth(6).locator("summary").click();
+  await expect(cards.nth(6).locator("pre")).toBeVisible();
+  expect((await shape(6)).height).toBeGreaterThan(before.height);
+  expect(await shape(7)).toEqual(before);
+});

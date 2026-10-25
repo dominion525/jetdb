@@ -100,6 +100,50 @@ function setUpTabs(tablist) {
 for (const button of document.querySelectorAll(".copy-btn")) {
     setUpCopyButton(button);
 }
+// ---- 読めるもののカードの高さ ----
+// 同じ行のカードは、閉じた状態の高さを行の中でそろえる。
+// 並びの行の高さをそろえる（グリッドの stretch）と、1 枚の出力を開いたときに同じ行のほかのカードまで伸び、
+// 説明文とコマンドの間が空く。そこで並びは align-items: start にし、閉じた高さの最大値を min-height で与える
+function equalizeCardRows(list) {
+    const cards = [...list.querySelectorAll(":scope > li")];
+    for (const card of cards)
+        card.style.minHeight = "";
+    const rows = new Map();
+    for (const card of cards) {
+        const row = rows.get(card.offsetTop) ?? [];
+        row.push(card);
+        rows.set(card.offsetTop, row);
+    }
+    for (const row of rows.values()) {
+        const tallest = Math.max(...row.map(closedHeight));
+        for (const card of row)
+            card.style.minHeight = `${tallest}px`;
+    }
+}
+// カードの閉じた状態の高さ。出力を開いていれば、その中身の高さ分を引く
+function closedHeight(card) {
+    const pre = card.querySelector("details[open] > pre");
+    if (!pre)
+        return card.offsetHeight;
+    const style = getComputedStyle(pre);
+    return (card.offsetHeight -
+        pre.offsetHeight -
+        Number.parseFloat(style.marginTop) -
+        Number.parseFloat(style.marginBottom));
+}
+function setUpCardRows(list) {
+    equalizeCardRows(list);
+    // フォントが遅れて読まれると高さが変わるので、読み終わったら測り直す
+    document.fonts?.ready.then(() => equalizeCardRows(list));
+    let pending = 0;
+    window.addEventListener("resize", () => {
+        cancelAnimationFrame(pending);
+        pending = requestAnimationFrame(() => equalizeCardRows(list));
+    });
+}
 for (const tablist of document.querySelectorAll('[role="tablist"]')) {
     setUpTabs(tablist);
+}
+for (const list of document.querySelectorAll(".reads")) {
+    setUpCardRows(list);
 }

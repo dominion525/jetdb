@@ -333,6 +333,8 @@ pre {
 .reads {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  /* 行の高さはそろえない。閉じた高さは src/main.ts が行ごとにそろえ、出力を開いたカードだけが伸びる */
+  align-items: start;
   gap: 16px;
   margin: 0;
   padding: 0;
