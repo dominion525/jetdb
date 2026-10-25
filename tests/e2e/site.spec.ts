@@ -98,3 +98,20 @@ test("1280px: カードの出力を開いても、同じ行のほかのカード
   expect((await shape(6)).height).toBeGreaterThan(before.height);
   expect(await shape(7)).toEqual(before);
 });
+
+for (const width of [1280, 375]) {
+  test(`${width}px: カードの出力は枠の幅で折り返し、横にスクロールしない`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/");
+    const card = page.locator(".reads > li").nth(3);
+    await card.locator("summary").click();
+    const pre = card.locator("pre");
+    await expect(pre).toBeVisible();
+    expect(await pre.evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(
+      true,
+    );
+    await expect(pre).toContainText("ORDER BY");
+  });
+}

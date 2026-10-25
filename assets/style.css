@@ -426,7 +426,9 @@ pre {
   border-radius: var(--radius-sm);
   font-size: 0.75rem;
   line-height: 1.6;
-  overflow-x: auto;
+  /* 出力は読むための抜粋なので、長い行は枠の幅で折り返す（横スクロールにしない） */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 /* 比較表 */
