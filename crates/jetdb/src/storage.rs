@@ -527,4 +527,90 @@ mod tests {
             "{forms} {macros} {modules}"
         );
     }
+
+    /// DirData of the entries `(marker, declared length, payload)`, after its
+    /// header of four zeros.
+    fn dir_data(entries: &[(u8, u8, &[u8])]) -> Vec<u8> {
+        let mut data = vec![0u8; 4];
+        for (marker, len, payload) in entries {
+            data.extend_from_slice(&[*marker, *len]);
+            data.extend_from_slice(payload);
+        }
+        data
+    }
+
+    /// The payload of an entry: `name` in UTF-16LE, `index` and a null.
+    fn dir_data_payload(name: &str, index: u16) -> Vec<u8> {
+        let mut payload: Vec<u8> = name.encode_utf16().flat_map(u16::to_le_bytes).collect();
+        payload.extend_from_slice(&index.to_le_bytes());
+        payload.extend_from_slice(&[0, 0]);
+        payload
+    }
+
+    #[test]
+    fn parse_dir_data_entries() {
+        let form = dir_data_payload("Form1", 3);
+        let report = dir_data_payload("Report1", 12);
+        let data = dir_data(&[
+            (4, form.len() as u8, &form),
+            (4, report.len() as u8, &report),
+        ]);
+        assert_eq!(
+            parse_dir_data(&data).unwrap(),
+            [
+                ("Form1".to_string(), "3".to_string()),
+                ("Report1".to_string(), "12".to_string())
+            ]
+        );
+        assert_eq!(parse_dir_data(&[0, 0, 0]).unwrap(), []);
+    }
+
+    #[test]
+    fn parse_dir_data_with_a_length_too_short() {
+        // 一 is 00 4E in UTF-16LE. With a declared length of 4, the payload
+        // seems to end at the index, which is not a null, so the null that
+        // follows is looked for.
+        let payload = dir_data_payload("一", 5);
+        let data = dir_data(&[(4, 4, &payload)]);
+        assert_eq!(
+            parse_dir_data(&data).unwrap(),
+            [("一".to_string(), "5".to_string())]
+        );
+    }
+
+    #[test]
+    fn parse_dir_data_passes_over_an_empty_name_and_stops_at_another_marker() {
+        let empty = dir_data_payload("", 1);
+        let form = dir_data_payload("Form1", 3);
+        let data = dir_data(&[(4, 4, &empty), (4, form.len() as u8, &form), (5, 0, &[])]);
+        assert_eq!(
+            parse_dir_data(&data).unwrap(),
+            [("Form1".to_string(), "3".to_string())]
+        );
+    }
+
+    #[test]
+    fn parse_dir_data_with_a_name_not_utf16() {
+        // A lone high surrogate.
+        let payload = [0x00, 0xD8, 0x01, 0x00, 0x00, 0x00];
+        let data = dir_data(&[(4, 6, &payload)]);
+        assert!(matches!(
+            parse_dir_data(&data),
+            Err(FileError::InvalidFormData { reason }) if reason == "invalid UTF-16LE in DirData name"
+        ));
+    }
+
+    #[test]
+    fn parse_dir_data_with_a_length_to_the_end_without_a_null() {
+        // The declared length reaches the end of the data, whose last two
+        // bytes are not a null. The end is then taken to be one past the
+        // data, so the name is read as the three bytes before the index,
+        // which are not UTF-16LE.
+        let payload = [0x41, 0x00, 0x07, 0x00, 0x01, 0x00];
+        let data = dir_data(&[(4, 6, &payload)]);
+        assert!(matches!(
+            parse_dir_data(&data),
+            Err(FileError::InvalidFormData { reason }) if reason == "invalid UTF-16LE in DirData name"
+        ));
+    }
 }
