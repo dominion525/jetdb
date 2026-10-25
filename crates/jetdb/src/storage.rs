@@ -1,7 +1,7 @@
 //! MSysAccessStorage table reading — shared infrastructure for VBA, form/report,
 //! and macro extraction.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::catalog;
 use crate::data::{self, Value};
@@ -58,84 +58,61 @@ pub(crate) fn read_storage_entries(
 ) -> Result<Vec<StorageEntry>, FileError> {
     // Find MSysAccessStorage in the catalog
     let catalog = catalog::read_catalog(reader)?;
-    let entry = match catalog.iter().find(|e| e.name == "MSysAccessStorage") {
-        Some(e) => e,
-        None => {
-            let cfb_bytes = read_access_objects_cfb(reader)?;
-            if cfb_bytes.is_empty() {
-                return Ok(Vec::new());
-            }
-            return entries_from_cfb(cfb_bytes);
+    let Some(entry) = catalog.iter().find(|e| e.name == "MSysAccessStorage") else {
+        let cfb_bytes = access_objects_cfb_in(reader, &catalog)?;
+        if cfb_bytes.is_empty() {
+            return Ok(Vec::new());
         }
+        return entries_from_cfb(cfb_bytes);
     };
 
     let tdef = table::read_table_def(reader, &entry.name, entry.table_page)?;
     let result = data::read_table_rows(reader, &tdef)?;
     result.warn_skipped("MSysAccessStorage");
+    let columns = StorageColumns::of(&tdef.columns)?;
+    Ok(result
+        .rows
+        .iter()
+        .filter_map(|row| storage_entry(row, &columns))
+        .collect())
+}
 
-    // Locate column indices
-    let (mut id_idx, mut parent_id_idx, mut name_idx, mut type_idx, mut lv_idx) =
-        (None, None, None, None, None);
-    for (i, col) in tdef.columns.iter().enumerate() {
-        match col.name.as_str() {
-            "Id" => id_idx = Some(i),
-            "ParentId" => parent_id_idx = Some(i),
-            "Name" => name_idx = Some(i),
-            "Type" => type_idx = Some(i),
-            "Lv" => lv_idx = Some(i),
-            _ => {}
-        }
+/// The indexes of the columns of MSysAccessStorage.
+struct StorageColumns {
+    id: usize,
+    parent_id: usize,
+    name: usize,
+    entry_type: usize,
+    lv: usize,
+}
+
+impl StorageColumns {
+    fn of(columns: &[table::ColumnDef]) -> Result<Self, FileError> {
+        let required = |name, missing| table::required_column(columns, name, missing);
+        Ok(Self {
+            id: required("Id", "MSysAccessStorage missing Id column")?,
+            parent_id: required("ParentId", "MSysAccessStorage missing ParentId column")?,
+            name: required("Name", "MSysAccessStorage missing Name column")?,
+            entry_type: required("Type", "MSysAccessStorage missing Type column")?,
+            lv: required("Lv", "MSysAccessStorage missing Lv column")?,
+        })
     }
+}
 
-    let id_idx = id_idx.ok_or(FileError::InvalidTableDef {
-        reason: "MSysAccessStorage missing Id column",
-    })?;
-    let parent_id_idx = parent_id_idx.ok_or(FileError::InvalidTableDef {
-        reason: "MSysAccessStorage missing ParentId column",
-    })?;
-    let name_idx = name_idx.ok_or(FileError::InvalidTableDef {
-        reason: "MSysAccessStorage missing Name column",
-    })?;
-    let type_idx = type_idx.ok_or(FileError::InvalidTableDef {
-        reason: "MSysAccessStorage missing Type column",
-    })?;
-    let lv_idx = lv_idx.ok_or(FileError::InvalidTableDef {
-        reason: "MSysAccessStorage missing Lv column",
-    })?;
-
-    let mut entries = Vec::new();
-    for row in &result.rows {
-        let id = match row.get(id_idx) {
-            Some(Value::Long(v)) => *v,
-            _ => continue,
-        };
-        let parent_id = match row.get(parent_id_idx) {
-            Some(Value::Long(v)) => *v,
-            _ => continue,
-        };
-        let name = match row.get(name_idx) {
-            Some(Value::Text(s)) => s.clone(),
-            _ => continue,
-        };
-        let entry_type = match row.get(type_idx) {
-            Some(Value::Long(v)) => *v,
-            _ => continue,
-        };
-        let data = match row.get(lv_idx) {
-            Some(Value::Binary(b)) => b.clone(),
-            _ => Vec::new(),
-        };
-
-        entries.push(StorageEntry {
-            id,
-            parent_id,
-            name,
-            entry_type,
-            data,
-        });
-    }
-
-    Ok(entries)
+/// The entry of `row`, or `None` when it lacks its id, parent, name or type;
+/// an entry without data has none.
+fn storage_entry(row: &[Value], columns: &StorageColumns) -> Option<StorageEntry> {
+    let long = |i: usize| row.get(i).and_then(Value::as_long);
+    Some(StorageEntry {
+        id: long(columns.id)?,
+        parent_id: long(columns.parent_id)?,
+        name: row.get(columns.name).and_then(Value::as_text)?.to_string(),
+        entry_type: long(columns.entry_type)?,
+        data: row
+            .get(columns.lv)
+            .and_then(Value::as_binary)
+            .map_or_else(Vec::new, <[u8]>::to_vec),
+    })
 }
 
 /// Read the MSysAccessObjects table and reconstruct the full CFB.
@@ -146,75 +123,70 @@ pub(crate) fn read_storage_entries(
 /// contain the CFB data that should be concatenated in ID order.
 pub(crate) fn read_access_objects_cfb(reader: &mut PageReader) -> Result<Vec<u8>, FileError> {
     let catalog = catalog::read_catalog(reader)?;
-    let entry = match catalog.iter().find(|e| e.name == "MSysAccessObjects") {
-        Some(e) => e,
-        None => return Ok(Vec::new()),
+    access_objects_cfb_in(reader, &catalog)
+}
+
+/// [`read_access_objects_cfb`] with the catalog already read.
+fn access_objects_cfb_in(
+    reader: &mut PageReader,
+    catalog: &[catalog::CatalogEntry],
+) -> Result<Vec<u8>, FileError> {
+    let Some(entry) = catalog.iter().find(|e| e.name == "MSysAccessObjects") else {
+        return Ok(Vec::new());
     };
 
     let tdef = table::read_table_def(reader, &entry.name, entry.table_page)?;
     let result = data::read_table_rows(reader, &tdef)?;
     result.warn_skipped("MSysAccessObjects");
 
-    // Locate column indices
-    let (mut data_idx, mut id_idx) = (None, None);
-    for (i, col) in tdef.columns.iter().enumerate() {
-        match col.name.as_str() {
-            "Data" => data_idx = Some(i),
-            "ID" => id_idx = Some(i),
-            _ => {}
-        }
-    }
-
-    let data_idx = data_idx.ok_or(FileError::InvalidTableDef {
-        reason: "MSysAccessObjects missing Data column",
-    })?;
-    let id_idx = id_idx.ok_or(FileError::InvalidTableDef {
-        reason: "MSysAccessObjects missing ID column",
-    })?;
+    let data_idx = table::required_column(
+        &tdef.columns,
+        "Data",
+        "MSysAccessObjects missing Data column",
+    )?;
+    let id_idx =
+        table::required_column(&tdef.columns, "ID", "MSysAccessObjects missing ID column")?;
 
     // Collect rows with their IDs
-    let mut rows: Vec<(i32, Vec<u8>)> = Vec::new();
-    for row in &result.rows {
-        let id = match row.get(id_idx) {
-            Some(Value::Long(v)) => *v,
-            _ => continue,
-        };
-        let data = match row.get(data_idx) {
-            Some(Value::Binary(b)) => b.clone(),
-            _ => continue,
-        };
-        rows.push((id, data));
-    }
+    let parts = result
+        .rows
+        .iter()
+        .filter_map(|row| {
+            let id = row.get(id_idx).and_then(Value::as_long)?;
+            Some((id, row.get(data_idx).and_then(Value::as_binary)?))
+        })
+        .collect();
+    Ok(join_cfb_parts(parts))
+}
 
-    // Sort by ID, skip row 0 (metadata), concatenate
-    rows.sort_by_key(|(id, _)| *id);
+/// The CFB of the rows of MSysAccessObjects, each with its ID: the data of
+/// the rows in ID order, without row 0 (metadata). Empty when it does not
+/// start with the signature of a CFB.
+fn join_cfb_parts(mut parts: Vec<(i32, &[u8])>) -> Vec<u8> {
+    parts.sort_by_key(|(id, _)| *id);
 
     let mut cfb_bytes = Vec::new();
-    for (id, data) in &rows {
-        if *id == 0 {
-            continue;
-        }
+    for (_, data) in parts.iter().filter(|(id, _)| *id != 0) {
         cfb_bytes.extend_from_slice(data);
     }
 
     if cfb_bytes.len() < 4 || cfb_bytes[..4] != [0xD0, 0xCF, 0x11, 0xE0] {
-        return Ok(Vec::new());
+        return Vec::new();
     }
-
-    Ok(cfb_bytes)
+    cfb_bytes
 }
+
+/// The error of a compound file in MSysAccessObjects that cannot be read.
+const INVALID_CFB: FileError = FileError::InvalidFormData {
+    reason: "invalid compound file in MSysAccessObjects",
+};
 
 /// Converts a compound file into entries shaped like MSysAccessStorage rows:
 /// the root storage is id 1 (its own parent), and every other storage or
 /// stream gets the next id with its parent's id.
 fn entries_from_cfb(cfb_bytes: Vec<u8>) -> Result<Vec<StorageEntry>, FileError> {
-    use std::collections::HashMap;
-    use std::io::Read;
-
-    const INVALID: FileError = FileError::InvalidFormData {
-        reason: "invalid compound file in MSysAccessObjects",
-    };
-    let mut cf = cfb::CompoundFile::open(std::io::Cursor::new(cfb_bytes)).map_err(|_| INVALID)?;
+    let mut cf =
+        cfb::CompoundFile::open(std::io::Cursor::new(cfb_bytes)).map_err(|_| INVALID_CFB)?;
     let walked: Vec<(std::path::PathBuf, bool)> = cf
         .walk()
         .map(|e| (e.path().to_path_buf(), e.is_storage()))
@@ -224,21 +196,12 @@ fn entries_from_cfb(cfb_bytes: Vec<u8>) -> Result<Vec<StorageEntry>, FileError> 
     let mut entries = Vec::new();
     for (path, is_storage) in walked {
         let id = entries.len() as i32 + 1;
-        let (parent_id, name) = match path.parent() {
-            None => (id, "MSysAccessStorage_ROOT".to_string()),
-            Some(parent) => (
-                *ids.get(parent).ok_or(INVALID)?,
-                path.file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_default(),
-            ),
+        let (parent_id, name) = parent_and_name(&path, id, &ids)?;
+        let data = if is_storage {
+            Vec::new()
+        } else {
+            read_stream(&mut cf, &path)?
         };
-        let mut data = Vec::new();
-        if !is_storage {
-            cf.open_stream(&path)
-                .and_then(|mut s| s.read_to_end(&mut data))
-                .map_err(|_| INVALID)?;
-        }
         ids.insert(path, id);
         entries.push(StorageEntry {
             id,
@@ -249,6 +212,40 @@ fn entries_from_cfb(cfb_bytes: Vec<u8>) -> Result<Vec<StorageEntry>, FileError> 
         });
     }
     Ok(entries)
+}
+
+/// The parent id and the name of the entry at `path` of a compound file,
+/// given the ids of the entries before it; the root, of `id`, is its own
+/// parent.
+fn parent_and_name(
+    path: &std::path::Path,
+    id: i32,
+    ids: &HashMap<std::path::PathBuf, i32>,
+) -> Result<(i32, String), FileError> {
+    match path.parent() {
+        None => Ok((id, "MSysAccessStorage_ROOT".to_string())),
+        Some(parent) => {
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            Ok((*ids.get(parent).ok_or(INVALID_CFB)?, name))
+        }
+    }
+}
+
+/// The data of the stream at `path` of a compound file.
+fn read_stream(
+    cf: &mut cfb::CompoundFile<std::io::Cursor<Vec<u8>>>,
+    path: &std::path::Path,
+) -> Result<Vec<u8>, FileError> {
+    use std::io::Read;
+
+    let mut data = Vec::new();
+    cf.open_stream(path)
+        .and_then(|mut s| s.read_to_end(&mut data))
+        .map_err(|_| INVALID_CFB)?;
+    Ok(data)
 }
 
 /// Check if a storage entry is a storage (directory) vs stream (file).
@@ -328,54 +325,66 @@ pub(crate) fn parse_dir_data(data: &[u8]) -> Result<Vec<(String, String)>, FileE
             break;
         }
 
-        // Try declared_len first: check if payload ends with 0x0000
-        let payload_end = pos + declared_len;
-        let ends_with_null =
-            payload_end >= 2 && data[payload_end - 2] == 0x00 && data[payload_end - 1] == 0x00;
-
-        let actual_end = if ends_with_null {
-            payload_end
-        } else {
-            // declared_len is wrong; scan forward for the null terminator.
-            // Look for a u16-aligned 0x0000 that is followed by 0x04 or EOF.
-            let mut scan = pos + declared_len;
-            loop {
-                if scan + 1 >= data.len() {
-                    break scan + 1; // end of data
-                }
-                let val = u16::from_le_bytes([data[scan], data[scan + 1]]);
-                if val == 0x0000 {
-                    break scan + 2; // past the null terminator
-                }
-                scan += 2;
-            }
-        };
-
-        // Payload layout: [name UTF-16LE] [storage_index u16LE] [0x0000]
-        // Last 4 bytes: storage_index(2) + null(2)
-        if actual_end < pos + 4 {
-            pos = actual_end;
-            continue;
+        let actual_end = dir_data_payload_end(data, pos, declared_len);
+        if let Some(entry) = dir_data_entry(data, pos, actual_end)? {
+            entries.push(entry);
         }
-
-        let name_bytes = &data[pos..actual_end - 4];
-        let storage_index = u16::from_le_bytes([data[actual_end - 4], data[actual_end - 3]]);
-
-        if name_bytes.is_empty() {
-            pos = actual_end;
-            continue;
-        }
-
-        let name =
-            encoding::decode_utf16le(name_bytes).map_err(|_| FileError::InvalidFormData {
-                reason: "invalid UTF-16LE in DirData name",
-            })?;
-
-        entries.push((name, storage_index.to_string()));
         pos = actual_end;
     }
 
     Ok(entries)
+}
+
+/// The name and storage index in the payload `data[start..end]` of a DirData
+/// entry: `[name UTF-16LE] [storage_index u16LE] [0x0000]`. `None` when the
+/// payload is too short for them or the name is empty.
+fn dir_data_entry(
+    data: &[u8],
+    start: usize,
+    end: usize,
+) -> Result<Option<(String, String)>, FileError> {
+    // Last 4 bytes: storage_index(2) + null(2)
+    if end < start + 4 {
+        return Ok(None);
+    }
+
+    let name_bytes = &data[start..end - 4];
+    let storage_index = u16::from_le_bytes([data[end - 4], data[end - 3]]);
+
+    if name_bytes.is_empty() {
+        return Ok(None);
+    }
+
+    let name = encoding::decode_utf16le(name_bytes).map_err(|_| FileError::InvalidFormData {
+        reason: "invalid UTF-16LE in DirData name",
+    })?;
+    Ok(Some((name, storage_index.to_string())))
+}
+
+/// The end of the payload of a DirData entry at `pos`, of `declared_len`:
+/// past its null terminator when the payload ends with one; otherwise the
+/// declared length is wrong, and it is past the next u16-aligned 0x0000 (or
+/// the end of the data).
+fn dir_data_payload_end(data: &[u8], pos: usize, declared_len: usize) -> usize {
+    // Try declared_len first: check if payload ends with 0x0000
+    let payload_end = pos + declared_len;
+    if payload_end >= 2 && data[payload_end - 2] == 0x00 && data[payload_end - 1] == 0x00 {
+        return payload_end;
+    }
+
+    // declared_len is wrong; scan forward for the null terminator.
+    // Look for a u16-aligned 0x0000 that is followed by 0x04 or EOF.
+    let mut scan = payload_end;
+    loop {
+        if scan + 1 >= data.len() {
+            return scan + 1; // end of data
+        }
+        let val = u16::from_le_bytes([data[scan], data[scan + 1]]);
+        if val == 0x0000 {
+            return scan + 2; // past the null terminator
+        }
+        scan += 2;
+    }
 }
 
 /// Build the CFB path for a storage entry relative to a given root.
