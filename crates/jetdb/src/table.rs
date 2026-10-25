@@ -126,6 +126,21 @@ impl TableDef {
     }
 }
 
+/// The index of the column `name` in `columns`.
+pub(crate) fn column_index(columns: &[ColumnDef], name: &str) -> Option<usize> {
+    columns.iter().position(|c| c.name == name)
+}
+
+/// The index of the column `name` in `columns`, which the table must have;
+/// `missing` is the reason of the error when it does not.
+pub(crate) fn required_column(
+    columns: &[ColumnDef],
+    name: &str,
+    missing: &'static str,
+) -> Result<usize, FileError> {
+    column_index(columns, name).ok_or(FileError::InvalidTableDef { reason: missing })
+}
+
 impl ColumnDef {
     /// `true` for a column Access maintains and hides from users
     /// ([`column_flags::HIDDEN`](crate::format::column_flags::HIDDEN)), such as
@@ -1009,6 +1024,40 @@ mod tests {
         for fk in &fk_indexes {
             assert!(fk.foreign_key.is_some());
         }
+    }
+
+    // -- column_index tests --------------------------------------------------
+
+    #[test]
+    fn column_index_by_name() {
+        let column = |name: &str| ColumnDef {
+            name: name.to_string(),
+            col_type: ColumnType::Long,
+            col_num: 0,
+            var_col_num: 0,
+            fixed_offset: 0,
+            col_size: 4,
+            flags: 0,
+            is_fixed: true,
+            precision: 0,
+            scale: 0,
+            is_calculated: false,
+            display_index: 0,
+            complex_id: None,
+        };
+        let columns = [column("Id"), column("Name")];
+        assert_eq!(column_index(&columns, "Name"), Some(1));
+        assert_eq!(column_index(&columns, "Type"), None);
+        assert_eq!(
+            required_column(&columns, "Id", "T missing Id column").unwrap(),
+            0
+        );
+        assert!(matches!(
+            required_column(&columns, "Type", "T missing Type column"),
+            Err(FileError::InvalidTableDef {
+                reason: "T missing Type column"
+            })
+        ));
     }
 
     // -- shown_size tests ----------------------------------------------------
