@@ -67,30 +67,40 @@ pub fn format_default(ts: f64) -> String {
 ///
 /// Supported directives: `%Y`, `%m`, `%d`, `%H`, `%M`, `%S`, `%%`.
 pub fn format_timestamp(ts: f64, fmt: &str) -> String {
-    let (year, month, day, hour, minute, second) = timestamp_to_parts(ts);
+    let parts = timestamp_to_parts(ts);
     let mut result = String::with_capacity(fmt.len() + 8);
     let mut chars = fmt.chars();
     while let Some(c) = chars.next() {
         if c == '%' {
-            match chars.next() {
-                Some('Y') => result.push_str(&format!("{year:04}")),
-                Some('m') => result.push_str(&format!("{month:02}")),
-                Some('d') => result.push_str(&format!("{day:02}")),
-                Some('H') => result.push_str(&format!("{hour:02}")),
-                Some('M') => result.push_str(&format!("{minute:02}")),
-                Some('S') => result.push_str(&format!("{second:02}")),
-                Some('%') => result.push('%'),
-                Some(other) => {
-                    result.push('%');
-                    result.push(other);
-                }
-                None => result.push('%'),
-            }
+            push_directive(&mut result, chars.next(), parts);
         } else {
             result.push(c);
         }
     }
     result
+}
+
+/// Push what `%` followed by `directive` gives for the `parts` of a
+/// timestamp: the part it names, `%` for `%%` or a `%` at the end, and the
+/// directive as it is for one it does not know.
+fn push_directive(
+    out: &mut String,
+    directive: Option<char>,
+    (year, month, day, hour, minute, second): (i32, u32, u32, u32, u32, u32),
+) {
+    use std::fmt::Write;
+
+    // Writing to a String does not fail.
+    let _ = match directive {
+        Some('Y') => write!(out, "{year:04}"),
+        Some('m') => write!(out, "{month:02}"),
+        Some('d') => write!(out, "{day:02}"),
+        Some('H') => write!(out, "{hour:02}"),
+        Some('M') => write!(out, "{minute:02}"),
+        Some('S') => write!(out, "{second:02}"),
+        Some('%') | None => write!(out, "%"),
+        Some(other) => write!(out, "%{other}"),
+    };
 }
 
 /// Return `true` if the timestamp has no time component (date only).
