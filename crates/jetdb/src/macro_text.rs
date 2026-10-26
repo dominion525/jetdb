@@ -36,7 +36,27 @@ const DATA_MACRO_EVENTS: [&str; 5] = [
 /// in the order AfterInsert, AfterUpdate, AfterDelete, BeforeChange,
 /// BeforeDelete; the named data macros follow in their stored order.
 pub fn data_macros_to_text(macros: &[MacroDef]) -> String {
-    let rank = |def: &MacroDef| match &def.source {
+    let mut namespace = None;
+    let mut body = String::new();
+    for (def, index) in ordered_data_macros(macros) {
+        let Some(element) = data_macro_elements(&def.xml).into_iter().nth(index) else {
+            continue;
+        };
+        push_data_macro(&mut body, &mut namespace, &def.xml, element);
+    }
+    match namespace {
+        None if body.is_empty() => String::new(),
+        namespace => format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-16\" standalone=\"no\"?>\r\n<DataMacros{}>{body}</DataMacros>",
+            namespace.unwrap_or_default()
+        ),
+    }
+}
+
+/// The order of a data macro: the table events in the order of
+/// [`DATA_MACRO_EVENTS`], then the named data macros.
+fn data_macro_rank(def: &MacroDef) -> usize {
+    match &def.source {
         MacroSource::Data {
             event: Some(event), ..
         } => DATA_MACRO_EVENTS
@@ -44,7 +64,12 @@ pub fn data_macros_to_text(macros: &[MacroDef]) -> String {
             .position(|e| e == event)
             .unwrap_or(DATA_MACRO_EVENTS.len()),
         _ => DATA_MACRO_EVENTS.len() + 1,
-    };
+    }
+}
+
+/// The data macros in the order SaveAsText writes them, each with the index
+/// of its `DataMacro` element in its document.
+fn ordered_data_macros(macros: &[MacroDef]) -> Vec<(&MacroDef, usize)> {
     // A document may hold several data macros, each read as a MacroDef whose
     // xml is the whole document: the n-th of the macros sharing a document is
     // its n-th DataMacro element.
@@ -63,40 +88,32 @@ pub fn data_macros_to_text(macros: &[MacroDef]) -> String {
         };
         ordered.push((def, index));
     }
-    ordered.sort_by_key(|(def, _)| rank(def));
+    ordered.sort_by_key(|(def, _)| data_macro_rank(def));
+    ordered
+}
 
-    let mut namespace = None;
-    let mut body = String::new();
-    for (def, index) in ordered {
-        let Some(element) = data_macro_elements(&def.xml).into_iter().nth(index) else {
-            continue;
-        };
-        let tag_end = element.find('>').unwrap_or(element.len());
-        match find_attribute(&element[..tag_end], " xmlns=\"") {
-            Some((from, to)) => {
-                namespace.get_or_insert_with(|| element[from..to].to_string());
-                body.push_str(&element[..from]);
-                body.push_str(&element[to..]);
-            }
-            None => {
-                // In a DataMacros document, the namespace is on DataMacros.
-                if let Some(root) = def.xml.find("<DataMacros") {
-                    let root_tag = &def.xml[root..];
-                    let root_end = root_tag.find('>').unwrap_or(root_tag.len());
-                    if let Some((from, to)) = find_attribute(&root_tag[..root_end], " xmlns=\"") {
-                        namespace.get_or_insert_with(|| root_tag[from..to].to_string());
-                    }
-                }
-                body.push_str(element);
-            }
+/// Adds the `DataMacro` `element` of the document `xml` to `body` without
+/// its namespace attribute, and keeps the namespace, of the element or of its
+/// `DataMacros` root, in `namespace` if none is kept yet.
+fn push_data_macro(body: &mut String, namespace: &mut Option<String>, xml: &str, element: &str) {
+    let tag_end = element.find('>').unwrap_or(element.len());
+    match find_attribute(&element[..tag_end], " xmlns=\"") {
+        Some((from, to)) => {
+            namespace.get_or_insert_with(|| element[from..to].to_string());
+            body.push_str(&element[..from]);
+            body.push_str(&element[to..]);
         }
-    }
-    match namespace {
-        None if body.is_empty() => String::new(),
-        namespace => format!(
-            "<?xml version=\"1.0\" encoding=\"UTF-16\" standalone=\"no\"?>\r\n<DataMacros{}>{body}</DataMacros>",
-            namespace.unwrap_or_default()
-        ),
+        None => {
+            // In a DataMacros document, the namespace is on DataMacros.
+            if let Some(root) = xml.find("<DataMacros") {
+                let root_tag = &xml[root..];
+                let root_end = root_tag.find('>').unwrap_or(root_tag.len());
+                if let Some((from, to)) = find_attribute(&root_tag[..root_end], " xmlns=\"") {
+                    namespace.get_or_insert_with(|| root_tag[from..to].to_string());
+                }
+            }
+            body.push_str(element);
+        }
     }
 }
 
@@ -210,27 +227,40 @@ fn push_row(out: &mut String, indent: &str, row: &MacroGridRow) {
         push_value(out, indent, "Condition", condition);
     }
     if row.action_code != 0 {
-        let name = macro_action(row.action_code)
-            .map_or_else(|| row.action_code.to_string(), |a| a.text_name.to_string());
-        push_value(out, indent, "Action", &name);
+        push_value(out, indent, "Action", &action_text_name(row.action_code));
     }
     if let Some(comment) = &row.comment {
         push_value(out, indent, "Comment", comment);
     }
+    for argument in written_arguments(row) {
+        push_value(out, indent, "Argument", argument.unwrap_or(""));
+    }
+    push_line(out, &format!("{indent}End"));
+}
+
+/// The name SaveAsText writes for the action `action_code`, or its number
+/// for one that is not in [`macro_action`]'s table.
+fn action_text_name(action_code: u16) -> String {
+    macro_action(action_code).map_or_else(|| action_code.to_string(), |a| a.text_name.to_string())
+}
+
+/// The arguments of `row` that SaveAsText writes: in the slots of its
+/// action, up to the last one that has a value.
+fn written_arguments(row: &MacroGridRow) -> Vec<Option<&str>> {
     let slots: Vec<usize> = match macro_action(row.action_code).and_then(|a| a.text_slots) {
         Some(slots) => slots.to_vec(),
         None => (0..row.arguments.len()).collect(),
     };
-    let arguments: Vec<Option<&str>> = slots
+    let mut arguments: Vec<Option<&str>> = slots
         .iter()
         .map(|&i| row.arguments.get(i).and_then(|a| a.as_deref()))
         .collect();
-    if let Some(last) = arguments.iter().rposition(Option::is_some) {
-        for argument in &arguments[..=last] {
-            push_value(out, indent, "Argument", argument.unwrap_or(""));
-        }
-    }
-    push_line(out, &format!("{indent}End"));
+    let written = arguments
+        .iter()
+        .rposition(Option::is_some)
+        .map_or(0, |last| last + 1);
+    arguments.truncate(written);
+    arguments
 }
 
 fn push_line(out: &mut String, line: &str) {
