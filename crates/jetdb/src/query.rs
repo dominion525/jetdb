@@ -58,19 +58,21 @@ pub enum QueryType {
 }
 
 impl QueryType {
+    /// Every query type, in the order of the Flag of its type row.
+    const ALL: [QueryType; 9] = [
+        Self::Select,
+        Self::MakeTable,
+        Self::Append,
+        Self::Update,
+        Self::Delete,
+        Self::Crosstab,
+        Self::Ddl,
+        Self::Passthrough,
+        Self::Union,
+    ];
+
     fn from_flag(flag: i16) -> Option<Self> {
-        match flag {
-            1 => Some(Self::Select),
-            2 => Some(Self::MakeTable),
-            3 => Some(Self::Append),
-            4 => Some(Self::Update),
-            5 => Some(Self::Delete),
-            6 => Some(Self::Crosstab),
-            7 => Some(Self::Ddl),
-            8 => Some(Self::Passthrough),
-            9 => Some(Self::Union),
-            _ => None,
-        }
+        Self::ALL.into_iter().find(|&t| t as i16 == flag)
     }
 }
 
@@ -181,13 +183,8 @@ fn resolve_query_columns(columns: &[table::ColumnDef]) -> Result<QueryColumnInde
 // ---------------------------------------------------------------------------
 
 struct RawRow {
-    attribute: u8,
     order: Vec<u8>,
-    name1: Option<String>,
-    name2: Option<String>,
-    expression: Option<String>,
-    flag: Option<i16>,
-    extra: Option<i32>,
+    row: QueryRow,
 }
 
 // ---------------------------------------------------------------------------
@@ -203,39 +200,36 @@ fn build_query_defs(
         raw_rows.sort_by(|a, b| a.order.cmp(&b.order));
 
         let page_key = (object_id as u32) & 0x00FF_FFFF;
-        let name = match query_name_map.get(&page_key) {
-            Some(n) => n.clone(),
-            None => continue,
+        let Some(name) = query_name_map.get(&page_key).cloned() else {
+            continue;
         };
-
-        let type_row = raw_rows.iter().find(|r| r.attribute == ATTR_TYPE);
-        let query_type = match type_row.and_then(|r| r.flag).and_then(QueryType::from_flag) {
-            Some(qt) => qt,
-            // Embedded queries (~sq_ prefix) lack ATTR_TYPE; skip them.
-            None if name.starts_with("~sq_") => continue,
-            None => QueryType::Select,
+        let Some(query_type) = query_type_of(&raw_rows, &name) else {
+            continue;
         };
-
-        let rows: Vec<QueryRow> = raw_rows
-            .into_iter()
-            .map(|r| QueryRow {
-                attribute: r.attribute,
-                expression: r.expression,
-                name1: r.name1,
-                name2: r.name2,
-                flag: r.flag,
-                extra: r.extra,
-            })
-            .collect();
 
         queries.push(QueryDef {
             name,
             query_type,
             incomplete: false,
-            rows,
+            rows: raw_rows.into_iter().map(|r| r.row).collect(),
         });
     }
     queries
+}
+
+/// The type of the query `name` of the rows `raw_rows`, by the Flag of its
+/// type row; `None` for an embedded query, which has no type row.
+fn query_type_of(raw_rows: &[RawRow], name: &str) -> Option<QueryType> {
+    let type_row = raw_rows.iter().find(|r| r.row.attribute == ATTR_TYPE);
+    match type_row
+        .and_then(|r| r.row.flag)
+        .and_then(QueryType::from_flag)
+    {
+        Some(qt) => Some(qt),
+        // Embedded queries (~sq_ prefix) lack ATTR_TYPE; skip them.
+        None if name.starts_with("~sq_") => None,
+        None => Some(QueryType::Select),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -256,81 +250,76 @@ pub fn read_queries_in(
     reader: &mut PageReader,
     catalog: &[CatalogEntry],
 ) -> Result<Vec<QueryDef>, FileError> {
-    let queries_entry = catalog
+    let Some(queries_entry) = catalog
         .iter()
-        .find(|e| e.name == "MSysQueries" && e.object_type == ObjectType::Table);
-    let queries_page = match queries_entry {
-        Some(e) => e.table_page,
-        None => return Ok(Vec::new()),
+        .find(|e| e.name == "MSysQueries" && e.object_type == ObjectType::Table)
+    else {
+        return Ok(Vec::new());
     };
 
-    let tdef = table::read_table_def(reader, "MSysQueries", queries_page)?;
+    let tdef = table::read_table_def(reader, "MSysQueries", queries_entry.table_page)?;
     let result = data::read_table_rows(reader, &tdef)?;
     result.warn_skipped("MSysQueries");
 
     let ci = resolve_query_columns(&tdef.columns)?;
 
-    // Group rows by ObjectId
-    let mut groups: BTreeMap<i32, Vec<RawRow>> = BTreeMap::new();
-
-    for row in &result.rows {
-        let object_id = match get_long(row, ci.object_id) {
-            Some(v) => v,
-            None => continue,
-        };
-        let attribute = match get_byte(row, ci.attribute) {
-            Some(v) => v,
-            None => continue,
-        };
-        let order = ci
-            .order
-            .and_then(|i| get_binary(row, i))
-            .map(|b| b.to_vec())
-            .unwrap_or_default();
-        let name1 = ci
-            .name1
-            .and_then(|i| get_text(row, i))
-            .map(|s| s.to_string());
-        let name2 = ci
-            .name2
-            .and_then(|i| get_text(row, i))
-            .map(|s| s.to_string());
-        let expression = ci.expression.and_then(|i| get_text(row, i)).and_then(|s| {
-            let trimmed = s.trim_end_matches('\0');
-            if trimmed.is_empty() {
-                None
-            } else {
-                Some(trimmed.to_string())
-            }
-        });
-        let flag = ci.flag.and_then(|i| get_int(row, i));
-        let extra = ci.extra.and_then(|i| get_long(row, i));
-
-        groups.entry(object_id).or_default().push(RawRow {
-            attribute,
-            order,
-            name1,
-            name2,
-            expression,
-            flag,
-            extra,
-        });
-    }
-
-    // Build query name map from catalog
-    let query_name_map: BTreeMap<u32, String> = catalog
-        .iter()
-        .filter(|e| e.object_type == ObjectType::Query)
-        .map(|e| (e.table_page, e.name.clone()))
-        .collect();
-
-    let mut queries = build_query_defs(groups, &query_name_map);
+    let groups = group_query_rows(&result.rows, &ci);
+    let mut queries = build_query_defs(groups, &query_names(catalog));
     if result.skipped_rows > 0 {
         for query in &mut queries {
             query.incomplete = true;
         }
     }
     Ok(queries)
+}
+
+/// The rows of MSysQueries grouped by their ObjectId.
+fn group_query_rows(rows: &[Vec<Value>], ci: &QueryColumnIndexes) -> BTreeMap<i32, Vec<RawRow>> {
+    let mut groups: BTreeMap<i32, Vec<RawRow>> = BTreeMap::new();
+    for (object_id, raw) in rows.iter().filter_map(|row| raw_row(row, ci)) {
+        groups.entry(object_id).or_default().push(raw);
+    }
+    groups
+}
+
+/// The names of the queries of the catalog, by their pages.
+fn query_names(catalog: &[CatalogEntry]) -> BTreeMap<u32, String> {
+    catalog
+        .iter()
+        .filter(|e| e.object_type == ObjectType::Query)
+        .map(|e| (e.table_page, e.name.clone()))
+        .collect()
+}
+
+/// The ObjectId of a row of MSysQueries and the row, or `None` when it has
+/// no ObjectId or Attribute.
+fn raw_row(row: &[Value], ci: &QueryColumnIndexes) -> Option<(i32, RawRow)> {
+    let object_id = get_long(row, ci.object_id)?;
+    let attribute = get_byte(row, ci.attribute)?;
+    let text = |i: Option<usize>| i.and_then(|i| get_text(row, i)).map(str::to_string);
+    let raw = RawRow {
+        order: ci
+            .order
+            .and_then(|i| get_binary(row, i))
+            .map(<[u8]>::to_vec)
+            .unwrap_or_default(),
+        row: QueryRow {
+            attribute,
+            expression: ci.expression.and_then(|i| query_expression(row, i)),
+            name1: text(ci.name1),
+            name2: text(ci.name2),
+            flag: ci.flag.and_then(|i| get_int(row, i)),
+            extra: ci.extra.and_then(|i| get_long(row, i)),
+        },
+    };
+    Some((object_id, raw))
+}
+
+/// The expression at `i` of a row, without the NULs at its end; `None` when
+/// that leaves nothing.
+fn query_expression(row: &[Value], i: usize) -> Option<String> {
+    let trimmed = get_text(row, i)?.trim_end_matches('\0');
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -460,23 +449,28 @@ fn to_alias(alias: Option<&str>) -> String {
 // PARAMETERS clause
 // ---------------------------------------------------------------------------
 
+/// The names of the types of parameters, by the Flag of their rows.
+const PARAMETER_TYPE_NAMES: [(i16, &str); 13] = [
+    (0, "Value"),
+    (1, "Bit"),
+    (2, "Byte"),
+    (3, "Short"),
+    (4, "Long"),
+    (5, "Currency"),
+    (6, "IEEESingle"),
+    (7, "IEEEDouble"),
+    (8, "DateTime"),
+    (9, "Binary"),
+    (10, "Text"),
+    (11, "LongBinary"),
+    (15, "Guid"),
+];
+
 fn param_type_name(flag: i16) -> Option<&'static str> {
-    match flag {
-        0 => Some("Value"),
-        1 => Some("Bit"),
-        10 => Some("Text"),
-        2 => Some("Byte"),
-        3 => Some("Short"),
-        4 => Some("Long"),
-        5 => Some("Currency"),
-        6 => Some("IEEESingle"),
-        7 => Some("IEEEDouble"),
-        8 => Some("DateTime"),
-        9 => Some("Binary"),
-        11 => Some("LongBinary"),
-        15 => Some("Guid"),
-        _ => None,
-    }
+    PARAMETER_TYPE_NAMES
+        .iter()
+        .find(|&&(f, _)| f == flag)
+        .map(|&(_, name)| name)
 }
 
 fn format_parameters(rows: &[QueryRow]) -> String {
@@ -655,165 +649,165 @@ impl TableSource {
                 join_type,
                 on_conditions,
             } => {
-                let join_str = match join_type {
-                    1 => " INNER JOIN ",
-                    2 => " LEFT JOIN ",
-                    3 => " RIGHT JOIN ",
-                    _ => " JOIN ",
-                };
-
-                let mut sb = String::new();
-                if !is_top_level {
-                    sb.push('(');
+                let join = format!(
+                    "{}{}{} ON {}",
+                    from.to_sql(false),
+                    join_keyword(*join_type),
+                    to.to_sql(false),
+                    on_clause(on_conditions)
+                );
+                if is_top_level {
+                    join
+                } else {
+                    format!("({join})")
                 }
-
-                sb.push_str(&from.to_sql(false));
-                sb.push_str(join_str);
-                sb.push_str(&to.to_sql(false));
-                sb.push_str(" ON ");
-
-                let multi = on_conditions.len() > 1;
-                if multi {
-                    sb.push('(');
-                }
-                sb.push_str(&on_conditions.join(") AND ("));
-                if multi {
-                    sb.push(')');
-                }
-
-                if !is_top_level {
-                    sb.push(')');
-                }
-
-                sb
             }
         }
     }
 }
 
+/// The words of a join of the type `join_type`, with a space on each side.
+fn join_keyword(join_type: i16) -> &'static str {
+    match join_type {
+        1 => " INNER JOIN ",
+        2 => " LEFT JOIN ",
+        3 => " RIGHT JOIN ",
+        _ => " JOIN ",
+    }
+}
+
+/// The conditions of a join, in parentheses joined by AND when there are
+/// several.
+fn on_clause(on_conditions: &[String]) -> String {
+    if on_conditions.len() > 1 {
+        format!("({})", on_conditions.join(") AND ("))
+    } else {
+        on_conditions.join(") AND (")
+    }
+}
+
 fn build_from_tables(rows: &[QueryRow]) -> Vec<String> {
-    let table_rows = rows_by_attr(rows, ATTR_TABLE);
-    let join_rows = rows_by_attr(rows, ATTR_JOIN);
-
-    let mut sources: Vec<TableSource> = Vec::new();
-    for trow in &table_rows {
-        let mut expr = String::new();
-        if let Some(ref e) = trow.expression {
-            expr.push_str(&to_quoted_expr(e));
-            expr.push('.');
-        }
-        if let Some(ref n1) = trow.name1 {
-            expr.push_str(&to_optional_quoted(n1, true));
-        }
-        if let Some(ref n2) = trow.name2 {
-            expr.push_str(&to_alias(Some(n2)));
-        }
-        let key = trow
-            .name2
-            .as_deref()
-            .or(trow.name1.as_deref())
-            .unwrap_or("")
-            .to_string();
-        sources.push(TableSource::Simple { name: key, expr });
+    let mut sources: Vec<TableSource> = rows_by_attr(rows, ATTR_TABLE)
+        .into_iter()
+        .map(table_source)
+        .collect();
+    for jrow in rows_by_attr(rows, ATTR_JOIN) {
+        let Some((from_table, to_table, on_expr)) = join_parts(jrow) else {
+            continue;
+        };
+        add_join(
+            &mut sources,
+            from_table,
+            to_table,
+            on_expr,
+            jrow.flag.unwrap_or(1),
+        );
     }
-
-    for jrow in &join_rows {
-        let from_table = match jrow.name1.as_deref() {
-            Some(s) => s,
-            None => continue,
-        };
-        let to_table = match jrow.name2.as_deref() {
-            Some(s) => s,
-            None => continue,
-        };
-        let on_expr = match jrow.expression.as_deref() {
-            Some(s) => s,
-            None => continue,
-        };
-        let jtype = jrow.flag.unwrap_or(1);
-
-        // Find from and to in existing sources
-        let mut from_idx = None;
-        let mut to_idx = None;
-        let mut same_source = false;
-
-        for (i, ts) in sources.iter().enumerate() {
-            if from_idx.is_none() && ts.contains_table(from_table) {
-                from_idx = Some(i);
-                if to_idx.is_none() && ts.contains_table(to_table) {
-                    to_idx = from_idx;
-                    same_source = true;
-                    break;
-                }
-            } else if to_idx.is_none() && ts.contains_table(to_table) {
-                to_idx = Some(i);
-            }
-            if from_idx.is_some() && to_idx.is_some() {
-                break;
-            }
-        }
-
-        if same_source {
-            if let Some(idx) = from_idx {
-                if !sources[idx].add_join_condition(from_table, to_table, jtype, on_expr) {
-                    log::warn!(
-                        "join condition {on_expr} of {from_table} and {to_table} left out: \
-                         the join that holds both is of another type"
-                    );
-                }
-                continue;
-            }
-        }
-
-        // Extract sources, removing from list (higher index first)
-        let from_ts;
-        let to_ts;
-
-        match (from_idx, to_idx) {
-            (Some(fi), Some(ti)) => {
-                if fi > ti {
-                    from_ts = sources.remove(fi);
-                    to_ts = sources.remove(ti);
-                } else {
-                    to_ts = sources.remove(ti);
-                    from_ts = sources.remove(fi);
-                }
-            }
-            (Some(fi), None) => {
-                from_ts = sources.remove(fi);
-                to_ts = TableSource::Simple {
-                    name: to_table.to_string(),
-                    expr: to_optional_quoted(to_table, true),
-                };
-            }
-            (None, Some(ti)) => {
-                from_ts = TableSource::Simple {
-                    name: from_table.to_string(),
-                    expr: to_optional_quoted(from_table, true),
-                };
-                to_ts = sources.remove(ti);
-            }
-            (None, None) => {
-                from_ts = TableSource::Simple {
-                    name: from_table.to_string(),
-                    expr: to_optional_quoted(from_table, true),
-                };
-                to_ts = TableSource::Simple {
-                    name: to_table.to_string(),
-                    expr: to_optional_quoted(to_table, true),
-                };
-            }
-        }
-
-        sources.push(TableSource::Join {
-            from: Box::new(from_ts),
-            to: Box::new(to_ts),
-            join_type: jtype,
-            on_conditions: vec![on_expr.to_string()],
-        });
-    }
-
     sources.iter().map(|ts| ts.to_sql(true)).collect()
+}
+
+/// The source of a table row: the table, in its database when it is in
+/// another, with its alias, known by the alias or else by its name.
+fn table_source(trow: &QueryRow) -> TableSource {
+    let mut expr = String::new();
+    if let Some(ref e) = trow.expression {
+        expr.push_str(&to_quoted_expr(e));
+        expr.push('.');
+    }
+    if let Some(ref n1) = trow.name1 {
+        expr.push_str(&to_optional_quoted(n1, true));
+    }
+    if let Some(ref n2) = trow.name2 {
+        expr.push_str(&to_alias(Some(n2)));
+    }
+    let key = trow
+        .name2
+        .as_deref()
+        .or(trow.name1.as_deref())
+        .unwrap_or("")
+        .to_string();
+    TableSource::Simple { name: key, expr }
+}
+
+/// The two tables and the condition of a join row, or `None` when it lacks
+/// one of them.
+fn join_parts(jrow: &QueryRow) -> Option<(&str, &str, &str)> {
+    Some((
+        jrow.name1.as_deref()?,
+        jrow.name2.as_deref()?,
+        jrow.expression.as_deref()?,
+    ))
+}
+
+/// Join `from_table` and `to_table` on `on_expr` with the join type `jtype`:
+/// in the join that holds both already, or as a new join of their sources.
+fn add_join(
+    sources: &mut Vec<TableSource>,
+    from_table: &str,
+    to_table: &str,
+    on_expr: &str,
+    jtype: i16,
+) {
+    let (from_idx, to_idx, same_source) = find_join_sources(sources, from_table, to_table);
+
+    if same_source {
+        if let Some(idx) = from_idx {
+            if !sources[idx].add_join_condition(from_table, to_table, jtype, on_expr) {
+                log::warn!(
+                    "join condition {on_expr} of {from_table} and {to_table} left out: \
+                     the join that holds both is of another type"
+                );
+            }
+            return;
+        }
+    }
+
+    let (from_ts, to_ts) = take_join_sources(sources, (from_idx, to_idx), from_table, to_table);
+    sources.push(TableSource::Join {
+        from: Box::new(from_ts),
+        to: Box::new(to_ts),
+        join_type: jtype,
+        on_conditions: vec![on_expr.to_string()],
+    });
+}
+
+/// The indexes of the first sources that hold `from_table` and `to_table`,
+/// and whether that is one source.
+fn find_join_sources(
+    sources: &[TableSource],
+    from_table: &str,
+    to_table: &str,
+) -> (Option<usize>, Option<usize>, bool) {
+    let from_idx = sources.iter().position(|ts| ts.contains_table(from_table));
+    let to_idx = sources.iter().position(|ts| ts.contains_table(to_table));
+    (from_idx, to_idx, from_idx.is_some() && from_idx == to_idx)
+}
+
+/// The sources of the two sides of a join, taken out of `sources` from the
+/// indexes found, the higher first, or new for a table no source holds.
+fn take_join_sources(
+    sources: &mut Vec<TableSource>,
+    (from_idx, to_idx): (Option<usize>, Option<usize>),
+    from_table: &str,
+    to_table: &str,
+) -> (TableSource, TableSource) {
+    let new = |table: &str| TableSource::Simple {
+        name: table.to_string(),
+        expr: to_optional_quoted(table, true),
+    };
+    match (from_idx, to_idx) {
+        (Some(fi), Some(ti)) if fi > ti => {
+            let from_ts = sources.remove(fi);
+            (from_ts, sources.remove(ti))
+        }
+        (Some(fi), Some(ti)) => {
+            let to_ts = sources.remove(ti);
+            (sources.remove(fi), to_ts)
+        }
+        (Some(fi), None) => (sources.remove(fi), new(to_table)),
+        (None, Some(ti)) => (new(from_table), sources.remove(ti)),
+        (None, None) => (new(from_table), new(to_table)),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -844,33 +838,24 @@ fn append_select_body(
         builder.push_str(&to_optional_quoted(target, true));
     }
 
-    let from = build_from_tables(rows);
-    if !from.is_empty() {
-        builder.push_str("\nFROM ");
-        builder.push_str(&from.join(", "));
-    }
+    push_clause(builder, "\nFROM ", &build_from_tables(rows).join(", "));
+    push_clause(builder, "\nWHERE ", where_expr(rows).unwrap_or(""));
+    push_clause(builder, "\nGROUP BY ", &get_groupings(rows, gb_filter));
+    push_clause(builder, "\nHAVING ", having_expr(rows).unwrap_or(""));
+    push_clause(builder, "\nORDER BY ", &get_orderings(rows));
+}
 
-    if let Some(w) = where_expr(rows) {
-        builder.push_str("\nWHERE ");
-        builder.push_str(w);
+/// Add the clause of `keyword` with `text`, unless `text` is empty.
+fn push_clause(builder: &mut String, keyword: &str, text: &str) {
+    if !text.is_empty() {
+        builder.push_str(keyword);
+        builder.push_str(text);
     }
+}
 
-    let gb = get_groupings(rows, gb_filter);
-    if !gb.is_empty() {
-        builder.push_str("\nGROUP BY ");
-        builder.push_str(&gb);
-    }
-
-    if let Some(h) = having_expr(rows) {
-        builder.push_str("\nHAVING ");
-        builder.push_str(h);
-    }
-
-    let ord = get_orderings(rows);
-    if !ord.is_empty() {
-        builder.push_str("\nORDER BY ");
-        builder.push_str(&ord);
-    }
+/// Whether the Flag of `row` has the bits of `flag`.
+fn row_has_flag(row: &QueryRow, flag: i16) -> bool {
+    row.flag.is_some_and(|f| (f & flag) != 0)
 }
 
 // ---------------------------------------------------------------------------
@@ -919,13 +904,8 @@ fn sql_append(builder: &mut String, rows: &[QueryRow]) {
     builder.push_str("INSERT INTO ");
     builder.push_str(&to_optional_quoted(target, true));
 
-    // Target columns: column rows with name2 set (that are NOT value rows)
     let all_col_rows = rows_by_attr(rows, ATTR_COLUMN);
-    let target_cols: Vec<String> = all_col_rows
-        .iter()
-        .filter(|r| r.name2.is_some())
-        .filter_map(|r| Some(to_optional_quoted(r.name2.as_deref()?, true)))
-        .collect();
+    let target_cols = append_target_columns(&all_col_rows);
     if !target_cols.is_empty() {
         builder.push_str(" (");
         builder.push_str(&target_cols.join(", "));
@@ -935,11 +915,7 @@ fn sql_append(builder: &mut String, rows: &[QueryRow]) {
     // Check for VALUES (rows with APPEND_VALUE_FLAG)
     let value_rows: Vec<&&QueryRow> = all_col_rows
         .iter()
-        .filter(|r| {
-            r.flag
-                .map(|f| (f & APPEND_VALUE_FLAG) != 0)
-                .unwrap_or(false)
-        })
+        .filter(|r| row_has_flag(r, APPEND_VALUE_FLAG))
         .collect();
 
     builder.push('\n');
@@ -953,13 +929,19 @@ fn sql_append(builder: &mut String, rows: &[QueryRow]) {
         builder.push(')');
     } else {
         // SELECT ... FROM ...
-        let not_value = |r: &QueryRow| {
-            !r.flag
-                .map(|f| (f & APPEND_VALUE_FLAG) != 0)
-                .unwrap_or(false)
-        };
+        let not_value = |r: &QueryRow| !row_has_flag(r, APPEND_VALUE_FLAG);
         append_select_body(builder, rows, true, None, &not_value, &|_| true);
     }
+}
+
+/// The target columns of an append query: of the column rows with name2 set
+/// (that are NOT value rows).
+fn append_target_columns(col_rows: &[&QueryRow]) -> Vec<String> {
+    col_rows
+        .iter()
+        .filter(|r| r.name2.is_some())
+        .filter_map(|r| Some(to_optional_quoted(r.name2.as_deref()?, true)))
+        .collect()
 }
 
 fn sql_make_table(builder: &mut String, rows: &[QueryRow]) {
@@ -986,24 +968,13 @@ fn sql_crosstab(builder: &mut String, rows: &[QueryRow]) {
     }
 
     // SELECT body with NORMAL columns and NORMAL groupby
-    let normal_col = |r: &QueryRow| {
-        r.flag
-            .map(|f| (f & CROSSTAB_NORMAL_FLAG) != 0)
-            .unwrap_or(false)
-    };
-    let normal_gb = |r: &QueryRow| {
-        r.flag
-            .map(|f| (f & CROSSTAB_NORMAL_FLAG) != 0)
-            .unwrap_or(false)
-    };
-    append_select_body(builder, rows, true, None, &normal_col, &normal_gb);
+    let normal = |r: &QueryRow| row_has_flag(r, CROSSTAB_NORMAL_FLAG);
+    append_select_body(builder, rows, true, None, &normal, &normal);
 
     // PIVOT expression: column row with PIVOT flag
-    let pivot_row = all_col_rows.iter().find(|r| {
-        r.flag
-            .map(|f| (f & CROSSTAB_PIVOT_FLAG) != 0)
-            .unwrap_or(false)
-    });
+    let pivot_row = all_col_rows
+        .iter()
+        .find(|r| row_has_flag(r, CROSSTAB_PIVOT_FLAG));
     if let Some(prow) = pivot_row {
         if let Some(ref expr) = prow.expression {
             builder.push_str("\nPIVOT ");
