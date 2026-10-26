@@ -652,6 +652,19 @@ mod tests {
     }
 
     #[test]
+    fn format_value_timestamp_out_of_range() {
+        // A date out of the years 100 to 9999 is the epoch, as a NaN is.
+        let opts = default_opts();
+        for ts in [1e300, -1e300, 3e18, 1e15 + 0.5] {
+            assert_eq!(
+                format_value(&Value::Timestamp(ts), &opts),
+                "1899-12-30",
+                "{ts}"
+            );
+        }
+    }
+
+    #[test]
     fn format_value_binary_hex() {
         let opts = default_opts();
         assert_eq!(
