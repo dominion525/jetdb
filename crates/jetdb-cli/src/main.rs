@@ -108,18 +108,40 @@ struct SchemaArgs {
     no_relations: bool,
 }
 
-// ---------------------------------------------------------------------------
-// ver subcommand
-// ---------------------------------------------------------------------------
-
-fn cmd_ver(args: VerArgs, password: Option<&str>) -> ExitCode {
-    match run_ver(&args, password) {
+/// The exit code of a subcommand that gave `result`, after writing its error.
+pub(crate) fn exit_code<E: std::fmt::Display>(result: Result<(), E>) -> ExitCode {
+    match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             log::error!("{e}");
             ExitCode::FAILURE
         }
     }
+}
+
+/// Print `names` as the list subcommands do: one a line with `newline`, or
+/// else on one line joined by `delimiter`, or by a space; nothing when there
+/// are none.
+pub(crate) fn print_names(names: &[impl AsRef<str>], newline: bool, delimiter: Option<&str>) {
+    if names.is_empty() {
+        return;
+    }
+    if newline {
+        for name in names {
+            println!("{}", name.as_ref());
+        }
+    } else {
+        let names: Vec<&str> = names.iter().map(AsRef::as_ref).collect();
+        println!("{}", names.join(delimiter.unwrap_or(" ")));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ver subcommand
+// ---------------------------------------------------------------------------
+
+fn cmd_ver(args: VerArgs, password: Option<&str>) -> ExitCode {
+    crate::exit_code(run_ver(&args, password))
 }
 
 fn run_ver(args: &VerArgs, password: Option<&str>) -> Result<(), jetdb::FileError> {
@@ -139,13 +161,7 @@ fn run_ver(args: &VerArgs, password: Option<&str>) -> Result<(), jetdb::FileErro
 // ---------------------------------------------------------------------------
 
 fn cmd_tables(args: TablesArgs, password: Option<&str>) -> ExitCode {
-    match run_tables(&args, password) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
-            log::error!("{e}");
-            ExitCode::FAILURE
-        }
-    }
+    crate::exit_code(run_tables(&args, password))
 }
 
 fn run_tables(args: &TablesArgs, password: Option<&str>) -> Result<(), jetdb::FileError> {
@@ -211,13 +227,7 @@ fn object_type_name(t: ObjectType) -> &'static str {
 // ---------------------------------------------------------------------------
 
 fn cmd_schema(args: SchemaArgs, password: Option<&str>) -> ExitCode {
-    match run_schema(&args, password) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
-            log::error!("{e}");
-            ExitCode::FAILURE
-        }
-    }
+    crate::exit_code(run_schema(&args, password))
 }
 
 fn run_schema(args: &SchemaArgs, password: Option<&str>) -> Result<(), jetdb::FileError> {
@@ -230,13 +240,7 @@ fn run_schema(args: &SchemaArgs, password: Option<&str>) -> Result<(), jetdb::Fi
     // Read relationships once if needed
     let need_relations = !args.no_relations;
     let relationships = if need_relations {
-        match read_relationships(&mut reader) {
-            Ok(rels) => rels,
-            Err(e) => {
-                log::warn!("failed to read relationships: {e}");
-                Vec::new()
-            }
-        }
+        relationships_or_warn(&mut reader)
     } else {
         Vec::new()
     };
@@ -253,17 +257,24 @@ fn run_schema(args: &SchemaArgs, password: Option<&str>) -> Result<(), jetdb::Fi
         );
         print!("{output}");
     } else {
-        let mut first = true;
-        for tdef in &tables {
-            if !first {
+        for (i, tdef) in tables.iter().enumerate() {
+            if i > 0 {
                 println!();
             }
-            first = false;
             print_table_schema(tdef, &relationships, args);
         }
     }
 
     Ok(())
+}
+
+/// The relationships of the database, or none, with a warning, when they
+/// cannot be read.
+fn relationships_or_warn(reader: &mut PageReader) -> Vec<Relationship> {
+    read_relationships(reader).unwrap_or_else(|e| {
+        log::warn!("failed to read relationships: {e}");
+        Vec::new()
+    })
 }
 
 /// The type of `col` as `jetdb schema` shows it, with `size`, the size as
@@ -304,8 +315,39 @@ fn padded(s: &str, width: usize) -> String {
 fn print_table_schema(tdef: &TableDef, rels: &[Relationship], args: &SchemaArgs) {
     println!("Table: {}", tdef.name);
     println!();
+    print_columns(tdef);
+    if !args.no_indexes {
+        print_indexes(tdef);
+    }
+    if !args.no_relations {
+        print_relationships(tdef, rels);
+    }
+}
 
-    // -- Columns --
+/// The widest of `texts` in the columns of a terminal.
+fn max_width<'a>(texts: impl IntoIterator<Item = &'a str>) -> usize {
+    texts.into_iter().map(|s| s.width()).max().unwrap_or(0)
+}
+
+/// Print a line of a section of `jetdb schema`: `name` padded to
+/// `name_width`, and `text`, padded to `text_width` when it is given and
+/// `extra` follows, then `extra` when it is not empty.
+fn print_aligned(
+    name: &str,
+    name_width: usize,
+    text: &str,
+    text_width: Option<usize>,
+    extra: &str,
+) {
+    if extra.is_empty() {
+        println!("    {}  {text}", padded(name, name_width));
+    } else {
+        let text = text_width.map_or_else(|| text.to_string(), |w| padded(text, w));
+        println!("    {}  {text}  {extra}", padded(name, name_width));
+    }
+}
+
+fn print_columns(tdef: &TableDef) {
     println!("  Columns:");
 
     // Pre-compute type strings to avoid double formatting
@@ -314,91 +356,71 @@ fn print_table_schema(tdef: &TableDef, rels: &[Relationship], args: &SchemaArgs)
         .iter()
         .map(|c| format_col_type(c, tdef.shown_size(c)))
         .collect();
-    let name_width = tdef
-        .columns
-        .iter()
-        .map(|c| c.name.width())
-        .max()
-        .unwrap_or(0);
-    let type_width = col_types.iter().map(|s| s.width()).max().unwrap_or(0);
+    let name_width = max_width(tdef.columns.iter().map(|c| c.name.as_str()));
+    let type_width = max_width(col_types.iter().map(String::as_str));
 
     for (col, col_type) in tdef.columns.iter().zip(&col_types) {
-        let attrs = format_col_attrs(col);
-        if attrs.is_empty() {
-            println!("    {}  {col_type}", padded(&col.name, name_width));
-        } else {
-            println!(
-                "    {}  {}  {attrs}",
-                padded(&col.name, name_width),
-                padded(col_type, type_width),
-            );
-        }
+        print_aligned(
+            &col.name,
+            name_width,
+            col_type,
+            Some(type_width),
+            &format_col_attrs(col),
+        );
     }
+}
 
-    // -- Indexes --
-    if !args.no_indexes {
-        let visible_indexes: Vec<&IndexDef> = tdef
-            .indexes
-            .iter()
-            .filter(|idx| idx.index_type != index_type::FOREIGN_KEY)
-            .collect();
-
-        if !visible_indexes.is_empty() {
-            println!();
-            println!("  Indexes:");
-
-            let idx_name_width = visible_indexes
-                .iter()
-                .map(|i| i.name.width())
-                .max()
-                .unwrap_or(0);
-            let cols_strs: Vec<String> = visible_indexes
-                .iter()
-                .map(|idx| format_index_columns(idx, tdef))
-                .collect();
-            let cols_width = cols_strs.iter().map(|s| s.width()).max().unwrap_or(0);
-
-            for (idx, cols_str) in visible_indexes.iter().zip(&cols_strs) {
-                let flags_str = format_index_flags(idx);
-                if flags_str.is_empty() {
-                    println!("    {}  {cols_str}", padded(&idx.name, idx_name_width));
-                } else {
-                    println!(
-                        "    {}  {}  {flags_str}",
-                        padded(&idx.name, idx_name_width),
-                        padded(cols_str, cols_width),
-                    );
-                }
-            }
-        }
+fn print_indexes(tdef: &TableDef) {
+    let visible_indexes: Vec<&IndexDef> = tdef
+        .indexes
+        .iter()
+        .filter(|idx| idx.index_type != index_type::FOREIGN_KEY)
+        .collect();
+    if visible_indexes.is_empty() {
+        return;
     }
+    println!();
+    println!("  Indexes:");
 
-    // -- Relationships --
-    if !args.no_relations {
-        let table_rels: Vec<&Relationship> = rels
-            .iter()
-            .filter(|r| r.from_table == tdef.name || r.to_table == tdef.name)
-            .collect();
+    let idx_name_width = max_width(visible_indexes.iter().map(|i| i.name.as_str()));
+    let cols_strs: Vec<String> = visible_indexes
+        .iter()
+        .map(|idx| format_index_columns(idx, tdef))
+        .collect();
+    let cols_width = max_width(cols_strs.iter().map(String::as_str));
 
-        if !table_rels.is_empty() {
-            println!();
-            println!("  Relationships:");
+    for (idx, cols_str) in visible_indexes.iter().zip(&cols_strs) {
+        print_aligned(
+            &idx.name,
+            idx_name_width,
+            cols_str,
+            Some(cols_width),
+            &format_index_flags(idx),
+        );
+    }
+}
 
-            let rel_name_width = table_rels.iter().map(|r| r.name.width()).max().unwrap_or(0);
+fn print_relationships(tdef: &TableDef, rels: &[Relationship]) {
+    let table_rels: Vec<&Relationship> = rels
+        .iter()
+        .filter(|r| r.from_table == tdef.name || r.to_table == tdef.name)
+        .collect();
+    if table_rels.is_empty() {
+        return;
+    }
+    println!();
+    println!("  Relationships:");
 
-            for rel in &table_rels {
-                let mapping = format_relationship_mapping(rel);
-                let flags_str = format_relationship_flags(rel);
-                if flags_str.is_empty() {
-                    println!("    {}  {mapping}", padded(&rel.name, rel_name_width));
-                } else {
-                    println!(
-                        "    {}  {mapping}  {flags_str}",
-                        padded(&rel.name, rel_name_width)
-                    );
-                }
-            }
-        }
+    let rel_name_width = max_width(table_rels.iter().map(|r| r.name.as_str()));
+    for rel in &table_rels {
+        let mapping = format_relationship_mapping(rel);
+        print_aligned(
+            &rel.name,
+            rel_name_width,
+            &mapping,
+            None,
+            &format_relationship_flags(rel),
+        );
     }
 }
 
@@ -477,34 +499,11 @@ fn format_relationship_flags(rel: &Relationship) -> String {
 // ---------------------------------------------------------------------------
 
 fn main() -> ExitCode {
-    env_logger::Builder::new()
-        .filter_level(log::LevelFilter::Warn)
-        .parse_default_env()
-        .format(|buf, record| {
-            use std::io::Write;
-            match record.level() {
-                log::Level::Error => writeln!(buf, "jetdb: {}", record.args()),
-                log::Level::Warn => writeln!(buf, "jetdb: warning: {}", record.args()),
-                _ => writeln!(buf, "jetdb: {}: {}", record.level(), record.args()),
-            }
-        })
-        .init();
-
+    init_logger();
     let cli = Cli::parse();
 
     if cli.help_skill {
-        println!(
-            "The jetdb Claude Code Skill has moved to the agent-skills repository.
-
-Install via Claude Code Plugin Marketplace:
-  /plugin marketplace add dominion525/agent-skills
-  /plugin install jetdb-cli@dominion525-skills
-
-Install via Vercel skills CLI:
-  npx skills add dominion525/agent-skills --skill jetdb-cli -a claude-code
-
-Details: https://github.com/dominion525/agent-skills"
-        );
+        print_skill_moved();
         return ExitCode::SUCCESS;
     }
 
@@ -528,6 +527,38 @@ Details: https://github.com/dominion525/agent-skills"
         Commands::Form(args) => form::cmd_form(args, password.as_deref()),
         Commands::Macro(args) => macro_cmd::cmd_macro(args, password.as_deref()),
     }
+}
+
+/// Write warnings and errors to standard error after `jetdb:`.
+fn init_logger() {
+    env_logger::Builder::new()
+        .filter_level(log::LevelFilter::Warn)
+        .parse_default_env()
+        .format(|buf, record| {
+            use std::io::Write;
+            match record.level() {
+                log::Level::Error => writeln!(buf, "jetdb: {}", record.args()),
+                log::Level::Warn => writeln!(buf, "jetdb: warning: {}", record.args()),
+                _ => writeln!(buf, "jetdb: {}: {}", record.level(), record.args()),
+            }
+        })
+        .init();
+}
+
+/// Print where the Claude Code Skill of jetdb has moved, for `--help-skill`.
+fn print_skill_moved() {
+    println!(
+        "The jetdb Claude Code Skill has moved to the agent-skills repository.
+
+Install via Claude Code Plugin Marketplace:
+  /plugin marketplace add dominion525/agent-skills
+  /plugin install jetdb-cli@dominion525-skills
+
+Install via Vercel skills CLI:
+  npx skills add dominion525/agent-skills --skill jetdb-cli -a claude-code
+
+Details: https://github.com/dominion525/agent-skills"
+    );
 }
 
 // ---------------------------------------------------------------------------

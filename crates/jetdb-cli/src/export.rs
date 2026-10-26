@@ -1,6 +1,6 @@
 use std::fs;
 use std::io::{self, BufWriter, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Args, ValueEnum};
@@ -87,13 +87,7 @@ impl From<BinMode> for BinaryFormat {
 // ---------------------------------------------------------------------------
 
 pub fn cmd_export(args: ExportArgs, password: Option<&str>) -> ExitCode {
-    match run_export(&args, password) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
-            log::error!("{e}");
-            ExitCode::FAILURE
-        }
-    }
+    crate::exit_code(run_export(&args, password))
 }
 
 /// The options of `write_csv` that the arguments give.
@@ -113,6 +107,15 @@ fn csv_options(args: &ExportArgs) -> CsvOptions {
     }
 }
 
+/// Write the file `name` of the attachment that holds `number` in a row to
+/// `dir/<number>/<name>`, and give that path under `dir`.
+fn write_attachment(dir: &Path, number: i32, name: &str, data: &[u8]) -> io::Result<String> {
+    let folder = dir.join(number.to_string());
+    fs::create_dir_all(&folder)?;
+    fs::write(folder.join(name), data)?;
+    Ok(format!("{number}/{name}"))
+}
+
 fn run_export(args: &ExportArgs, password: Option<&str>) -> Result<(), jetdb::FileError> {
     let options = csv_options(args);
 
@@ -123,15 +126,12 @@ fn run_export(args: &ExportArgs, password: Option<&str>) -> Result<(), jetdb::Fi
 
     // With --attachments, each file goes to DIR/<number>/<file name>, and its
     // field gives that path under DIR.
-    let mut write_file = |number: i32, name: &str, data: &[u8]| -> io::Result<String> {
+    let mut write_file = |number: i32, name: &str, data: &[u8]| {
         let dir = args
             .attachments
             .as_deref()
             .expect("only called with a directory");
-        let folder = dir.join(number.to_string());
-        fs::create_dir_all(&folder)?;
-        fs::write(folder.join(name), data)?;
-        Ok(format!("{number}/{name}"))
+        write_attachment(dir, number, name, data)
     };
     let attachments = args
         .attachments

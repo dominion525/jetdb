@@ -7,7 +7,7 @@ use jetdb::{
     read_embedded_macros, read_embedded_macros_of_type, read_macro, PageReader,
 };
 
-use crate::form::{form_type_of, FormTypeArg};
+use crate::form::FormTypeArg;
 
 // ---------------------------------------------------------------------------
 // CLI definition
@@ -93,18 +93,11 @@ pub struct MacroDataArgs {
 // ---------------------------------------------------------------------------
 
 pub fn cmd_macro(args: MacroArgs, password: Option<&str>) -> ExitCode {
-    let result = match args.command {
-        MacroCommands::List(a) => run_list(&a, password).map_err(|e| e.to_string()),
-        MacroCommands::Show(a) => run_show(&a, password).map_err(|e| e.to_string()),
-        MacroCommands::Embedded(a) => run_embedded(&a, password),
-        MacroCommands::Data(a) => run_data(&a, password).map_err(|e| e.to_string()),
-    };
-    match result {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
-            log::error!("{e}");
-            ExitCode::FAILURE
-        }
+    match args.command {
+        MacroCommands::List(a) => crate::exit_code(run_list(&a, password)),
+        MacroCommands::Show(a) => crate::exit_code(run_show(&a, password)),
+        MacroCommands::Embedded(a) => crate::exit_code(run_embedded(&a, password)),
+        MacroCommands::Data(a) => crate::exit_code(run_data(&a, password)),
     }
 }
 
@@ -116,18 +109,7 @@ fn run_list(args: &MacroListArgs, password: Option<&str>) -> Result<(), jetdb::F
         .collect();
     names.sort_unstable();
 
-    if names.is_empty() {
-        return Ok(());
-    }
-    if args.newline {
-        for name in &names {
-            println!("{name}");
-        }
-    } else if let Some(ref delim) = args.delimiter {
-        println!("{}", names.join(delim));
-    } else {
-        println!("{}", names.join(" "));
-    }
+    crate::print_names(&names, args.newline, args.delimiter.as_deref());
 
     Ok(())
 }
@@ -153,11 +135,13 @@ fn run_show(args: &MacroShowArgs, password: Option<&str>) -> Result<(), jetdb::F
 fn run_embedded(args: &MacroEmbeddedArgs, password: Option<&str>) -> Result<(), String> {
     let mut reader =
         PageReader::open_with_password(&args.file, password).map_err(|e| e.to_string())?;
-    let macros = match form_type_of(&mut reader, &args.name, args.object_type)? {
-        Some(t) => read_embedded_macros_of_type(&mut reader, &args.name, t),
-        None => read_embedded_macros(&mut reader, &args.name),
-    }
-    .map_err(|e| e.to_string())?;
+    let macros = crate::form::read_named(
+        &mut reader,
+        &args.name,
+        args.object_type,
+        read_embedded_macros_of_type,
+        read_embedded_macros,
+    )?;
     for def in macros {
         if args.xml {
             println!("{}", def.xml);

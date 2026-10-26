@@ -5,7 +5,7 @@ use clap::Args;
 use jetdb::format::ObjectType;
 use jetdb::{
     read_catalog, read_object_properties, read_object_properties_of_type, CatalogEntry,
-    ObjectProperties, PageReader, PropMapType, Value,
+    ObjectProperties, PageReader, PropMapType, PropertyMap, Value,
 };
 
 use crate::object_type_name;
@@ -31,25 +31,13 @@ pub struct PropArgs {
 // ---------------------------------------------------------------------------
 
 pub fn cmd_prop(args: PropArgs, password: Option<&str>) -> ExitCode {
-    match run_prop(&args, password) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
-            log::error!("{e}");
-            ExitCode::FAILURE
-        }
-    }
+    crate::exit_code(run_prop(&args, password))
 }
 
 fn run_prop(args: &PropArgs, password: Option<&str>) -> Result<(), String> {
     let mut reader =
         PageReader::open_with_password(&args.file, password).map_err(|e| e.to_string())?;
-    let object_type = match &args.object_type {
-        Some(name) => Some(object_type_named(name)),
-        None => {
-            let catalog = read_catalog(&mut reader).map_err(|e| e.to_string())?;
-            only_type_of(&catalog, &args.object_name)?
-        }
-    };
+    let object_type = object_type_of(&mut reader, args)?;
     // Without a type, the object may be of a type the catalog leaves out:
     // read it by its name alone.
     let props = match object_type {
@@ -59,6 +47,18 @@ fn run_prop(args: &PropArgs, password: Option<&str>) -> Result<(), String> {
     .map_err(|e| e.to_string())?;
     print_properties(&props, object_type);
     Ok(())
+}
+
+/// The type of the object of `prop`: the one `--type` names, or the only
+/// one of that name in the catalog, or `None` when there is none.
+fn object_type_of(reader: &mut PageReader, args: &PropArgs) -> Result<Option<ObjectType>, String> {
+    match &args.object_type {
+        Some(name) => Ok(Some(object_type_named(name))),
+        None => {
+            let catalog = read_catalog(reader).map_err(|e| e.to_string())?;
+            only_type_of(&catalog, &args.object_name)
+        }
+    }
 }
 
 /// The object type of a name `--type` takes.
@@ -78,44 +78,42 @@ fn print_properties(props: &ObjectProperties, object_type: Option<ObjectType>) {
 
     println!("Object: {}", props.object_name);
 
-    for map in &props.maps {
-        if map.properties.is_empty() {
-            continue;
-        }
-
+    for map in props.maps.iter().filter(|m| !m.properties.is_empty()) {
         println!();
-        match map.map_type {
-            PropMapType::Default => match object_type {
-                Some(t) => println!("  {t} Properties:"),
-                None => println!("  Object Properties:"),
-            },
-            PropMapType::Column => {
-                println!("  Column: {}", map.name);
-            }
-            PropMapType::Additional => {
-                if map.name.is_empty() {
-                    println!("  Additional Properties:");
-                } else {
-                    println!("  Additional: {}", map.name);
-                }
-            }
-        }
+        println!("  {}", map_heading(map, object_type));
+        print_map(map);
+    }
+}
 
-        // Calculate name width for alignment
-        let name_width = map
-            .properties
-            .iter()
-            .map(|p| unicode_width::UnicodeWidthStr::width(p.name.as_str()))
-            .max()
-            .unwrap_or(0);
+/// The heading of the properties of `map`, of an object of `object_type`.
+fn map_heading(map: &PropertyMap, object_type: Option<ObjectType>) -> String {
+    match map.map_type {
+        PropMapType::Default => match object_type {
+            Some(t) => format!("{t} Properties:"),
+            None => "Object Properties:".to_string(),
+        },
+        PropMapType::Column => format!("Column: {}", map.name),
+        PropMapType::Additional if map.name.is_empty() => "Additional Properties:".to_string(),
+        PropMapType::Additional => format!("Additional: {}", map.name),
+    }
+}
 
-        for prop in &map.properties {
-            let display_value = format_value(&prop.value);
-            println!(
-                "    {}  {display_value}",
-                crate::padded(&prop.name, name_width)
-            );
-        }
+/// Print the properties of `map`, their names aligned.
+fn print_map(map: &PropertyMap) {
+    // Calculate name width for alignment
+    let name_width = map
+        .properties
+        .iter()
+        .map(|p| unicode_width::UnicodeWidthStr::width(p.name.as_str()))
+        .max()
+        .unwrap_or(0);
+
+    for prop in &map.properties {
+        let display_value = format_value(&prop.value);
+        println!(
+            "    {}  {display_value}",
+            crate::padded(&prop.name, name_width)
+        );
     }
 }
 
