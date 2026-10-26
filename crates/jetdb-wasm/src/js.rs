@@ -2,7 +2,8 @@
 
 use jetdb::format::ObjectType;
 use jetdb::{
-    FormObjectType, MacroSource, MacroStatement, MacroXmlElement, RowPosition, StreamKind,
+    FormObjectType, MacroBranch, MacroSource, MacroStatement, MacroXmlElement, RowPosition,
+    StreamKind,
 };
 use js_sys::{Array, ArrayBuffer, BigInt, Object, Reflect, Symbol, Uint8Array};
 use wasm_bindgen::prelude::*;
@@ -10,7 +11,8 @@ use wasm_bindgen::JsCast;
 
 use crate::{
     error_code, form_type_name, number_position, position_number, Cell, Column, Database,
-    FormProperty, Index, Macro, PropertiesError, Property, PropertyGroup, Relationship,
+    FormProperty, Index, Macro, ObjectProperties, PropertiesError, Property, PropertyGroup,
+    Relationship,
 };
 
 // Types for the TypeScript declarations. Version, Column, Index, Relationship,
@@ -862,33 +864,14 @@ impl JsDatabase {
     ) -> Result<Object, JsValue> {
         let name = string_arg(&name, "name")?;
         let object_type = match option_string(options.as_deref(), "type")? {
-            Some(type_name) => Some(
-                ObjectType::ALL
-                    .into_iter()
-                    .find(|t| t.to_string() == type_name)
-                    .ok_or_else(|| {
-                        let names = ObjectType::ALL.map(|t| t.to_string());
-                        jetdb_error(
-                            "INVALID_ARGUMENT",
-                            &format!("option type must be one of {}", names.join(", ")),
-                        )
-                    })?,
-            ),
+            Some(type_name) => Some(object_type_named(&type_name)?),
             None => None,
         };
         let properties = self
             .inner
             .properties(&name, object_type)
             .map_err(|e| properties_error(e, &name))?;
-        let object = Object::new();
-        set(&object, "object", property_array(properties.object).into());
-        set(&object, "columns", group_array(properties.columns).into());
-        set(
-            &object,
-            "additional",
-            group_array(properties.additional).into(),
-        );
-        Ok(object)
+        Ok(properties_object(properties))
     }
 
     /// The DDL of the user tables in a SQL dialect, as `jetdb schema --ddl`
@@ -1189,8 +1172,48 @@ fn source_object(source: MacroSource) -> Object {
     object
 }
 
+/// The object type of the name the type option gives.
+fn object_type_named(type_name: &str) -> Result<ObjectType, JsValue> {
+    ObjectType::ALL
+        .into_iter()
+        .find(|t| t.to_string() == type_name)
+        .ok_or_else(|| {
+            let names = ObjectType::ALL.map(|t| t.to_string());
+            jetdb_error(
+                "INVALID_ARGUMENT",
+                &format!("option type must be one of {}", names.join(", ")),
+            )
+        })
+}
+
+/// The `ObjectProperties` of `properties`.
+fn properties_object(properties: ObjectProperties) -> Object {
+    let object = Object::new();
+    set(&object, "object", property_array(properties.object).into());
+    set(&object, "columns", group_array(properties.columns).into());
+    set(
+        &object,
+        "additional",
+        group_array(properties.additional).into(),
+    );
+    object
+}
+
 fn statement_array(statements: Vec<MacroStatement>) -> Array {
     statements.into_iter().map(statement_object).collect()
+}
+
+/// The branches of an `If` statement, each with its condition and statements.
+fn branch_array(branches: Vec<MacroBranch>) -> Array {
+    branches
+        .into_iter()
+        .map(|b| {
+            let branch = Object::new();
+            set(&branch, "condition", optional_string(b.condition));
+            set(&branch, "statements", statement_array(b.statements).into());
+            branch
+        })
+        .collect()
 }
 
 fn statement_object(statement: MacroStatement) -> Object {
@@ -1208,16 +1231,7 @@ fn statement_object(statement: MacroStatement) -> Object {
         }
         MacroStatement::Conditional { branches } => {
             set(&object, "kind", "if".into());
-            let branches: Array = branches
-                .into_iter()
-                .map(|b| {
-                    let branch = Object::new();
-                    set(&branch, "condition", optional_string(b.condition));
-                    set(&branch, "statements", statement_array(b.statements).into());
-                    branch
-                })
-                .collect();
-            set(&object, "branches", branches.into());
+            set(&object, "branches", branch_array(branches).into());
         }
         MacroStatement::Group {
             description,
@@ -1317,6 +1331,15 @@ fn group_array(groups: Vec<PropertyGroup>) -> Array {
         .collect()
 }
 
+/// The object of a record of fields, each by its name.
+fn record_object(fields: Vec<(&'static str, Cell)>) -> Object {
+    let object = Object::new();
+    for (name, cell) in fields {
+        set(&object, name, cell_value(cell));
+    }
+    object
+}
+
 fn cell_value(cell: Cell) -> JsValue {
     match cell {
         Cell::Null => JsValue::NULL,
@@ -1326,13 +1349,7 @@ fn cell_value(cell: Cell) -> JsValue {
         Cell::String(s) => s.into(),
         Cell::Bytes(bytes) => Uint8Array::from(bytes.as_slice()).into(),
         Cell::List(cells) => cells.into_iter().map(cell_value).collect::<Array>().into(),
-        Cell::Record(fields) => {
-            let object = Object::new();
-            for (name, cell) in fields {
-                set(&object, name, cell_value(cell));
-            }
-            object.into()
-        }
+        Cell::Record(fields) => record_object(fields).into(),
     }
 }
 

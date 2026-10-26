@@ -92,35 +92,42 @@ fn extract_functions(space: &Space, filepath: &str, results: &mut Vec<FunctionEn
 }
 
 fn main() {
-    let stdin = io::stdin();
-    let mut functions = Vec::new();
-
-    for line in stdin.lock().lines() {
-        let line = match line {
-            Ok(l) => l,
-            Err(_) => continue,
-        };
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        let entry: FileEntry = match serde_json::from_str(trimmed) {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
-        for space in &entry.spaces {
-            extract_functions(space, &entry.name, &mut functions);
-        }
-    }
-
-    functions.sort_by(|a, b| b.cc.cmp(&a.cc).then(b.cog.cmp(&a.cog)));
+    let functions = functions_above_threshold(io::stdin().lock());
 
     println!("Total: {} functions above threshold", functions.len());
 
     if functions.is_empty() {
         return;
     }
+    print_table(&functions);
+}
 
+/// The functions above the thresholds in the JSON lines of
+/// rust-code-analysis that `input` reads, most complex first. Lines that are
+/// not JSON of a file are passed over.
+fn functions_above_threshold(input: impl BufRead) -> Vec<FunctionEntry> {
+    let mut functions = Vec::new();
+    for line in input.lines() {
+        let Ok(line) = line else {
+            continue;
+        };
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let Ok(entry) = serde_json::from_str::<FileEntry>(trimmed) else {
+            continue;
+        };
+        for space in &entry.spaces {
+            extract_functions(space, &entry.name, &mut functions);
+        }
+    }
+    functions.sort_by(|a, b| b.cc.cmp(&a.cc).then(b.cog.cmp(&a.cog)));
+    functions
+}
+
+/// Print `functions` as a table, each column as wide as its widest value.
+fn print_table(functions: &[FunctionEntry]) {
     let w_file = functions.iter().map(|f| f.file.len()).max().unwrap().max(4);
     let w_name = functions.iter().map(|f| f.name.len()).max().unwrap().max(8);
     let w_line = functions.iter().map(|f| f.line.len()).max().unwrap().max(5);
@@ -131,9 +138,14 @@ fn main() {
     );
     println!(
         "{:<w_file$}  {:<w_name$}  {:<w_line$}  {:>4}  {:>4}  {:>5}",
-        "-".repeat(w_file), "-".repeat(w_name), "-".repeat(w_line), "----", "----", "-----",
+        "-".repeat(w_file),
+        "-".repeat(w_name),
+        "-".repeat(w_line),
+        "----",
+        "----",
+        "-----",
     );
-    for f in &functions {
+    for f in functions {
         println!(
             "{:<w_file$}  {:<w_name$}  {:<w_line$}  {:>4}  {:>4}  {:>5}",
             f.file, f.name, f.line, f.cc, f.cog, f.sloc,

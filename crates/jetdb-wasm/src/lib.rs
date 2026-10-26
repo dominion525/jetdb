@@ -531,9 +531,7 @@ impl Database {
         limit: Option<usize>,
     ) -> Result<Rows, FileError> {
         let (tdef, system_table) = self.table_def(table)?;
-        let shown: Vec<usize> = (0..tdef.columns.len())
-            .filter(|&i| tdef.columns[i].is_shown(system_table))
-            .collect();
+        let shown = shown_columns(&tdef, system_table);
         self.read_complex_columns(&tdef, &shown)?;
         let Self {
             reader,
@@ -550,13 +548,7 @@ impl Database {
         let mut table_rows = TableRows::new(&tdef, &calculated)
             .with_columns(&shown)
             .starting_at(start);
-        let mut rows = Vec::new();
-        while limit.is_none_or(|limit| rows.len() < limit) {
-            let Some(row) = table_rows.next_row(reader)? else {
-                break;
-            };
-            rows.push(row_cells(reader, row.values, &shown, &columns)?);
-        }
+        let rows = read_cells(&mut table_rows, reader, limit, &shown, &columns)?;
         let next = table_rows.peek(reader)?;
         Ok(Rows {
             columns: shown
@@ -621,22 +613,7 @@ impl Database {
                 include_system
                     || !(system_or_hidden(&r.from_table) || system_or_hidden(&r.to_table))
             })
-            .map(|r| Relationship {
-                referential_integrity: r.has_referential_integrity(),
-                cascade_update: r.flags & relationship_flags::CASCADE_UPDATE != 0,
-                cascade_delete: r.flags & relationship_flags::CASCADE_DELETE != 0,
-                columns: r
-                    .columns
-                    .into_iter()
-                    .map(|c| RelationshipColumn {
-                        from: c.from_column,
-                        to: c.to_column,
-                    })
-                    .collect(),
-                name: r.name,
-                from_table: r.from_table,
-                to_table: r.to_table,
-            })
+            .map(relationship_of)
             .collect();
         out.sort_unstable_by(|a, b| a.name.cmp(&b.name));
         Ok(out)
@@ -652,14 +629,9 @@ impl Database {
             .as_deref()
             .expect("the catalog was read for the queries");
         let queries = self.queries.as_deref().expect("the queries were just read");
-        let system_or_hidden = |name: &str| {
-            catalog.iter().any(|e| {
-                e.object_type == ObjectType::Query && e.name == name && e.is_system_or_hidden()
-            })
-        };
         let mut out: Vec<Query> = queries
             .iter()
-            .filter(|q| include_system || !system_or_hidden(&q.name))
+            .filter(|q| include_system || !is_system_or_hidden_query(catalog, &q.name))
             .map(|q| Query {
                 type_name: query_type_name(q.query_type),
                 name: q.name.clone(),
@@ -858,61 +830,29 @@ impl Database {
         object_type: Option<ObjectType>,
     ) -> Result<ObjectProperties, PropertiesError> {
         let text = self.reader.text_encoding();
-        let entries: Vec<&CatalogEntry> = self
-            .catalog()?
-            .iter()
-            .filter(|e| e.name == name && object_type.is_none_or(|t| e.object_type == t))
-            .collect();
-        // Rows of the same type are one type: the first of them is read, as
-        // read_object_properties_of_type reads the first.
-        let mut types: Vec<ObjectType> = Vec::new();
-        for e in &entries {
-            if !types.contains(&e.object_type) {
-                types.push(e.object_type);
-            }
-        }
-        let entry = match (types.len(), entries.first()) {
-            (_, None) => None,
-            (1, Some(first)) => Some(*first),
-            _ => return Err(PropertiesError::SeveralTypes(types)),
-        };
+        let entry = only_entry_named(self.catalog()?, name, object_type)?;
         let read = match entry {
             Some(entry) => entry_properties(entry, text)?,
             // The catalog leaves out objects of types jetdb does not know:
             // without a type, read MSysObjects again by the name alone, as
             // `jetdb prop` does.
-            None if object_type.is_none() => {
-                let read = read_object_properties(&mut self.reader, name)?;
-                if read.maps.is_empty() {
-                    return Err(PropertiesError::NotFound);
-                }
-                read
-            }
+            None if object_type.is_none() => self.properties_by_name(name)?,
             None => return Err(PropertiesError::NotFound),
         };
-        let mut out = ObjectProperties::default();
-        for map in read.maps {
-            let properties: Vec<Property> = map
-                .properties
-                .into_iter()
-                .map(|p| Property {
-                    name: p.name,
-                    value: p.value.into(),
-                })
-                .collect();
-            match map.map_type {
-                PropMapType::Default => out.object.extend(properties),
-                PropMapType::Column => out.columns.push(PropertyGroup {
-                    name: map.name,
-                    properties,
-                }),
-                PropMapType::Additional => out.additional.push(PropertyGroup {
-                    name: map.name,
-                    properties,
-                }),
-            }
+        Ok(grouped_properties(read))
+    }
+
+    /// The properties of the object `name` read from MSysObjects by the name
+    /// alone; not found when it has none.
+    fn properties_by_name(
+        &mut self,
+        name: &str,
+    ) -> Result<jetdb::ObjectProperties, PropertiesError> {
+        let read = read_object_properties(&mut self.reader, name)?;
+        if read.maps.is_empty() {
+            return Err(PropertiesError::NotFound);
         }
-        Ok(out)
+        Ok(read)
     }
 
     /// The DDL of the user tables, or of `table` alone, in `dialect`, as
@@ -1046,6 +986,114 @@ fn type_name(column_type: &ColumnType) -> String {
 
 /// `true` when `name` is a table, linked or not, that Access keeps from users,
 /// whose relationships `Database::relationships` leaves out.
+/// Whether the query `name` of `catalog` is a system or hidden one.
+fn is_system_or_hidden_query(catalog: &[CatalogEntry], name: &str) -> bool {
+    catalog
+        .iter()
+        .any(|e| e.object_type == ObjectType::Query && e.name == name && e.is_system_or_hidden())
+}
+
+/// The relationship `r` of the library as `Database::relationships` gives it.
+fn relationship_of(r: jetdb::Relationship) -> Relationship {
+    Relationship {
+        referential_integrity: r.has_referential_integrity(),
+        cascade_update: r.flags & relationship_flags::CASCADE_UPDATE != 0,
+        cascade_delete: r.flags & relationship_flags::CASCADE_DELETE != 0,
+        columns: r
+            .columns
+            .into_iter()
+            .map(|c| RelationshipColumn {
+                from: c.from_column,
+                to: c.to_column,
+            })
+            .collect(),
+        name: r.name,
+        from_table: r.from_table,
+        to_table: r.to_table,
+    }
+}
+
+/// The indexes of the columns of `tdef` that Access shows.
+fn shown_columns(tdef: &TableDef, system_table: bool) -> Vec<usize> {
+    (0..tdef.columns.len())
+        .filter(|&i| tdef.columns[i].is_shown(system_table))
+        .collect()
+}
+
+/// The cells of the next rows of `table_rows`, at most `limit` of them, of
+/// the columns at the indexes in `shown`, with `columns` their complex
+/// columns.
+fn read_cells(
+    table_rows: &mut TableRows<'_>,
+    reader: &mut PageReader,
+    limit: Option<usize>,
+    shown: &[usize],
+    columns: &[Option<&ComplexColumn>],
+) -> Result<Vec<Vec<Cell>>, FileError> {
+    let mut rows = Vec::new();
+    while limit.is_none_or(|limit| rows.len() < limit) {
+        let Some(row) = table_rows.next_row(reader)? else {
+            break;
+        };
+        rows.push(row_cells(reader, row.values, shown, columns)?);
+    }
+    Ok(rows)
+}
+
+/// The entry of the catalog named `name`, of `object_type` when it is given:
+/// `None` when there is none, and an error when entries of several types
+/// share the name. Rows of the same type are one type: the first of them is
+/// read, as read_object_properties_of_type reads the first.
+fn only_entry_named<'a>(
+    catalog: &'a [CatalogEntry],
+    name: &str,
+    object_type: Option<ObjectType>,
+) -> Result<Option<&'a CatalogEntry>, PropertiesError> {
+    let entries: Vec<&CatalogEntry> = catalog
+        .iter()
+        .filter(|e| e.name == name && object_type.is_none_or(|t| e.object_type == t))
+        .collect();
+    let mut types: Vec<ObjectType> = Vec::new();
+    for e in &entries {
+        if !types.contains(&e.object_type) {
+            types.push(e.object_type);
+        }
+    }
+    match (types.len(), entries.first()) {
+        (_, None) => Ok(None),
+        (1, Some(first)) => Ok(Some(*first)),
+        _ => Err(PropertiesError::SeveralTypes(types)),
+    }
+}
+
+/// The properties of `read` as `Database::properties` gives them: those of
+/// the object itself, of each column, and the additional groups.
+fn grouped_properties(read: jetdb::ObjectProperties) -> ObjectProperties {
+    let mut out = ObjectProperties::default();
+    for map in read.maps {
+        let properties: Vec<Property> = map
+            .properties
+            .into_iter()
+            .map(|p| Property {
+                name: p.name,
+                value: p.value.into(),
+            })
+            .collect();
+        match map.map_type {
+            PropMapType::Default => out.object.extend(properties),
+            PropMapType::Column => out.columns.push(PropertyGroup {
+                name: map.name,
+                properties,
+            }),
+            PropMapType::Additional => out.additional.push(PropertyGroup {
+                name: map.name,
+                properties,
+            }),
+        }
+    }
+    out
+}
+
 fn is_system_or_hidden_table(catalog: &[CatalogEntry], name: &str) -> bool {
     catalog.iter().any(|e| {
         matches!(
