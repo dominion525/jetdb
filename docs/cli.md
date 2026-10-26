@@ -397,6 +397,8 @@ End Function
 
 ### form — Manage forms and reports
 
+jetdb does not read the forms and reports of an Access 97 (Jet3) database, which are stored in another format: `form list` produces no output, and `form dump`, `form controls` and `form props` fail with an error saying that they are not read.
+
 #### form list — List form and report names
 
 ```

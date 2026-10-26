@@ -1167,6 +1167,7 @@ pub fn error_code(error: &FileError) -> &'static str {
         | FileError::InvalidFormData { .. }
         | FileError::InvalidMacroData { .. }
         | FileError::IncompleteQuery { .. } => "INVALID_FILE",
+        FileError::Jet3FormsNotRead => "NOT_SUPPORTED",
         FileError::Io(_) => "IO",
         _ => "INVALID_FILE",
     }
@@ -2971,6 +2972,7 @@ mod tests {
             ),
             (FileError::InvalidTableDef { reason: "x" }, "INVALID_FILE"),
             (FileError::IncompleteQuery { name: name() }, "INVALID_FILE"),
+            (FileError::Jet3FormsNotRead, "NOT_SUPPORTED"),
             (FileError::Io(std::io::Error::other("x")), "IO"),
         ];
         for (error, code) in codes {

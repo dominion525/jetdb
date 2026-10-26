@@ -34,6 +34,9 @@ pub struct AccessStorage {
     /// The code page in the header of the database, in which jetdb reads the
     /// names in the TypeInfo of forms and reports.
     pub(crate) code_page: u16,
+    /// Whether the database is an Access 97 (Jet3) one, whose forms and
+    /// reports jetdb does not read.
+    pub(crate) jet3: bool,
 }
 
 /// Read the storage of forms, reports, macros and VBA (see [`AccessStorage`]).
@@ -41,6 +44,7 @@ pub fn read_access_storage(reader: &mut PageReader) -> Result<AccessStorage, Fil
     Ok(AccessStorage {
         entries: read_storage_entries(reader)?,
         code_page: reader.header().code_page,
+        jet3: reader.header().version.is_jet3(),
     })
 }
 

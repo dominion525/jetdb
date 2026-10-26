@@ -54,6 +54,9 @@ pub enum FileError {
     FormNotFound {
         name: String,
     },
+    /// The database is an Access 97 (Jet3) one, which keeps its forms and
+    /// reports in another format that jetdb does not read.
+    Jet3FormsNotRead,
     MacroNotFound {
         name: String,
     },
@@ -108,6 +111,9 @@ impl fmt::Display for FileError {
             Self::QueryNotFound { name } => write!(f, "query not found: {name}"),
             Self::ModuleNotFound { name } => write!(f, "VBA module not found: {name}"),
             Self::FormNotFound { name } => write!(f, "form/report not found: {name}"),
+            Self::Jet3FormsNotRead => {
+                write!(f, "the forms and reports of Access 97 are not read")
+            }
             Self::MacroNotFound { name } => write!(f, "macro not found: {name}"),
             Self::IncompleteQuery { name } => write!(
                 f,

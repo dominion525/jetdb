@@ -489,6 +489,8 @@ export interface Rows {
  *   that name.
  * - `INVALID_FILE`: not an Access database, or a broken one; the message
  *   says what is wrong.
+ * - `NOT_SUPPORTED`: the database holds what jetdb does not read, such as
+ *   the forms and reports of Access 97.
  * - `INVALID_ARGUMENT`: a method was called with an argument or option that
  *   is not valid, such as a value of the wrong type or one outside its
  *   list, or with a name that objects of different types share and no
@@ -499,7 +501,7 @@ export type ErrorCode =
     | "PASSWORD_REQUIRED" | "INVALID_PASSWORD" | "UNSUPPORTED_ENCRYPTION"
     | "TABLE_NOT_FOUND" | "QUERY_NOT_FOUND" | "MODULE_NOT_FOUND"
     | "FORM_NOT_FOUND" | "MACRO_NOT_FOUND" | "OBJECT_NOT_FOUND"
-    | "INVALID_FILE" | "INVALID_ARGUMENT" | "IO";
+    | "INVALID_FILE" | "NOT_SUPPORTED" | "INVALID_ARGUMENT" | "IO";
 
 /** The error that the methods of `Database` throw. */
 export interface JetdbError extends Error {

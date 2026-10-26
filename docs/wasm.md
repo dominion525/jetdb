@@ -165,6 +165,7 @@ A method that fails throws an `Error` whose `name` is `JetdbError` and whose `co
 | `UNSUPPORTED_ENCRYPTION` | The file is encrypted in a way jetdb cannot read |
 | `TABLE_NOT_FOUND`, `QUERY_NOT_FOUND`, `MODULE_NOT_FOUND`, `FORM_NOT_FOUND`, `MACRO_NOT_FOUND`, `OBJECT_NOT_FOUND` | No object of that name |
 | `INVALID_FILE` | Not an Access database, or a broken one; the message says what is wrong |
+| `NOT_SUPPORTED` | The database holds what jetdb does not read, such as the forms and reports of Access 97 |
 | `INVALID_ARGUMENT` | A method was called with an argument or option that is not valid, such as a value of the wrong type or one outside its list, or with a name that objects of different types share and no `type` option to choose one |
 | `IO` | Reading the bytes failed |
 
@@ -182,4 +183,4 @@ try {
 
 - Read-only: jetdb does not write to Access files.
 - The whole file is held in memory.
-- In an Access 97 (Jet3) file, jetdb does not read the forms, reports and VBA: `forms()` and `modules()` give none.
+- In an Access 97 (Jet3) file, jetdb does not read the forms, reports and VBA: `forms()` and `modules()` give none, and reading a form or report by its name throws `NOT_SUPPORTED`.
