@@ -154,34 +154,10 @@ impl StreamArg {
 
 pub fn cmd_form(args: FormArgs, password: Option<&str>) -> ExitCode {
     match args.command {
-        FormCommands::List(a) => match run_list(&a, password) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(e) => {
-                log::error!("{e}");
-                ExitCode::FAILURE
-            }
-        },
-        FormCommands::Dump(a) => match run_dump(&a, password) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(e) => {
-                log::error!("{e}");
-                ExitCode::FAILURE
-            }
-        },
-        FormCommands::Controls(a) => match run_controls(&a, password) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(e) => {
-                log::error!("{e}");
-                ExitCode::FAILURE
-            }
-        },
-        FormCommands::Props(a) => match run_props(&a, password) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(e) => {
-                log::error!("{e}");
-                ExitCode::FAILURE
-            }
-        },
+        FormCommands::List(a) => crate::exit_code(run_list(&a, password)),
+        FormCommands::Dump(a) => crate::exit_code(run_dump(&a, password)),
+        FormCommands::Controls(a) => crate::exit_code(run_controls(&a, password)),
+        FormCommands::Props(a) => crate::exit_code(run_props(&a, password)),
     }
 }
 
@@ -208,19 +184,7 @@ fn run_list(args: &FormListArgs, password: Option<&str>) -> Result<(), jetdb::Fi
         .collect();
     names.sort_unstable();
 
-    if names.is_empty() {
-        return Ok(());
-    }
-
-    if args.newline {
-        for name in &names {
-            println!("{name}");
-        }
-    } else if let Some(delim) = &args.delimiter {
-        println!("{}", names.join(delim));
-    } else {
-        println!("{}", names.join(" "));
-    }
+    crate::print_names(&names, args.newline, args.delimiter.as_deref());
 
     Ok(())
 }

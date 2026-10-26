@@ -51,20 +51,8 @@ pub struct VbaShowArgs {
 
 pub fn cmd_vba(args: VbaArgs, password: Option<&str>) -> ExitCode {
     match args.command {
-        VbaCommands::List(a) => match run_list(&a, password) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(e) => {
-                log::error!("{e}");
-                ExitCode::FAILURE
-            }
-        },
-        VbaCommands::Show(a) => match run_show(&a, password) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(e) => {
-                log::error!("{e}");
-                ExitCode::FAILURE
-            }
-        },
+        VbaCommands::List(a) => crate::exit_code(run_list(&a, password)),
+        VbaCommands::Show(a) => crate::exit_code(run_show(&a, password)),
     }
 }
 
@@ -75,18 +63,7 @@ fn run_list(args: &VbaListArgs, password: Option<&str>) -> Result<(), jetdb::Fil
     let mut names: Vec<&str> = project.modules.iter().map(|m| m.name.as_str()).collect();
     names.sort_unstable();
 
-    if names.is_empty() {
-        return Ok(());
-    }
-    if args.newline {
-        for name in &names {
-            println!("{name}");
-        }
-    } else if let Some(ref delim) = args.delimiter {
-        println!("{}", names.join(delim));
-    } else {
-        println!("{}", names.join(" "));
-    }
+    crate::print_names(&names, args.newline, args.delimiter.as_deref());
 
     Ok(())
 }

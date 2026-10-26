@@ -108,18 +108,40 @@ struct SchemaArgs {
     no_relations: bool,
 }
 
-// ---------------------------------------------------------------------------
-// ver subcommand
-// ---------------------------------------------------------------------------
-
-fn cmd_ver(args: VerArgs, password: Option<&str>) -> ExitCode {
-    match run_ver(&args, password) {
+/// The exit code of a subcommand that gave `result`, after writing its error.
+pub(crate) fn exit_code<E: std::fmt::Display>(result: Result<(), E>) -> ExitCode {
+    match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             log::error!("{e}");
             ExitCode::FAILURE
         }
     }
+}
+
+/// Print `names` as the list subcommands do: one a line with `newline`, or
+/// else on one line joined by `delimiter`, or by a space; nothing when there
+/// are none.
+pub(crate) fn print_names(names: &[impl AsRef<str>], newline: bool, delimiter: Option<&str>) {
+    if names.is_empty() {
+        return;
+    }
+    if newline {
+        for name in names {
+            println!("{}", name.as_ref());
+        }
+    } else {
+        let names: Vec<&str> = names.iter().map(AsRef::as_ref).collect();
+        println!("{}", names.join(delimiter.unwrap_or(" ")));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ver subcommand
+// ---------------------------------------------------------------------------
+
+fn cmd_ver(args: VerArgs, password: Option<&str>) -> ExitCode {
+    crate::exit_code(run_ver(&args, password))
 }
 
 fn run_ver(args: &VerArgs, password: Option<&str>) -> Result<(), jetdb::FileError> {
@@ -139,13 +161,7 @@ fn run_ver(args: &VerArgs, password: Option<&str>) -> Result<(), jetdb::FileErro
 // ---------------------------------------------------------------------------
 
 fn cmd_tables(args: TablesArgs, password: Option<&str>) -> ExitCode {
-    match run_tables(&args, password) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
-            log::error!("{e}");
-            ExitCode::FAILURE
-        }
-    }
+    crate::exit_code(run_tables(&args, password))
 }
 
 fn run_tables(args: &TablesArgs, password: Option<&str>) -> Result<(), jetdb::FileError> {
@@ -211,13 +227,7 @@ fn object_type_name(t: ObjectType) -> &'static str {
 // ---------------------------------------------------------------------------
 
 fn cmd_schema(args: SchemaArgs, password: Option<&str>) -> ExitCode {
-    match run_schema(&args, password) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
-            log::error!("{e}");
-            ExitCode::FAILURE
-        }
-    }
+    crate::exit_code(run_schema(&args, password))
 }
 
 fn run_schema(args: &SchemaArgs, password: Option<&str>) -> Result<(), jetdb::FileError> {

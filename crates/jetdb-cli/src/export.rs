@@ -87,13 +87,7 @@ impl From<BinMode> for BinaryFormat {
 // ---------------------------------------------------------------------------
 
 pub fn cmd_export(args: ExportArgs, password: Option<&str>) -> ExitCode {
-    match run_export(&args, password) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
-            log::error!("{e}");
-            ExitCode::FAILURE
-        }
-    }
+    crate::exit_code(run_export(&args, password))
 }
 
 /// The options of `write_csv` that the arguments give.

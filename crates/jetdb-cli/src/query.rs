@@ -51,20 +51,8 @@ pub struct QueryShowArgs {
 
 pub fn cmd_queries(args: QueryArgs, password: Option<&str>) -> ExitCode {
     match args.command {
-        QueryCommands::List(a) => match run_list(&a, password) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(e) => {
-                log::error!("{e}");
-                ExitCode::FAILURE
-            }
-        },
-        QueryCommands::Show(a) => match run_show(&a, password) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(e) => {
-                log::error!("{e}");
-                ExitCode::FAILURE
-            }
-        },
+        QueryCommands::List(a) => crate::exit_code(run_list(&a, password)),
+        QueryCommands::Show(a) => crate::exit_code(run_show(&a, password)),
     }
 }
 
@@ -74,18 +62,7 @@ fn run_list(args: &QueryListArgs, password: Option<&str>) -> Result<(), jetdb::F
 
     let mut names: Vec<&str> = queries.iter().map(|q| q.name.as_str()).collect();
     names.sort_unstable();
-    if names.is_empty() {
-        return Ok(());
-    }
-    if args.newline {
-        for name in &names {
-            println!("{name}");
-        }
-    } else if let Some(ref delim) = args.delimiter {
-        println!("{}", names.join(delim));
-    } else {
-        println!("{}", names.join(" "));
-    }
+    crate::print_names(&names, args.newline, args.delimiter.as_deref());
 
     Ok(())
 }

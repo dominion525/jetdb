@@ -99,13 +99,7 @@ pub fn cmd_macro(args: MacroArgs, password: Option<&str>) -> ExitCode {
         MacroCommands::Embedded(a) => run_embedded(&a, password),
         MacroCommands::Data(a) => run_data(&a, password).map_err(|e| e.to_string()),
     };
-    match result {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
-            log::error!("{e}");
-            ExitCode::FAILURE
-        }
-    }
+    crate::exit_code(result)
 }
 
 fn run_list(args: &MacroListArgs, password: Option<&str>) -> Result<(), jetdb::FileError> {
@@ -116,18 +110,7 @@ fn run_list(args: &MacroListArgs, password: Option<&str>) -> Result<(), jetdb::F
         .collect();
     names.sort_unstable();
 
-    if names.is_empty() {
-        return Ok(());
-    }
-    if args.newline {
-        for name in &names {
-            println!("{name}");
-        }
-    } else if let Some(ref delim) = args.delimiter {
-        println!("{}", names.join(delim));
-    } else {
-        println!("{}", names.join(" "));
-    }
+    crate::print_names(&names, args.newline, args.delimiter.as_deref());
 
     Ok(())
 }

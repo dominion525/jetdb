@@ -31,13 +31,7 @@ pub struct PropArgs {
 // ---------------------------------------------------------------------------
 
 pub fn cmd_prop(args: PropArgs, password: Option<&str>) -> ExitCode {
-    match run_prop(&args, password) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
-            log::error!("{e}");
-            ExitCode::FAILURE
-        }
-    }
+    crate::exit_code(run_prop(&args, password))
 }
 
 fn run_prop(args: &PropArgs, password: Option<&str>) -> Result<(), String> {
