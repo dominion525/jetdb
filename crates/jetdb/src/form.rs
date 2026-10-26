@@ -112,7 +112,11 @@ pub struct BlobProperty {
 pub struct ControlProperties {
     /// Control name (from Name property 0x14 in Blob).
     pub name: String,
-    /// Control type code (from TypeInfo).
+    /// Control type code: that of the control of the same name in TypeInfo,
+    /// or else the type in the Blob. In the Access 2000 format, the type in
+    /// the Blob, but for the header and footer of the form or report, which
+    /// are given the type codes of TypeInfo (0x1899 and 0x189A of a form,
+    /// 0x1999 and 0x199A of a report).
     pub type_code: u16,
     /// Properties for this control.
     pub properties: Vec<BlobProperty>,
