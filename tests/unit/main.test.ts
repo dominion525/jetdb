@@ -176,8 +176,12 @@ w</pre></details></li>
   </ul>`;
 
 describe("読めるもののカードの高さ", () => {
-  const heights = () =>
-    ["#c1", "#c2", "#c3", "#c4"].map((id) => $(id).offsetHeight);
+  const heights = (): [number, number, number, number] => [
+    $("#c1").offsetHeight,
+    $("#c2").offsetHeight,
+    $("#c3").offsetHeight,
+    $("#c4").offsetHeight,
+  ];
 
   it("同じ行のカードは閉じた高さをそろえ、次の行には合わせない", async () => {
     await loadMain(CARDS_HTML);
