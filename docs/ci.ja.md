@@ -26,7 +26,7 @@ cargo test -p jetdb-cli      # CLI のみ
 Rust の静的解析ツール。警告をエラーとして扱い、コードの品質を保つ。
 
 ```bash
-cargo clippy -- -D warnings
+cargo clippy --all-targets -- -D warnings
 ```
 
 インストール（rustup に含まれていない場合）:
@@ -62,7 +62,7 @@ rustup target add wasm32-unknown-unknown wasm32-wasip1
 cargo install wasm-bindgen-cli --version <version> --locked
 ```
 
-`wasm-bindgen-test-runner` と `wasm-bindgen`（どちらも `wasm-bindgen-cli` に含まれる）は、`Cargo.lock` の `wasm-bindgen` と同じ版である必要がある。版が違うと `scripts/build-wasm-package.sh` は止まる。版は次で確認できる:
+`wasm-bindgen-test-runner` と `wasm-bindgen`（どちらも `wasm-bindgen-cli` に含まれる）は、`Cargo.lock` の `wasm-bindgen` と同じ版である必要がある。`wasm-bindgen` の版が違うと `scripts/build-wasm-package.sh` は止まる。版は次で確認できる:
 
 ```bash
 cargo metadata --format-version 1 --filter-platform wasm32-unknown-unknown | jq -r '.packages[] | select(.name == "wasm-bindgen") | .version'
@@ -107,10 +107,10 @@ RUSTDOCFLAGS="-D warnings" cargo doc --workspace
 ソースコードの循環的複雑度・認知的複雑度などのメトリクスを計測する。
 
 ```bash
-rust-code-analysis-cli -m -p crates/ -O json
+rust-code-analysis-cli -m -p crates/ -X '**/node_modules/**' 'crates/jetdb-wasm/pkg/**' -O json
 ```
 
-JSON 出力は `complexity-filter` クレート（`crates/complexity-filter/`）を通して、閾値（CC>=10、Cognitive>=10、SLOC>=50）を超える関数のみを表示する。`quality-check.sh` スクリプトが自動的にこの処理を行う。
+JSON 出力は `complexity-filter` クレート（`crates/complexity-filter/`）を通して、閾値（CC>=10、Cognitive>=10、SLOC>=50）を超える関数のみを表示する。`quality-check.sh` スクリプトが自動的にこの処理を行う。`-X` のパターンで、第三者のコードと生成されたコード、つまりブラウザ用テストのために入れた npm パッケージ（`node_modules`）と wasm-bindgen が生成した `jetdb-wasm` パッケージ（`crates/jetdb-wasm/pkg/`）を対象から外す。
 
 インストール:
 
@@ -169,7 +169,7 @@ scripts/quality-check.sh
 品質チェックスクリプトは以下の順序でチェックを実行する:
 
 1. `cargo test` — まず既存テストが通ることを確認
-2. `cargo clippy -- -D warnings` — コード品質のチェック
+2. `cargo clippy --all-targets -- -D warnings` — コード品質のチェック
 3. Wasm — WASI でライブラリのテストを、Node.js 上でブラウザ用テストを実行し、npm パッケージをビルドしてテスト
 4. `cargo audit` — セキュリティ上の問題がないか確認
 5. `cargo doc --workspace` — ドキュメントが警告なしで正しく生成されるか確認
