@@ -2,7 +2,7 @@
 
 [English](wasm.md)
 
-jetdb-wasm は、jetdb を WebAssembly にしたもので、Microsoft Access のデータベース（.mdb / .accdb）をブラウザと Node.js で読みます。この文書では、その `Database` クラスを説明します。パッケージには TypeScript の型定義が入っていて、メソッドが返すオブジェクトの各フィールドは、型定義の説明文に書かれています。
+jetdb-wasm は、jetdb を WebAssembly にしたもので、Microsoft Access のデータベース（.mdb / .accdb）をブラウザと Node.js で読みます。この文書では、その `Database` クラスを説明します。パッケージには TypeScript の型定義が入っていて、メソッドが返すオブジェクトの各フィールドは、型定義の説明文に書かれています。型定義には TypeScript 5.2 以降が必要です。
 
 ## モジュールの読み込み
 
@@ -16,7 +16,7 @@ import init, { Database } from "jetdb-wasm";
 await init();
 ```
 
-CommonJS のビルドでは、読み込んだときに Wasm のファイルが読まれるので、`Database` はそのまま使えます。Node.js と、サーバーサイドレンダリング（SSR）のようにバンドラーがサーバー向けにビルドするものが、このビルドを使います。このビルドには、呼ぶための既定のエクスポートがありません。
+CommonJS のビルドでは、読み込んだときに Wasm のファイルが読まれるので、`Database` はそのまま使えます。Node.js と、サーバーサイドレンダリング（SSR）のようにバンドラーがサーバー向けにビルドするものが、このビルドを使います。このビルドでは既定のエクスポートを呼ぶ必要はありません。既定のエクスポートと `initSync` はあって、何もしないので、ブラウザと共有するコードのように、これらを呼ぶコードもそのまま動きます。
 
 ```js
 import { Database } from "jetdb-wasm";

@@ -11,7 +11,7 @@ import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { runInNewContext } from "node:vm";
 
-import { Database as NodeDatabase } from "jetdb-wasm";
+import init, { Database as NodeDatabase, initSync } from "jetdb-wasm";
 
 const testdata = process.argv[2];
 const read = (file) => readFileSync(join(testdata, file));
@@ -576,6 +576,14 @@ function checkPassword(Database, build) {
   assert.deepEqual(Database.open(encrypted, "Test123").tables(), ["Table1"], build);
 }
 
+// The Node.js build is ready when it is imported, and its init and initSync,
+// which initialize the web build, do nothing. A require gives the same build.
+assert.equal(await init(), undefined);
+assert.equal(initSync(), undefined);
+const required = createRequire(import.meta.url)("jetdb-wasm");
+assert.equal(required.Database, NodeDatabase);
+assert.equal(await required.default(), undefined);
+assert.equal(required.initSync(), undefined);
 check(NodeDatabase, "node");
 
 const packageDir = dirname(dirname(createRequire(import.meta.url).resolve("jetdb-wasm")));
