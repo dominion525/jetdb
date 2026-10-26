@@ -43,4 +43,5 @@ node scripts/serve.ts 8080   # http://localhost:8080/ でサイトを配る（�
 
 - `src/` を書き換えたら `npm run build` を実行し、作った `assets/` の JavaScript も同じコミットに入れる。ページは作ったものを読むので、作り忘れるとページに出ない
 - `assets/main.js` と `assets/demo/` は直接書き換えない
+- ページの HTML を書き換えたら、`sitemap.xml` のそのページの `lastmod` をその日に変える
 - Biome が検査・整形するのは `src/`・`tests/`・`scripts/` と、直下の設定のファイルだけ。HTML・CSS・Markdown は対象にしない
