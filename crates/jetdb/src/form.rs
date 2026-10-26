@@ -106,6 +106,11 @@ pub struct BlobProperty {
     pub value: BlobValue,
 }
 
+/// Added to the ID of the Access 2000 format for a property jetdb gives no ID
+/// of Access 2002 and later, so that the IDs stay apart: in a form or report
+/// of that format, the `prop_id` `0x80DD` is the ID `0xDD`.
+pub const UNMAPPED: u16 = 0x8000;
+
 /// Properties for a single control, extracted from the Blob.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
