@@ -168,3 +168,21 @@ for (const [path, lines] of [
     expect(await headingLines(page)).toEqual([...lines]);
   });
 }
+
+for (const [path, demo, label] of [
+  ["/", "/demo/", "Demo"],
+  ["/compare/", "/demo/", "Demo"],
+  ["/demo/", "/demo/", "Demo"],
+  ["/ja/", "/ja/demo/", "デモ"],
+  ["/ja/compare/", "/ja/demo/", "デモ"],
+  ["/ja/demo/", "/ja/demo/", "デモ"],
+] as const) {
+  test(`${path}: ヘッダーのナビからデモへ行ける`, async ({ page }) => {
+    await page.goto(path);
+    const link = page.locator(".header-nav").getByRole("link", { name: label });
+    await expect(link).toHaveAttribute("href", demo);
+    await link.click();
+    await expect(page).toHaveURL(new RegExp(`${demo}(#.*)?$`));
+    await expect(page.locator("#demo-file")).toBeAttached();
+  });
+}
