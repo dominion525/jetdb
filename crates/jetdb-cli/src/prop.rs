@@ -78,7 +78,15 @@ fn print_properties(props: &ObjectProperties, object_type: Option<ObjectType>) {
 
     println!("Object: {}", props.object_name);
 
-    for map in props.maps.iter().filter(|m| !m.properties.is_empty()) {
+    // The object's own properties first, then the others in the order they
+    // are stored: the maps of the columns can come before or after them.
+    let mut maps: Vec<&PropertyMap> = props
+        .maps
+        .iter()
+        .filter(|m| !m.properties.is_empty())
+        .collect();
+    maps.sort_by_key(|m| m.map_type != PropMapType::Default);
+    for map in maps {
         println!();
         println!("  {}", map_heading(map, object_type));
         print_map(map);

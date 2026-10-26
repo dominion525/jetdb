@@ -7,6 +7,32 @@ use common::jetdb_bin;
 // ---------------------------------------------------------------------------
 
 #[test]
+fn prop_puts_the_properties_of_the_object_before_those_of_its_columns() {
+    // tblProducts stores the map of its column ProductName before its own.
+    let path = skip_if_missing!("jetdb-sample.accdb");
+    let output = jetdb_bin()
+        .args(["prop", path.to_str().unwrap(), "tblProducts"])
+        .output()
+        .expect("failed to run jetdb");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let headings: Vec<&str> = stdout
+        .lines()
+        .filter(|l| l.starts_with("  ") && !l.starts_with("    "))
+        .collect();
+    assert_eq!(
+        headings,
+        [
+            "  Table Properties:",
+            "  Column: ProductName",
+            "  Column: UnitPrice",
+            "  Column: Discontinued",
+        ],
+        "got:\n{stdout}"
+    );
+}
+
+#[test]
 fn prop_table1() {
     let path = skip_if_missing!("V2003/testV2003.mdb");
     let output = jetdb_bin()
