@@ -79,10 +79,14 @@ pub use vba::{read_vba_project, read_vba_project_in, VbaModule, VbaModuleType, V
 mod tests {
     #[test]
     fn docs_lib_md_is_the_crate_documentation() {
-        // docs/lib.md, read on GitHub, is a copy of lib_doc.md.
-        assert_eq!(
-            include_str!("../../../docs/lib.md"),
-            include_str!("lib_doc.md")
-        );
+        // docs/lib.md, read on GitHub, is a copy of lib_doc.md. It is outside
+        // the crate, so the published package has no docs/lib.md, and the
+        // test is skipped there.
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../docs/lib.md");
+        let Ok(docs_lib_md) = std::fs::read_to_string(&path) else {
+            eprintln!("SKIP: docs/lib.md not found: {}", path.display());
+            return;
+        };
+        assert_eq!(docs_lib_md, include_str!("lib_doc.md"));
     }
 }
