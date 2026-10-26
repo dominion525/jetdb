@@ -29,7 +29,21 @@ if [ "$cli_version" != "$bindgen_version" ]; then
     exit 1
 fi
 
-cargo build --release --target wasm32-unknown-unknown -p jetdb-wasm \
+# Panic messages hold the paths of the sources they come from. Those of the
+# dependencies and of the standard library are under the home directory of
+# the machine that builds, so they are remapped: the cargo home to /cargo, and
+# the sources of the standard library to /rustc/<commit>, where the standard
+# library of a release has them. The flags are passed one per field, so a path
+# may hold spaces.
+cargo_home="${CARGO_HOME:-$HOME/.cargo}"
+sysroot="$(rustc --print sysroot)"
+commit="$(rustc -vV | awk '/^commit-hash:/ {print $2}')"
+remap_registry="--remap-path-prefix=$cargo_home=/cargo"
+remap_std="--remap-path-prefix=$sysroot/lib/rustlib/src/rust=/rustc/$commit"
+sep=$'\x1f'
+
+CARGO_ENCODED_RUSTFLAGS="$remap_registry$sep$remap_std" \
+    cargo build --release --target wasm32-unknown-unknown -p jetdb-wasm \
     --manifest-path "$PROJECT_DIR/Cargo.toml"
 wasm="$target_dir/wasm32-unknown-unknown/release/jetdb_wasm.wasm"
 
