@@ -1058,6 +1058,11 @@ pre {
   margin: 16px 0;
 }
 
+/* 狭い幅ではタブの代わりに出す選択の欄（下の @media） */
+.viewer-tabs-select {
+  display: none;
+}
+
 /* 表: 横に長いときは表の中で横に送る */
 .viewer-table-wrap {
   overflow-x: auto;
@@ -1279,11 +1284,16 @@ pre {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  /* 狭い幅では、一覧のまとまりの代わりに選択の欄を出す */
-  .viewer-nav-select {
+  /* 狭い幅では、一覧のまとまりの代わりに選択の欄を出す。ビューアのタブも同じく選択の欄にする */
+  .viewer-nav-select,
+  .viewer-tabs-select {
     display: block;
     width: 100%;
     min-height: 44px;
+  }
+
+  .viewer-tabs .tabs {
+    display: none;
   }
 
   .viewer-nav > div > .viewer-item,

@@ -372,3 +372,31 @@ test("選んだら読み上げには見出しだけを伝え、右の中身は�
   await page.keyboard.press("Home");
   await expect(tabs.first()).toHaveAttribute("aria-selected", "true");
 });
+
+test("375px: ビューアのタブの代わりに選択の欄を出し、選ぶと中身が切り替わる", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 800 });
+  await openDemo(page, "/ja/demo/#table/tblOrders");
+  const picker = detail(page).locator(".viewer-tabs-select");
+  await expect(picker).toBeVisible();
+  await expect(detail(page).getByRole("tablist")).toBeHidden();
+  await expect(picker.locator("option")).toHaveText([
+    "データ",
+    "CSV",
+    "列",
+    "索引",
+    "プロパティ",
+    "データマクロ",
+    "DDL",
+  ]);
+  await picker.selectOption({ label: "列" });
+  await expect(detail(page).locator("tbody tr").first()).toContainText(
+    "オートナンバー",
+  );
+  // 隠れているタブも、選んだものと同じ方に印が付く
+  await expect(detail(page).locator('[role="tab"]').nth(2)).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+});

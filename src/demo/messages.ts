@@ -42,6 +42,7 @@ const en = {
   stopped: (msg: string) =>
     `jetdb stopped partway through this file. Open another file or reload the page (${msg}).`,
   objectToShow: "Object to show",
+  tabToShow: "Tab to show",
   none: "None.",
   noneValue: "none",
   binary: (size: string) => `binary, ${size}`,
@@ -170,6 +171,7 @@ const ja: Messages = {
   stopped: (msg) =>
     `jetdb がこのファイルの途中で止まりました。別のファイルを開くか、ページを読み込み直してください（${msg}）。`,
   objectToShow: "表示するオブジェクト",
+  tabToShow: "表示するタブ",
   none: "ありません。",
   noneValue: "なし",
   binary: (size) => `バイナリ、${size}`,

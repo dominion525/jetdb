@@ -212,10 +212,17 @@ const TAB_KEYS = new Map<string, (i: number, n: number) => number>([
 let tabSets = 0;
 
 // 作りは紹介ページのタブ（src/main.ts）と同じ: タブと中身を id で結び付け、
-// Tab キーでは選んでいるタブにだけ止まり、矢印・Home・End で移る
+// Tab キーでは選んでいるタブにだけ止まり、矢印・Home・End で移る。
+// 狭い幅ではタブの代わりに選択の欄を出す（左の一覧と同じ作り。どちらを出すかは CSS で切り替える）
 export function tabs(t: Messages, items: Tab[]): [HTMLElement, HTMLElement] {
   const set = ++tabSets;
   const panelId = `viewer-panel-${set}`;
+  const picker = el(
+    "select",
+    { class: "viewer-select viewer-tabs-select", "aria-label": t.tabToShow },
+    items.map(([label], i) => el("option", { value: String(i) }, label)),
+  );
+  picker.addEventListener("change", () => select(Number(picker.value)));
   const panel = el("div", {
     class: "viewer-panel",
     role: "tabpanel",
@@ -242,6 +249,7 @@ export function tabs(t: Messages, items: Tab[]): [HTMLElement, HTMLElement] {
       b.setAttribute("aria-selected", String(i === j));
       b.tabIndex = i === j ? 0 : -1;
     });
+    picker.value = String(i);
     panel.setAttribute("aria-labelledby", buttons[i]?.id ?? "");
     let content: Node;
     try {
@@ -253,12 +261,9 @@ export function tabs(t: Messages, items: Tab[]): [HTMLElement, HTMLElement] {
     }
     panel.replaceChildren(content);
   }
-  const bar = el(
-    "div",
-    { class: "tabs viewer-tabs", role: "tablist" },
-    buttons,
-  );
-  bar.addEventListener("keydown", (event) => {
+  const tablist = el("div", { class: "tabs", role: "tablist" }, buttons);
+  const bar = el("div", { class: "viewer-tabs" }, picker, tablist);
+  tablist.addEventListener("keydown", (event) => {
     const i = buttons.indexOf(document.activeElement as HTMLButtonElement);
     const move = TAB_KEYS.get(event.key);
     if (i < 0 || !move) return;

@@ -315,7 +315,7 @@ describe("タブ", () => {
 
   it("最初のタブを選び、その中身だけを作る", () => {
     const { bar, panel, selected, rendered } = setUp();
-    expect(bar.getAttribute("role")).toBe("tablist");
+    expect(bar.querySelector('[role="tablist"]')).not.toBeNull();
     expect(panel.getAttribute("role")).toBe("tabpanel");
     expect(selected()).toEqual([true, false, false]);
     expect(panel.textContent).toBe("one");
@@ -374,6 +374,26 @@ describe("タブ", () => {
     press("Home");
     expect(selected()).toEqual([true, false, false]);
     expect(document.activeElement).toBe(buttons[0]);
+  });
+
+  it("選択の欄でも切り替わり、タブと同じものを指す", () => {
+    const { bar, panel, buttons, selected } = setUp();
+    const picker = bar.querySelector<HTMLSelectElement>("select");
+    expect(picker?.getAttribute("aria-label")).toBe("Tab to show");
+    expect([...(picker?.options ?? [])].map((o) => o.textContent)).toEqual([
+      "One",
+      "Two",
+      "Three",
+    ]);
+    expect(picker?.value).toBe("0");
+    if (picker) {
+      picker.value = "2";
+      picker.dispatchEvent(new Event("change"));
+    }
+    expect(selected()).toEqual([false, false, true]);
+    expect(panel.textContent).toBe("three");
+    buttons[1]?.click();
+    expect(picker?.value).toBe("1");
   });
 
   it("中身を作れなかったら、その場に読めなかった一文を出す", () => {
