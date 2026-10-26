@@ -58,11 +58,13 @@ First 4 bytes: Padding (0x00)
 Repeated:
   0x04                  Marker byte
   <1 byte>              Payload length (in bytes)
-  <UTF-16LE string>     Form display name + storage number
+  <UTF-16LE string>     Form display name
+  <u16 LE>              Storage number
+  0x0000                Terminator
 Trailing 4 bytes: 0x00
 ```
 
-The storage number is stored as the last 2 bytes of the payload (a single UTF-16LE character).
+The storage number is the u16 (Little-Endian) before the closing 0x0000. jetdb turns it into a decimal string, such as `"5"`, and takes that as the name of the storage of the form.
 
 Examples:
 - Storage "0" → F_クライアント情報
@@ -93,7 +95,7 @@ Each entry:
     With parentheses → actual control name
 ```
 
-The names are in the code page of the Access that saved the form, which the file does not keep. jetdb reads them in the code page, of that in the header of the database and then those of Windows (874, 932, 936, 949, 950 and 1250 to 1258), in which the most names that are not ASCII are among the names of the controls in the Blob, which are UTF-16, regardless of case; in that of the header when none is. The Russian names of `Strings.mdb` are in 1251, while its header has 1252.
+The names are in the code page of the Access that saved the form, which the file does not keep. jetdb reads them in the code page, of that in the header of the database and then those of Windows (874, 932, 936, 949, 950 and 1250 to 1258), in which the most names that are not ASCII are among the names of the controls in the Blob, which are UTF-16, regardless of case; in the one tried first, that of the header being first, when more than one have as many; in that of the header when none is. The Russian names of `Strings.mdb` are in 1251, while its header has 1252.
 
 Example controls included:
 - Buttons: `Btn_クライアント一覧`
@@ -156,7 +158,7 @@ Note: Counts are aggregated from all controls across 81 forms/reports in a datab
 The main binary body of the form design. Contains structural information including ControlSource, event procedures, RecordSource, etc.
 
 - Size: 918B (simple) to 52KB+ (complex forms)
-- Leading bytes: `15 00 14 00 00 00 00 00` (common header across all forms)
+- Leading bytes: `14 00 14 00 00 00 00 00` or `15 00 14 00 00 00 00 00`, the first byte being the `Version` of its SaveAsText output (`Version =20` or `Version =21`)
 - No public specification for the binary format. The following is based on reverse engineering analysis.
 
 ### Blob Overall Layout
@@ -165,7 +167,7 @@ The Blob keeps the design as a tree, as the Blob of the Access 2000 format does 
 
 ```
 Blob     8 bytes of header + 6 bytes + the group of the form or report itself + nodes
-Header   version(u16) = 0x0015, flags(u16) = 0x0014, reserved(u32) = 0
+Header   version(u16) = 0x0014 or 0x0015, flags(u16) = 0x0014, reserved(u32) = 0
 Group    property entries, through the one whose trailer is 253, 254 or 255
 Nodes    none after a trailer of 253, one after 254, and a count (u16) and that many after 255
 Node     type (u16) + 4 bytes + a group + the nodes in it
