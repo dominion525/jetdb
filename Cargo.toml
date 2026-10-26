@@ -2,3 +2,13 @@
 members = ["crates/jetdb", "crates/jetdb-cli", "crates/jetdb-wasm"]
 exclude = ["crates/complexity-filter"]
 resolver = "2"
+
+# The profile of the jetdb-wasm npm package, built by
+# scripts/build-wasm-package.sh. Link-time optimization over a single codegen
+# unit makes the .wasm smaller. Cargo cannot set LTO for one package only, and
+# the release profile also builds the CLI binaries of a GitHub release, so the
+# package has a profile of its own.
+[profile.wasm-release]
+inherits = "release"
+lto = true
+codegen-units = 1

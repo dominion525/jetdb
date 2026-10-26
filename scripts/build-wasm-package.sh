@@ -43,9 +43,9 @@ remap_std="--remap-path-prefix=$sysroot/lib/rustlib/src/rust=/rustc/$commit"
 sep=$'\x1f'
 
 CARGO_ENCODED_RUSTFLAGS="$remap_registry$sep$remap_std" \
-    cargo build --release --target wasm32-unknown-unknown -p jetdb-wasm \
+    cargo build --profile wasm-release --target wasm32-unknown-unknown -p jetdb-wasm \
     --manifest-path "$PROJECT_DIR/Cargo.toml"
-wasm="$target_dir/wasm32-unknown-unknown/release/jetdb_wasm.wasm"
+wasm="$target_dir/wasm32-unknown-unknown/wasm-release/jetdb_wasm.wasm"
 
 rm -rf "$OUT_DIR"
 wasm-bindgen --target web --out-dir "$OUT_DIR/web" "$wasm"
