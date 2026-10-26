@@ -12,8 +12,8 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 
 use crate::{
-    error_code, form_type_name, number_position, position_number, Cell, Column, Database,
-    FormProperty, Index, Macro, ObjectProperties, PropertiesError, Property, PropertyGroup,
+    error_code, form_type_name, not_supported, number_position, position_number, Cell, Column,
+    Database, FormProperty, Index, Macro, ObjectProperties, Property, PropertyGroup, ReadError,
     Relationship,
 };
 
@@ -499,7 +499,9 @@ export interface Rows {
  * - `INVALID_FILE`: not an Access database, or a broken one; the message
  *   says what is wrong.
  * - `NOT_SUPPORTED`: the database holds what jetdb does not read, such as
- *   the forms and reports of Access 97.
+ *   the forms and reports of Access 97, or a kind of column type, value,
+ *   property, query, module or macro that this version of the package does
+ *   not know; the message says what it is.
  * - `INVALID_ARGUMENT`: a method was called with an argument or option that
  *   is not valid, such as a value of the wrong type or one outside its
  *   list, or with a name that objects of different types share and no
@@ -507,13 +509,15 @@ export interface Rows {
  * - `DATABASE_FREED`: a method was called after `free`, or after the end of
  *   the block of the `using` that opened the database.
  * - `IO`: reading the bytes failed.
+ * - `UNKNOWN_ERROR`: an error of a kind this version of the package does not
+ *   know; the message says what went wrong.
  */
 export type ErrorCode =
     | "PASSWORD_REQUIRED" | "INVALID_PASSWORD" | "UNSUPPORTED_ENCRYPTION"
     | "TABLE_NOT_FOUND" | "QUERY_NOT_FOUND" | "MODULE_NOT_FOUND"
     | "FORM_NOT_FOUND" | "MACRO_NOT_FOUND" | "OBJECT_NOT_FOUND"
     | "INVALID_FILE" | "NOT_SUPPORTED" | "INVALID_ARGUMENT"
-    | "DATABASE_FREED" | "IO";
+    | "DATABASE_FREED" | "IO" | "UNKNOWN_ERROR";
 
 /** The error that the methods of `Database` throw. */
 export interface JetdbError extends Error {
@@ -644,10 +648,11 @@ impl JsDatabase {
         &mut self,
         #[wasm_bindgen(unchecked_param_type = "string")] table: JsValue,
     ) -> Result<Array, JsValue> {
+        let table = string_arg(&table, "table")?;
         let columns = self
             .database()?
-            .columns(&string_arg(&table, "table")?)
-            .map_err(to_js_error)?;
+            .columns(&table)
+            .map_err(|e| read_error(e, &table))?;
         Ok(columns.iter().map(column_object).collect())
     }
 
@@ -689,7 +694,7 @@ impl JsDatabase {
         let queries = self
             .database()?
             .queries(include_system)
-            .map_err(to_js_error)?;
+            .map_err(|e| read_error(e, ""))?;
         Ok(queries
             .iter()
             .map(|q| name_and_type(&q.name, q.type_name))
@@ -712,7 +717,7 @@ impl JsDatabase {
     /// and none for an Access 97 file, whose VBA jetdb does not read.
     #[wasm_bindgen(unchecked_return_type = "Module[]")]
     pub fn modules(&mut self) -> Result<Array, JsValue> {
-        let modules = self.database()?.modules().map_err(to_js_error)?;
+        let modules = self.database()?.modules().map_err(|e| read_error(e, ""))?;
         Ok(modules
             .iter()
             .map(|m| name_and_type(&m.name, m.type_name))
@@ -756,7 +761,7 @@ impl JsDatabase {
         let controls = self
             .database()?
             .form_controls(&name, form_type)
-            .map_err(|e| properties_error(e, &name))?;
+            .map_err(|e| read_error(e, &name))?;
         Ok(controls
             .into_iter()
             .map(|c| {
@@ -786,7 +791,7 @@ impl JsDatabase {
         let bytes = self
             .database()?
             .form_stream(&name, kind, form_type)
-            .map_err(|e| properties_error(e, &name))?;
+            .map_err(|e| read_error(e, &name))?;
         Ok(Uint8Array::from(bytes.as_slice()))
     }
 
@@ -804,7 +809,7 @@ impl JsDatabase {
         let design = self
             .database()?
             .form_properties(&name, form_type)
-            .map_err(|e| properties_error(e, &name))?;
+            .map_err(|e| read_error(e, &name))?;
         let object = Object::new();
         set(&object, "name", design.name.into());
         set(&object, "type", design.type_name.into());
@@ -851,7 +856,7 @@ impl JsDatabase {
             .database()?
             .named_macro(&string_arg(&name, "name")?)
             .map_err(to_js_error)?;
-        Ok(macro_object(m))
+        macro_object(m)
     }
 
     /// The macros embedded in the events of a form or report. In an Access 97
@@ -867,8 +872,8 @@ impl JsDatabase {
         let macros = self
             .database()?
             .embedded_macros(&form, form_type)
-            .map_err(|e| properties_error(e, &form))?;
-        Ok(macros.into_iter().map(macro_object).collect())
+            .map_err(|e| read_error(e, &form))?;
+        macros.into_iter().map(macro_object).collect()
     }
 
     /// The data macros of a table.
@@ -881,7 +886,7 @@ impl JsDatabase {
             .database()?
             .data_macros(&string_arg(&table, "table")?)
             .map_err(to_js_error)?;
-        Ok(macros.into_iter().map(macro_object).collect())
+        macros.into_iter().map(macro_object).collect()
     }
 
     /// The SaveAsText text of all the data macros of a table, as
@@ -912,7 +917,7 @@ impl JsDatabase {
         let properties = self
             .database()?
             .properties(&name, object_type)
-            .map_err(|e| properties_error(e, &name))?;
+            .map_err(|e| read_error(e, &name))?;
         Ok(properties_object(properties))
     }
 
@@ -974,7 +979,7 @@ impl JsDatabase {
         let rows = self
             .database()?
             .rows_from(&table, start, limit)
-            .map_err(to_js_error)?;
+            .map_err(|e| read_error(e, &table))?;
         let names: Vec<JsValue> = rows.columns.iter().map(|c| JsValue::from_str(c)).collect();
         let objects: Array = rows
             .rows
@@ -1153,13 +1158,16 @@ fn form_type_option(options: Option<&JsValue>) -> Result<Option<FormObjectType>,
     }
 }
 
-fn properties_error(error: PropertiesError, name: &str) -> JsValue {
+/// The error of `error`, from reading the object `name`, or from reading no
+/// object by its name, which gives neither `NotFound` nor `SeveralTypes`.
+fn read_error(error: ReadError, name: &str) -> JsValue {
     match error {
-        PropertiesError::File(e) => to_js_error(e),
-        PropertiesError::NotFound => {
+        ReadError::File(e) => to_js_error(e),
+        ReadError::NotSupported(message) => jetdb_error("NOT_SUPPORTED", &message),
+        ReadError::NotFound => {
             jetdb_error("OBJECT_NOT_FOUND", &format!("object not found: {name}"))
         }
-        PropertiesError::SeveralTypes(types) => {
+        ReadError::SeveralTypes(types) => {
             let names: Vec<String> = types.iter().map(ToString::to_string).collect();
             jetdb_error(
                 "INVALID_ARGUMENT",
@@ -1172,20 +1180,25 @@ fn properties_error(error: PropertiesError, name: &str) -> JsValue {
     }
 }
 
-fn macro_object(m: Macro) -> Object {
+/// The error of `value`, a `what` of a kind this build does not know.
+fn not_supported_error(what: &str, value: &impl std::fmt::Debug) -> JsValue {
+    read_error(not_supported(what, value), "")
+}
+
+fn macro_object(m: Macro) -> Result<Object, JsValue> {
     let object = Object::new();
-    set(&object, "source", source_object(m.def.source).into());
+    set(&object, "source", source_object(m.def.source)?.into());
     set(
         &object,
         "statements",
-        statement_array(m.def.statements).into(),
+        statement_array(m.def.statements)?.into(),
     );
     set(&object, "xml", m.def.xml.into());
     set(&object, "text", optional_string(m.text));
-    object
+    Ok(object)
 }
 
-fn source_object(source: MacroSource) -> Object {
+fn source_object(source: MacroSource) -> Result<Object, JsValue> {
     let object = Object::new();
     match source {
         MacroSource::Named { name } => {
@@ -1225,9 +1238,9 @@ fn source_object(source: MacroSource) -> Object {
                 .collect();
             set(&object, "parameters", parameters.into());
         }
-        _ => set(&object, "kind", "unknown".into()),
+        unknown => return Err(not_supported_error("macro source", &unknown)),
     }
-    object
+    Ok(object)
 }
 
 /// The object type of the name the type option gives.
@@ -1257,24 +1270,24 @@ fn properties_object(properties: ObjectProperties) -> Object {
     object
 }
 
-fn statement_array(statements: Vec<MacroStatement>) -> Array {
+fn statement_array(statements: Vec<MacroStatement>) -> Result<Array, JsValue> {
     statements.into_iter().map(statement_object).collect()
 }
 
 /// The branches of an `If` statement, each with its condition and statements.
-fn branch_array(branches: Vec<MacroBranch>) -> Array {
+fn branch_array(branches: Vec<MacroBranch>) -> Result<Array, JsValue> {
     branches
         .into_iter()
         .map(|b| {
             let branch = Object::new();
             set(&branch, "condition", optional_string(b.condition));
-            set(&branch, "statements", statement_array(b.statements).into());
-            branch
+            set(&branch, "statements", statement_array(b.statements)?.into());
+            Ok(branch)
         })
         .collect()
 }
 
-fn statement_object(statement: MacroStatement) -> Object {
+fn statement_object(statement: MacroStatement) -> Result<Object, JsValue> {
     let object = Object::new();
     match statement {
         MacroStatement::Action { name, arguments } => {
@@ -1289,7 +1302,7 @@ fn statement_object(statement: MacroStatement) -> Object {
         }
         MacroStatement::Conditional { branches } => {
             set(&object, "kind", "if".into());
-            set(&object, "branches", branch_array(branches).into());
+            set(&object, "branches", branch_array(branches)?.into());
         }
         MacroStatement::Group {
             description,
@@ -1297,12 +1310,12 @@ fn statement_object(statement: MacroStatement) -> Object {
         } => {
             set(&object, "kind", "group".into());
             set(&object, "description", description.into());
-            set(&object, "statements", statement_array(statements).into());
+            set(&object, "statements", statement_array(statements)?.into());
         }
         MacroStatement::SubMacro { name, statements } => {
             set(&object, "kind", "submacro".into());
             set(&object, "name", name.into());
-            set(&object, "statements", statement_array(statements).into());
+            set(&object, "statements", statement_array(statements)?.into());
         }
         MacroStatement::DataBlock {
             kind,
@@ -1312,15 +1325,15 @@ fn statement_object(statement: MacroStatement) -> Object {
             set(&object, "kind", "dataBlock".into());
             set(&object, "type", kind.into());
             set(&object, "data", name_values(data).into());
-            set(&object, "statements", statement_array(statements).into());
+            set(&object, "statements", statement_array(statements)?.into());
         }
         MacroStatement::Unknown(element) => {
             set(&object, "kind", "unknown".into());
             set(&object, "element", element_object(element).into());
         }
-        _ => set(&object, "kind", "unknown".into()),
+        unknown => return Err(not_supported_error("macro statement", &unknown)),
     }
-    object
+    Ok(object)
 }
 
 fn element_object(element: MacroXmlElement) -> Object {

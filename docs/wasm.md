@@ -176,10 +176,11 @@ A method that fails throws an `Error` whose `name` is `JetdbError` and whose `co
 | `UNSUPPORTED_ENCRYPTION` | The file is encrypted in a way jetdb cannot read |
 | `TABLE_NOT_FOUND`, `QUERY_NOT_FOUND`, `MODULE_NOT_FOUND`, `FORM_NOT_FOUND`, `MACRO_NOT_FOUND`, `OBJECT_NOT_FOUND` | No object of that name |
 | `INVALID_FILE` | Not an Access database, or a broken one; the message says what is wrong |
-| `NOT_SUPPORTED` | The database holds what jetdb does not read, such as the forms and reports of Access 97 |
+| `NOT_SUPPORTED` | The database holds what jetdb does not read, such as the forms and reports of Access 97, or a kind of column type, value, property, query, module or macro that this version of the package does not know; the message says what it is |
 | `INVALID_ARGUMENT` | A method was called with an argument or option that is not valid, such as a value of the wrong type or one outside its list, or with a name that objects of different types share and no `type` option to choose one |
 | `DATABASE_FREED` | A method was called after `free()`, or after the end of the block of the `using` that opened the database |
 | `IO` | Reading the bytes failed |
+| `UNKNOWN_ERROR` | An error of a kind this version of the package does not know; the message says what went wrong |
 
 ```js
 try {

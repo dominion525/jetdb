@@ -176,10 +176,11 @@ do {
 | `UNSUPPORTED_ENCRYPTION` | jetdb が読めない方式で暗号化されている |
 | `TABLE_NOT_FOUND`、`QUERY_NOT_FOUND`、`MODULE_NOT_FOUND`、`FORM_NOT_FOUND`、`MACRO_NOT_FOUND`、`OBJECT_NOT_FOUND` | その名前のオブジェクトが無い |
 | `INVALID_FILE` | Access のデータベースでないか、壊れている。何が悪いかはメッセージにある |
-| `NOT_SUPPORTED` | Access 97 のフォームとレポートのように、jetdb が読まないものをデータベースが持っている |
+| `NOT_SUPPORTED` | Access 97 のフォームとレポートや、このバージョンのパッケージが知らない種類の列の型・値・プロパティ・クエリ・モジュール・マクロのように、jetdb が読まないものをデータベースが持っている。何であるかはメッセージにある |
 | `INVALID_ARGUMENT` | メソッドに正しくない引数やオプションが渡された（型が違う、決まった値のどれでもない、など）。または、種類の違うオブジェクトが同じ名前で、どれかを選ぶ `type` のオプションが無い |
 | `DATABASE_FREED` | `free()` の後、または開いた `using` のブロックの終わりの後に、メソッドが呼ばれた |
 | `IO` | バイト列の読み取りに失敗した |
+| `UNKNOWN_ERROR` | このバージョンのパッケージが知らない種類のエラー。何が悪いかはメッセージにある |
 
 ```js
 try {
