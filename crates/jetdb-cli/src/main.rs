@@ -52,7 +52,7 @@ enum Commands {
     Prop(prop::PropArgs),
     /// Manage VBA modules (list / show)
     Vba(vba::VbaArgs),
-    /// Manage forms and reports (list / dump / controls)
+    /// Manage forms and reports (list / dump / controls / props)
     Form(form::FormArgs),
     /// Manage macros (list / show / embedded / data)
     Macro(macro_cmd::MacroArgs),
