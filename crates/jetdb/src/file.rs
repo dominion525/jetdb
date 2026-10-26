@@ -16,6 +16,7 @@ use zeroize::Zeroizing;
 
 /// Errors that can occur when reading a Jet/ACE database file.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum FileError {
     Io(std::io::Error),
     Format(FormatError),
@@ -203,6 +204,7 @@ fn decrypt_page(buf: &mut [u8], db_key: u32, page: u32) {
 
 /// Parsed database header information from page 0.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct DbHeader {
     pub version: JetVersion,
     pub format: &'static JetFormat,

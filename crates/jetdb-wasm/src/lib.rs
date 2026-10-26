@@ -309,6 +309,7 @@ impl From<BlobValue> for Cell {
             BlobValue::Double(v) => Cell::Number(v),
             BlobValue::Guid(s) | BlobValue::Text(s) => Cell::String(s),
             BlobValue::Binary(bytes) => Cell::Bytes(bytes),
+            _ => Cell::Null,
         }
     }
 }
@@ -334,6 +335,7 @@ impl From<Value> for Cell {
             | Value::Guid(s)
             | Value::DateTimeExtended(s) => Cell::String(s),
             Value::Binary(bytes) => Cell::Bytes(bytes),
+            _ => Cell::Null,
         }
     }
 }
@@ -399,6 +401,7 @@ fn complex_cell(values: ComplexValues) -> Option<Cell> {
             })
             .collect(),
         ComplexValues::Unknown => return None,
+        _ => return None,
     };
     Some(Cell::List(cells))
 }
@@ -1089,6 +1092,7 @@ fn grouped_properties(read: jetdb::ObjectProperties) -> ObjectProperties {
                 name: map.name,
                 properties,
             }),
+            _ => {}
         }
     }
     out
@@ -1116,6 +1120,7 @@ fn query_type_name(query_type: QueryType) -> &'static str {
         QueryType::Ddl => "Ddl",
         QueryType::Passthrough => "Passthrough",
         QueryType::Union => "Union",
+        _ => "Unknown",
     }
 }
 
@@ -1133,6 +1138,7 @@ fn module_type_name(module_type: VbaModuleType) -> &'static str {
         VbaModuleType::Standard => "Standard",
         VbaModuleType::Class => "Class",
         VbaModuleType::Document => "Document",
+        _ => "Unknown",
     }
 }
 
@@ -1162,6 +1168,7 @@ pub fn error_code(error: &FileError) -> &'static str {
         | FileError::InvalidMacroData { .. }
         | FileError::IncompleteQuery { .. } => "INVALID_FILE",
         FileError::Io(_) => "IO",
+        _ => "INVALID_FILE",
     }
 }
 
@@ -2859,16 +2866,15 @@ mod tests {
     fn csv_as_jetdb_export_writes_it() {
         // Every table, system tables included, is the CSV the library writes
         // for jetdb export, with the default options and with others.
-        let other = CsvOptions {
-            header: false,
-            delimiter: ';',
-            date_format: "%d.%m.%Y".to_string(),
-            datetime_format: "%Y%m%d %H%M".to_string(),
-            binary: jetdb::BinaryFormat::Octal,
-            null: "NULL".to_string(),
-            boolean_words: true,
-            system_columns: true,
-        };
+        let mut other = CsvOptions::default();
+        other.header = false;
+        other.delimiter = ';';
+        other.date_format = "%d.%m.%Y".to_string();
+        other.datetime_format = "%Y%m%d %H%M".to_string();
+        other.binary = jetdb::BinaryFormat::Octal;
+        other.null = "NULL".to_string();
+        other.boolean_words = true;
+        other.system_columns = true;
         for file in [
             "V2003/testV2003.mdb",
             "V2007/complexDataTestV2007.accdb",

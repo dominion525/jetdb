@@ -1168,6 +1168,7 @@ fn source_object(source: MacroSource) -> Object {
                 .collect();
             set(&object, "parameters", parameters.into());
         }
+        _ => set(&object, "kind", "unknown".into()),
     }
     object
 }
@@ -1260,6 +1261,7 @@ fn statement_object(statement: MacroStatement) -> Object {
             set(&object, "kind", "unknown".into());
             set(&object, "element", element_object(element).into());
         }
+        _ => set(&object, "kind", "unknown".into()),
     }
     object
 }
@@ -1394,18 +1396,16 @@ fn option_stream_kind(options: Option<&JsValue>) -> Result<StreamKind, JsValue> 
 
 /// Reads the options of `csv` into those of `jetdb export`.
 fn csv_options(options: Option<&JsValue>) -> Result<jetdb::CsvOptions, JsValue> {
-    let defaults = jetdb::CsvOptions::default();
-    Ok(jetdb::CsvOptions {
-        header: option_bool(options, "header", defaults.header)?,
-        delimiter: option_delimiter(options)?.unwrap_or(defaults.delimiter),
-        date_format: option_string(options, "dateFormat")?.unwrap_or(defaults.date_format),
-        datetime_format: option_string(options, "datetimeFormat")?
-            .unwrap_or(defaults.datetime_format),
-        binary: option_binary(options)?.unwrap_or(defaults.binary),
-        null: option_string(options, "null")?.unwrap_or(defaults.null),
-        boolean_words: option_bool(options, "booleanWords", defaults.boolean_words)?,
-        system_columns: option_bool(options, "systemColumns", defaults.system_columns)?,
-    })
+    let mut csv = jetdb::CsvOptions::default();
+    csv.header = option_bool(options, "header", csv.header)?;
+    csv.delimiter = option_delimiter(options)?.unwrap_or(csv.delimiter);
+    csv.date_format = option_string(options, "dateFormat")?.unwrap_or(csv.date_format);
+    csv.datetime_format = option_string(options, "datetimeFormat")?.unwrap_or(csv.datetime_format);
+    csv.binary = option_binary(options)?.unwrap_or(csv.binary);
+    csv.null = option_string(options, "null")?.unwrap_or(csv.null);
+    csv.boolean_words = option_bool(options, "booleanWords", csv.boolean_words)?;
+    csv.system_columns = option_bool(options, "systemColumns", csv.system_columns)?;
+    Ok(csv)
 }
 
 /// Reads the option delimiter of `csv`, one character.

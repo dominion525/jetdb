@@ -103,6 +103,7 @@ fn map_heading(map: &PropertyMap, object_type: Option<ObjectType>) -> String {
         PropMapType::Column => format!("Column: {}", map.name),
         PropMapType::Additional if map.name.is_empty() => "Additional Properties:".to_string(),
         PropMapType::Additional => format!("Additional: {}", map.name),
+        _ => format!("{:?}: {}", map.map_type, map.name),
     }
 }
 
@@ -166,6 +167,7 @@ fn format_value(value: &Value) -> String {
         Value::Timestamp(ts) => jetdb::timestamp::format_default(*ts),
         Value::Guid(s) => s.clone(),
         Value::DateTimeExtended(s) => s.clone(),
+        _ => format!("{value:?}"),
     }
 }
 

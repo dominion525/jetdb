@@ -16,6 +16,7 @@ use crate::timestamp;
 
 /// How [`write_csv`] writes the bytes of a Binary or OLE Object value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum BinaryFormat {
     /// Nothing (an empty field).
     Strip,
@@ -30,6 +31,7 @@ pub enum BinaryFormat {
 
 /// The options of [`write_csv`], those of `jetdb export`.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct CsvOptions {
     /// Write the names of the columns as the first row.
     pub header: bool,

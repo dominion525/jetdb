@@ -20,6 +20,7 @@ pub enum FormObjectType {
 
 /// Which binary stream to extract from a form/report storage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum StreamKind {
     /// Main design binary (layout, controls, properties, events).
     Blob,
@@ -52,6 +53,7 @@ pub struct FormEntry {
 
 /// Raw binary stream from a form/report.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct FormStream {
     pub name: String,
     pub object_type: FormObjectType,
@@ -61,6 +63,7 @@ pub struct FormStream {
 
 /// A single control entry from TypeInfo.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ControlInfo {
     pub name: String,
     pub type_code: u16,
@@ -69,6 +72,7 @@ pub struct ControlInfo {
 
 /// Parsed TypeInfo for a form/report.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct FormTypeInfo {
     pub form_name: String,
     pub object_type: FormObjectType,
@@ -77,6 +81,7 @@ pub struct FormTypeInfo {
 
 /// Property value extracted from a Blob stream.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum BlobValue {
     Bool(bool),
     /// A Yes/No property set to the value that is not its default, stored
@@ -95,6 +100,7 @@ pub enum BlobValue {
 
 /// A single property entry from the Blob binary.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct BlobProperty {
     pub prop_id: u16,
     pub value: BlobValue,
@@ -102,6 +108,7 @@ pub struct BlobProperty {
 
 /// Properties for a single control, extracted from the Blob.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ControlProperties {
     /// Control name (from Name property 0x14 in Blob).
     pub name: String,
@@ -113,6 +120,7 @@ pub struct ControlProperties {
 
 /// All properties for a form or report, including per-control properties.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct FormProperties {
     pub form_name: String,
     pub object_type: FormObjectType,

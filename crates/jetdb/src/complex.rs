@@ -27,6 +27,7 @@ pub struct Version {
 
 /// One file attached to an attachment column.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Attachment {
     /// The file name, as a [`Value::Text`].
     pub name: Value,
@@ -45,6 +46,7 @@ pub struct Attachment {
 
 /// The values of a complex column in one row.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum ComplexValues {
     /// Multiple values of the column's value type, in the order Access
     /// stored them.
@@ -60,6 +62,7 @@ pub enum ComplexValues {
 
 /// The kind of a complex column, as its type table shows it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ComplexKind {
     MultiValue,
     Attachment,

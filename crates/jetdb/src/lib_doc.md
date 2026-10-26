@@ -253,7 +253,8 @@ fn main() -> Result<(), jetdb::FileError> {
     let catalog = read_catalog(&mut reader)?;
     let entry = find_table(&catalog, "Orders")?;
     let table = read_table_def(&mut reader, &entry.name, entry.table_page)?;
-    let options = CsvOptions { delimiter: '\t', ..CsvOptions::default() };
+    let mut options = CsvOptions::default();
+    options.delimiter = '\t';
     let mut out = std::io::stdout().lock();
     write_csv(&mut reader, &catalog, &table, &options, &mut out, None)?;
     Ok(())

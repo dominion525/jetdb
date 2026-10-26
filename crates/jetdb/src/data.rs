@@ -19,6 +19,7 @@ const MAX_LVAL_INITIAL_CAP: usize = 16 * 1024 * 1024;
 
 /// A single column value read from a data row.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum Value {
     Null,
     Bool(bool),
@@ -78,6 +79,7 @@ impl Value {
 // ---------------------------------------------------------------------------
 
 /// Result of reading data rows from a table.
+#[non_exhaustive]
 pub struct ReadResult {
     /// Successfully parsed rows.
     pub rows: Vec<Vec<Value>>,

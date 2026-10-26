@@ -8,6 +8,7 @@ use std::fmt;
 
 /// Parsing errors for format-level enums.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum FormatError {
     UnknownVersion(u8),
     UnknownPageType(u8),
@@ -43,6 +44,7 @@ impl std::error::Error for FormatError {}
 /// Database engine version, read from file offset 0x14.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
+#[non_exhaustive]
 pub enum JetVersion {
     /// Access 97 (.mdb)
     Jet3 = 0x00,
@@ -144,6 +146,7 @@ impl fmt::Display for JetVersion {
 ///
 /// ACE versions (2007+) share the same physical layout as Jet 4.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct JetFormat {
     /// Database page size in bytes.
     pub page_size: usize,
@@ -302,6 +305,7 @@ pub static JET4: JetFormat = JetFormat {
 /// Type tag stored at the beginning of each database page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
+#[non_exhaustive]
 pub enum PageType {
     DatabaseDefinition = 0,
     Data = 1,
@@ -347,6 +351,7 @@ impl fmt::Display for PageType {
 
 /// Column data type stored in the column definition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum ColumnType {
     Boolean,
     Byte,
@@ -470,6 +475,7 @@ impl fmt::Display for ColumnType {
 /// from the same column.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(i32)]
+#[non_exhaustive]
 pub enum ObjectType {
     Form = -32768,
     Macro = -32766,
