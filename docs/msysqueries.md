@@ -15,9 +15,9 @@ Saved query definitions are stored in the `MSysQueries` system table. Each query
 | Order | Binary | Sort order within the same Attribute |
 | Name1 | Text | Table name, parameter name, etc. (depends on Attribute) |
 | Name2 | Text | Alias, etc. (depends on Attribute) |
-| Expression | Text | SQL expression (column expression, JOIN condition, WHERE clause, etc.) |
+| Expression | Memo | SQL expression (column expression, JOIN condition, WHERE clause, etc.) |
 | Flag | Int | Flag value (depends on Attribute) |
-| LvExtra | Long | Additional data (rarely used) |
+| LvExtra | Long | jetdb reads it as the size of a Text parameter (Attribute=2, Flag=10). Jet4 and later only; Jet3 (Access 97) has no LvExtra column |
 
 ## Attribute Constants
 

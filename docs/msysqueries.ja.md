@@ -15,9 +15,9 @@ Access データベース (.mdb/.accdb) における保存済みクエリの格�
 | Order | Binary | 同一 Attribute 内のソート順 |
 | Name1 | Text | テーブル名、パラメータ名等（Attribute 依存） |
 | Name2 | Text | エイリアス等（Attribute 依存） |
-| Expression | Text | SQL 式（カラム式、JOIN 条件、WHERE 句等） |
+| Expression | Memo | SQL 式（カラム式、JOIN 条件、WHERE 句等） |
 | Flag | Int | フラグ値（Attribute 依存） |
-| LvExtra | Long | 追加データ（めったに使われない） |
+| LvExtra | Long | jetdb は Text 型パラメータのサイズ（Attribute=2, Flag=10）として読む。Jet4 以降のみで、Jet3（Access 97）にはこのカラムがない |
 
 ## Attribute 定数
 
