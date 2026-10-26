@@ -1420,14 +1420,14 @@ mod tests {
                     assert!(
                         matches!(&result.rows[i][1], Value::Text(s) if s == val),
                         "row {i}: expected Field1={val:?}, got {:?}",
-                        &result.rows[i][1]
+                        result.rows[i][1]
                     );
                 }
                 None => {
                     assert!(
                         matches!(&result.rows[i][1], Value::Null),
                         "row {i}: expected NULL, got {:?}",
-                        &result.rows[i][1]
+                        result.rows[i][1]
                     );
                 }
             }
