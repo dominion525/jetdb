@@ -110,23 +110,52 @@ pub(crate) fn form_type_of(
     given: Option<FormTypeArg>,
 ) -> Result<Option<FormObjectType>, String> {
     if let Some(given) = given {
-        return Ok(Some(match given {
-            FormTypeArg::Form => FormObjectType::Form,
-            FormTypeArg::Report => FormObjectType::Report,
-        }));
+        return Ok(Some(given.object_type()));
     }
-    let mut types: Vec<FormObjectType> = Vec::new();
-    for entry in jetdb::list_forms(reader).map_err(|e| e.to_string())? {
-        if entry.name == name && !types.contains(&entry.object_type) {
-            types.push(entry.object_type);
-        }
-    }
+    let types = types_named(&jetdb::list_forms(reader).map_err(|e| e.to_string())?, name);
     match types.as_slice() {
         [_, _, ..] => Err(format!(
             "objects of several types are named {name}: form, report; choose one with --type"
         )),
         _ => Ok(types.first().copied()),
     }
+}
+
+impl FormTypeArg {
+    fn object_type(self) -> FormObjectType {
+        match self {
+            FormTypeArg::Form => FormObjectType::Form,
+            FormTypeArg::Report => FormObjectType::Report,
+        }
+    }
+}
+
+/// The types of the forms and reports of `entries` named `name`, each once.
+fn types_named(entries: &[jetdb::FormEntry], name: &str) -> Vec<FormObjectType> {
+    let mut types: Vec<FormObjectType> = Vec::new();
+    for entry in entries {
+        if entry.name == name && !types.contains(&entry.object_type) {
+            types.push(entry.object_type);
+        }
+    }
+    types
+}
+
+/// What `of_type` reads of the form or report `name` of the type `given`
+/// or of the only type of that name, or what `of_name` reads when there is
+/// none of that name, with the error as a message.
+pub(crate) fn read_named<T>(
+    reader: &mut PageReader,
+    name: &str,
+    given: Option<FormTypeArg>,
+    of_type: impl FnOnce(&mut PageReader, &str, FormObjectType) -> Result<T, jetdb::FileError>,
+    of_name: impl FnOnce(&mut PageReader, &str) -> Result<T, jetdb::FileError>,
+) -> Result<T, String> {
+    match form_type_of(reader, name, given)? {
+        Some(t) => of_type(reader, name, t),
+        None => of_name(reader, name),
+    }
+    .map_err(|e| e.to_string())
 }
 
 #[derive(Clone, ValueEnum)]
@@ -171,15 +200,7 @@ fn run_list(args: &FormListArgs, password: Option<&str>) -> Result<(), jetdb::Fi
 
     let mut names: Vec<&str> = entries
         .iter()
-        .filter(|e| {
-            if args.forms_only {
-                e.object_type == FormObjectType::Form
-            } else if args.reports_only {
-                e.object_type == FormObjectType::Report
-            } else {
-                true
-            }
-        })
+        .filter(|e| is_listed(args, e.object_type))
         .map(|e| e.name.as_str())
         .collect();
     names.sort_unstable();
@@ -189,15 +210,28 @@ fn run_list(args: &FormListArgs, password: Option<&str>) -> Result<(), jetdb::Fi
     Ok(())
 }
 
+/// Whether `form list` lists an object of `object_type`.
+fn is_listed(args: &FormListArgs, object_type: FormObjectType) -> bool {
+    if args.forms_only {
+        object_type == FormObjectType::Form
+    } else if args.reports_only {
+        object_type == FormObjectType::Report
+    } else {
+        true
+    }
+}
+
 fn run_dump(args: &FormDumpArgs, password: Option<&str>) -> Result<(), String> {
     let mut reader =
         PageReader::open_with_password(&args.file, password).map_err(|e| e.to_string())?;
     let kind = args.stream.to_stream_kind();
-    let stream = match form_type_of(&mut reader, &args.name, args.object_type)? {
-        Some(t) => jetdb::read_form_stream_of_type(&mut reader, &args.name, t, kind),
-        None => jetdb::read_form_stream(&mut reader, &args.name, kind),
-    }
-    .map_err(|e| e.to_string())?;
+    let stream = read_named(
+        &mut reader,
+        &args.name,
+        args.object_type,
+        |reader, name, t| jetdb::read_form_stream_of_type(reader, name, t, kind),
+        |reader, name| jetdb::read_form_stream(reader, name, kind),
+    )?;
 
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
@@ -210,11 +244,13 @@ fn run_controls(args: &FormControlsArgs, password: Option<&str>) -> Result<(), S
     let mut reader =
         PageReader::open_with_password(&args.file, password).map_err(|e| e.to_string())?;
     // The sections and controls of the Blob, which TypeInfo can lack.
-    let form_props = match form_type_of(&mut reader, &args.name, args.object_type)? {
-        Some(t) => jetdb::read_form_properties_of_type(&mut reader, &args.name, t),
-        None => jetdb::read_form_properties(&mut reader, &args.name),
-    }
-    .map_err(|e| e.to_string())?;
+    let form_props = read_named(
+        &mut reader,
+        &args.name,
+        args.object_type,
+        jetdb::read_form_properties_of_type,
+        jetdb::read_form_properties,
+    )?;
 
     for (index, ctrl) in form_props.controls.iter().enumerate() {
         let type_name = jetdb::control_type_label(ctrl.type_code);
@@ -227,16 +263,15 @@ fn run_controls(args: &FormControlsArgs, password: Option<&str>) -> Result<(), S
 fn run_props(args: &FormPropsArgs, password: Option<&str>) -> Result<(), String> {
     let mut reader =
         PageReader::open_with_password(&args.file, password).map_err(|e| e.to_string())?;
-    let form_props = match form_type_of(&mut reader, &args.name, args.object_type)? {
-        Some(t) => jetdb::read_form_properties_of_type(&mut reader, &args.name, t),
-        None => jetdb::read_form_properties(&mut reader, &args.name),
-    }
-    .map_err(|e| e.to_string())?;
+    let form_props = read_named(
+        &mut reader,
+        &args.name,
+        args.object_type,
+        jetdb::read_form_properties_of_type,
+        jetdb::read_form_properties,
+    )?;
 
-    let type_label = match form_props.object_type {
-        FormObjectType::Form => "Form",
-        FormObjectType::Report => "Report",
-    };
+    let type_label = form_type_label(form_props.object_type);
     println!("{type_label}: {}", form_props.form_name);
 
     if !form_props.properties.is_empty() {
@@ -253,6 +288,13 @@ fn run_props(args: &FormPropsArgs, password: Option<&str>) -> Result<(), String>
     }
 
     Ok(())
+}
+
+fn form_type_label(object_type: FormObjectType) -> &'static str {
+    match object_type {
+        FormObjectType::Form => "Form",
+        FormObjectType::Report => "Report",
+    }
 }
 
 fn print_properties(props: &[jetdb::BlobProperty]) {
