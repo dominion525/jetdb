@@ -118,6 +118,8 @@ fn main() -> Result<(), jetdb::FileError> {
 | ACE16   | Access 2016     | .accdb      |
 | ACE17   | Access 2019     | .accdb      |
 
+ACE15 は、Access 2013 にちなんだ版の値 0x04 の名前です。Access 2013 は Access 2010 と同じ形式（ACE14）で書き、0x04 のファイルは知られていません。jetdb は、そのようなファイルを ACE15 として読みます。
+
 ## できること
 
 - テーブルの一覧や定義（カラム、インデックス、リレーションシップ）の読み取り

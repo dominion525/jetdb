@@ -50,6 +50,8 @@ Jet4 (Access 2000/2003)
 | ACE16 | ACE16 (Access 2016) |
 | ACE17 | ACE17 (Access 2019) |
 
+ACE15 は、Access 2013 にちなんだ版の値 0x04 の名前です。Access 2013 は Access 2010 と同じ形式（ACE14）で書き、0x04 のファイルは知られていません。jetdb は、そのようなファイルを ACE15 として読みます。
+
 ### tables — テーブル一覧の表示
 
 ```

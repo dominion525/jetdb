@@ -432,6 +432,8 @@ and can be propagated with the `?` operator.
 | ACE16 | Access 2016 | .accdb |
 | ACE17 | Access 2019 | .accdb |
 
+ACE15 is the name of the version byte 0x04, after Access 2013. Access 2013 writes the format of Access 2010 (ACE14), and no file with the byte 0x04 is known; jetdb reads such a file as ACE15.
+
 A Jet3 (Access 97) file stores text in the code page of the database, such as 1252 for Western European languages or 932 for Japanese. jetdb reads it in the code page in the header of the file ([`PageReader::text_encoding`]), and as Latin-1 when it does not know the code page.
 
 # Limitations

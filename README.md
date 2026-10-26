@@ -118,6 +118,8 @@ For more examples, such as reading forms and reports, macros and object properti
 | ACE16  | Access 2016    | .accdb     |
 | ACE17  | Access 2019    | .accdb     |
 
+ACE15 is the name of the version byte 0x04, after Access 2013. Access 2013 writes the format of Access 2010 (ACE14), and no file with the byte 0x04 is known; jetdb reads such a file as ACE15.
+
 ## Features
 
 - Read table metadata (columns, indexes, relationships)
