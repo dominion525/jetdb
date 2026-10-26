@@ -302,12 +302,7 @@ impl<'a> TableRows<'a> {
             let Some(&page_num) = self.table.data_pages.get(self.next.page as usize) else {
                 return Ok(None);
             };
-            if self.page.as_ref().map(|(i, _)| *i) != Some(self.next.page) {
-                self.page = Some((self.next.page, reader.read_page_copy(page_num)?));
-            }
-            let data = self.page.as_ref().map_or(&[][..], |(_, d)| d.as_slice());
-            let row = self.next.row;
-            match row_at(reader.format(), data, page_num, row, is_jet3, has_var_cols) {
+            match self.row_at_next(reader, page_num, is_jet3, has_var_cols)? {
                 RowAt::EndOfPage => {
                     self.next = RowPosition {
                         page: self.next.page + 1,
@@ -322,6 +317,30 @@ impl<'a> TableRows<'a> {
                 RowAt::Row { .. } => return Ok(Some(self.next)),
             }
         }
+    }
+
+    /// What is at the next row, on the data page `page_num`, which is read
+    /// unless it is the page read last.
+    fn row_at_next(
+        &mut self,
+        reader: &mut PageReader,
+        page_num: u32,
+        is_jet3: bool,
+        has_var_cols: bool,
+    ) -> Result<RowAt, FileError> {
+        if self.page.as_ref().map(|(i, _)| *i) != Some(self.next.page) {
+            self.page = Some((self.next.page, reader.read_page_copy(page_num)?));
+        }
+        let data = self.page.as_ref().map_or(&[][..], |(_, d)| d.as_slice());
+        let row = self.next.row;
+        Ok(row_at(
+            reader.format(),
+            data,
+            page_num,
+            row,
+            is_jet3,
+            has_var_cols,
+        ))
     }
 
     /// The next row, or `None` when there are no more rows.
@@ -604,11 +623,7 @@ fn crack_row_no_var_cols(row_data: &[u8], is_jet3: bool) -> Result<CrackedRow<'_
 fn crack_row_jet4(row_data: &[u8]) -> Result<CrackedRow<'_>, FileError> {
     let len = row_data.len();
     if len < 2 {
-        return Err(FileError::InvalidRow {
-            page: 0,
-            row: 0,
-            reason: "row too short for column count",
-        });
+        return Err(row_error("row too short for column count"));
     }
 
     let col_count = u16::from_le_bytes([row_data[0], row_data[1]]);
@@ -617,11 +632,7 @@ fn crack_row_jet4(row_data: &[u8]) -> Result<CrackedRow<'_>, FileError> {
     // Read from end: null_mask, then var_col_count
     let tail_min = null_mask_len + 2; // null_mask + var_col_count
     if len < 2 + tail_min {
-        return Err(FileError::InvalidRow {
-            page: 0,
-            row: 0,
-            reason: "row too short for null mask and var col count",
-        });
+        return Err(row_error("row too short for null mask and var col count"));
     }
 
     let null_mask_start = len - null_mask_len;
@@ -630,7 +641,28 @@ fn crack_row_jet4(row_data: &[u8]) -> Result<CrackedRow<'_>, FileError> {
     let vcc_pos = null_mask_start - 2;
     let var_col_count = u16::from_le_bytes([row_data[vcc_pos], row_data[vcc_pos + 1]]);
 
-    // Read offset table backwards from vcc_pos.
+    Ok(CrackedRow {
+        row_data,
+        col_count,
+        null_mask,
+        var_col_count,
+        var_offsets: read_var_offsets_jet4(row_data, vcc_pos, var_col_count),
+    })
+}
+
+/// The error of a row that cannot be cracked, for `reason`.
+fn row_error(reason: &'static str) -> FileError {
+    FileError::InvalidRow {
+        page: 0,
+        row: 0,
+        reason,
+    }
+}
+
+/// The variable-column offset table of a Jet4 row, read backwards from
+/// `vcc_pos`, the position of its `var_col_count`.
+fn read_var_offsets_jet4(row_data: &[u8], vcc_pos: usize, var_col_count: u16) -> Vec<u16> {
+    let len = row_data.len();
     // Entry count = var_col_count + 1 (includes EOD).
     // var_offsets[0] = EOD at (vcc_pos - 2)
     // var_offsets[k+1] = start offset of var col k at (vcc_pos - 2*(k+2))
@@ -645,14 +677,7 @@ fn crack_row_jet4(row_data: &[u8]) -> Result<CrackedRow<'_>, FileError> {
         }
         var_offsets.push(u16::from_le_bytes([row_data[pos], row_data[pos + 1]]));
     }
-
-    Ok(CrackedRow {
-        row_data,
-        col_count,
-        null_mask,
-        var_col_count,
-        var_offsets,
-    })
+    var_offsets
 }
 
 /// Jet3 row layout (reading from the end):
@@ -675,56 +700,63 @@ fn crack_row_jet4(row_data: &[u8]) -> Result<CrackedRow<'_>, FileError> {
 fn crack_row_jet3(row_data: &[u8]) -> Result<CrackedRow<'_>, FileError> {
     let len = row_data.len();
     if len < 1 {
-        return Err(FileError::InvalidRow {
-            page: 0,
-            row: 0,
-            reason: "row too short for column count",
-        });
+        return Err(row_error("row too short for column count"));
     }
 
     let col_count = row_data[0] as u16;
     let null_mask_len = (col_count as usize).div_ceil(8);
 
     let Some(null_mask_start) = len.checked_sub(null_mask_len) else {
-        return Err(FileError::InvalidRow {
-            page: 0,
-            row: 0,
-            reason: "row too short for null mask",
-        });
+        return Err(row_error("row too short for null mask"));
+    };
+    let null_mask = &row_data[null_mask_start..];
+    let without_var_cols = CrackedRow {
+        row_data,
+        col_count,
+        null_mask,
+        var_col_count: 0,
+        var_offsets: Vec::new(),
     };
     if null_mask_start == 0 {
-        return Ok(CrackedRow {
-            row_data,
-            col_count,
-            null_mask: &row_data[null_mask_start..],
-            var_col_count: 0,
-            var_offsets: Vec::new(),
-        });
+        return Ok(without_var_cols);
     }
-    let null_mask = &row_data[null_mask_start..];
 
     // var_col_count is at null_mask_start - 1
     let vcc_pos = null_mask_start - 1;
     if vcc_pos == 0 {
-        return Ok(CrackedRow {
-            row_data,
-            col_count,
-            null_mask,
-            var_col_count: 0,
-            var_offsets: Vec::new(),
-        });
+        return Ok(without_var_cols);
     }
     let var_col_count = row_data[vcc_pos] as u16;
+    let (col_ptr, actual_num_jumps) = jet3_offset_table(len, vcc_pos, var_col_count);
 
+    // Offset entries: var_col_count + 1 (includes EOD), each 1 byte
+    let offset_entries = var_col_count as usize + 1;
+    if col_ptr < offset_entries {
+        return Err(row_error("row too short for variable offset table (Jet3)"));
+    }
+
+    Ok(CrackedRow {
+        var_col_count,
+        var_offsets: read_var_offsets_jet3(
+            row_data,
+            (vcc_pos, col_ptr),
+            offset_entries,
+            actual_num_jumps,
+        ),
+        ..without_var_cols
+    })
+}
+
+/// Where the offset table of a Jet3 row of `len` bytes starts, reading
+/// backwards, and how many entries of its jump table are used, with
+/// `vcc_pos` the position of its var_col_count.
+fn jet3_offset_table(len: usize, vcc_pos: usize, var_col_count: u16) -> (usize, usize) {
     // Jump table is between var_col_count and the offset table.
     // num_jumps = (row_len - 1) / 256
     let num_jumps = if len > 1 { (len - 1) / 256 } else { 0 };
 
     // col_ptr = vcc_pos - num_jumps - 1 (start of offset table, reading backwards)
     let col_ptr = vcc_pos.saturating_sub(num_jumps + 1);
-
-    // Offset entries: var_col_count + 1 (includes EOD), each 1 byte
-    let offset_entries = var_col_count as usize + 1;
 
     // Dummy jump check:
     // If last jump is a dummy value, ignore it.
@@ -738,15 +770,17 @@ fn crack_row_jet3(row_data: &[u8]) -> Result<CrackedRow<'_>, FileError> {
     {
         actual_num_jumps -= 1;
     }
+    (col_ptr, actual_num_jumps)
+}
 
-    if col_ptr < offset_entries {
-        return Err(FileError::InvalidRow {
-            page: 0,
-            row: 0,
-            reason: "row too short for variable offset table (Jet3)",
-        });
-    }
-
+/// The `offset_entries` offsets of a Jet3 row, read backwards from `col_ptr`,
+/// each past the 256-byte boundaries the jump table before `vcc_pos` gives.
+fn read_var_offsets_jet3(
+    row_data: &[u8],
+    (vcc_pos, col_ptr): (usize, usize),
+    offset_entries: usize,
+    actual_num_jumps: usize,
+) -> Vec<u16> {
     // Read offsets using the dynamic while-loop method.
     // Jump table entries are at vcc_pos - 1 - k (for k = 0..actual_num_jumps-1)
     // and contain column numbers where jumps_used should increment.
@@ -759,14 +793,7 @@ fn crack_row_jet3(row_data: &[u8]) -> Result<CrackedRow<'_>, FileError> {
         let raw_offset = row_data[col_ptr - i] as u16;
         var_offsets.push(raw_offset + (jumps_used as u16) * 256);
     }
-
-    Ok(CrackedRow {
-        row_data,
-        col_count,
-        null_mask,
-        var_col_count,
-        var_offsets,
-    })
+    var_offsets
 }
 
 // ---------------------------------------------------------------------------
@@ -1154,66 +1181,57 @@ const LVAL_INLINE_HEADER: usize = 12;
 /// Each chunk's first 4 bytes are the next `pg_row` (0 = end); bytes after
 /// offset 4 are appended to the result buffer.
 fn read_lval_data(var_data: &[u8], reader: Option<&mut PageReader>) -> Option<Vec<u8>> {
-    if var_data.len() < 4 {
-        return None;
-    }
-    let length_with_flags = u32::from_le_bytes(var_data[..4].try_into().ok()?);
-    let memo_type = length_with_flags & LVAL_TYPE_MASK;
+    let length_with_flags = u32::from_le_bytes(le_bytes(var_data)?);
     let data_len = (length_with_flags & !LVAL_TYPE_MASK) as usize;
-
-    if memo_type == LVAL_INLINE {
-        // Inline: data starts at offset 12
-        let data_start = LVAL_INLINE_HEADER.min(var_data.len());
-        let data_end = (data_start + data_len).min(var_data.len());
-        if data_start > var_data.len() {
-            return None;
-        }
-        Some(var_data[data_start..data_end].to_vec())
-    } else if memo_type == LVAL_SINGLE_PAGE {
-        // Single-page overflow: read from the referenced LVAL page row
-        let reader = reader?;
-        if var_data.len() < 8 {
-            return None;
-        }
-        let pg_row = u32::from_le_bytes(var_data[4..8].try_into().ok()?);
-        reader.read_pg_row(pg_row).ok()
-    } else if memo_type == LVAL_MULTI_PAGE {
-        // Multi-page overflow: chain of LVAL page rows
-        let reader = reader?;
-        if var_data.len() < 8 {
-            return None;
-        }
-        let mut pg_row = u32::from_le_bytes(var_data[4..8].try_into().ok()?);
-        let mut buf = Vec::with_capacity(data_len.min(MAX_LVAL_INITIAL_CAP));
-        let mut visited = HashSet::new();
-
-        while pg_row != 0 {
-            if !visited.insert(pg_row) {
-                return None; // circular reference — partial data is unreliable
-            }
-            let row_data = reader.read_pg_row(pg_row).ok()?;
-            if row_data.len() < 4 {
-                return None;
-            }
-            let next_pg_row = u32::from_le_bytes(row_data[..4].try_into().ok()?);
-            buf.extend_from_slice(&row_data[4..]);
-            pg_row = next_pg_row;
-
-            // Safety: stop if we've already collected enough data
-            if buf.len() >= data_len {
-                break;
-            }
-        }
-
-        if buf.len() > data_len {
-            buf.truncate(data_len);
-        }
-
-        Some(buf)
-    } else {
+    match length_with_flags & LVAL_TYPE_MASK {
+        LVAL_INLINE => Some(lval_inline(var_data, data_len)),
+        LVAL_SINGLE_PAGE => lval_single_page(var_data, reader?),
+        LVAL_MULTI_PAGE => lval_multi_page(var_data, data_len, reader?),
         // Unknown LVAL type
-        None
+        _ => None,
     }
+}
+
+/// An inline long value of `data_len` bytes: data starts at offset 12.
+fn lval_inline(var_data: &[u8], data_len: usize) -> Vec<u8> {
+    let data_start = LVAL_INLINE_HEADER.min(var_data.len());
+    let data_end = (data_start + data_len).min(var_data.len());
+    var_data[data_start..data_end].to_vec()
+}
+
+/// The `pg_row` of a long value stored on other pages, at `var_data[4..8]`.
+fn lval_pg_row(var_data: &[u8]) -> Option<u32> {
+    le_bytes(var_data.get(4..)?).map(u32::from_le_bytes)
+}
+
+/// A single-page overflow: read from the referenced LVAL page row.
+fn lval_single_page(var_data: &[u8], reader: &mut PageReader) -> Option<Vec<u8>> {
+    reader.read_pg_row(lval_pg_row(var_data)?).ok()
+}
+
+/// A multi-page overflow of `data_len` bytes: a chain of LVAL page rows.
+fn lval_multi_page(var_data: &[u8], data_len: usize, reader: &mut PageReader) -> Option<Vec<u8>> {
+    let mut pg_row = lval_pg_row(var_data)?;
+    let mut buf = Vec::with_capacity(data_len.min(MAX_LVAL_INITIAL_CAP));
+    let mut visited = HashSet::new();
+
+    while pg_row != 0 {
+        if !visited.insert(pg_row) {
+            return None; // circular reference — partial data is unreliable
+        }
+        let row_data = reader.read_pg_row(pg_row).ok()?;
+        let next_pg_row = u32::from_le_bytes(le_bytes(&row_data)?);
+        buf.extend_from_slice(&row_data[4..]);
+        pg_row = next_pg_row;
+
+        // Safety: stop if we've already collected enough data
+        if buf.len() >= data_len {
+            break;
+        }
+    }
+
+    buf.truncate(data_len);
+    Some(buf)
 }
 
 /// Read a Memo field value.
