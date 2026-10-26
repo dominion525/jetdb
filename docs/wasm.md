@@ -65,7 +65,7 @@ do {
 } while (start !== null);
 ```
 
-`next` is a position among the pages of the table, not a count of rows, so it is valid only for the same table of the same file.
+`next` is a position among the pages of the table, not a count of rows, so it is valid only for the same table of the same file. The `next` of another table given as `start` is not detected: `rows` reads that table from the same position, without an error. A `start` past the last row of the table gives no rows, and `next` is null.
 
 The options of `csv` are those of `jetdb export`:
 
