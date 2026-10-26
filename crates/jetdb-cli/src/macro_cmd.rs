@@ -36,11 +36,11 @@ pub struct MacroListArgs {
     /// Database file path (.mdb / .accdb)
     pub file: PathBuf,
 
-    /// Print one macro name per line
+    /// Print one macro name per line (the default; kept for compatibility, does nothing)
     #[arg(short = '1', long = "newline", conflicts_with = "delimiter")]
     pub newline: bool,
 
-    /// Delimiter between macro names (default: space)
+    /// Print the macro names on one line, separated by this string
     #[arg(short = 'd', long = "delimiter")]
     pub delimiter: Option<String>,
 }
@@ -109,7 +109,7 @@ fn run_list(args: &MacroListArgs, password: Option<&str>) -> Result<(), jetdb::F
         .collect();
     names.sort_unstable();
 
-    crate::print_names(&names, args.newline, args.delimiter.as_deref());
+    crate::print_names(&names, args.delimiter.as_deref());
 
     Ok(())
 }

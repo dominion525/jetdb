@@ -27,11 +27,11 @@ pub struct QueryListArgs {
     /// Database file path (.mdb / .accdb)
     pub file: PathBuf,
 
-    /// Print one query name per line
+    /// Print one query name per line (the default; kept for compatibility, does nothing)
     #[arg(short = '1', long = "newline", conflicts_with = "delimiter")]
     pub newline: bool,
 
-    /// Delimiter between query names (default: space)
+    /// Print the query names on one line, separated by this string
     #[arg(short = 'd', long = "delimiter")]
     pub delimiter: Option<String>,
 }
@@ -62,7 +62,7 @@ fn run_list(args: &QueryListArgs, password: Option<&str>) -> Result<(), jetdb::F
 
     let mut names: Vec<&str> = queries.iter().map(|q| q.name.as_str()).collect();
     names.sort_unstable();
-    crate::print_names(&names, args.newline, args.delimiter.as_deref());
+    crate::print_names(&names, args.delimiter.as_deref());
 
     Ok(())
 }

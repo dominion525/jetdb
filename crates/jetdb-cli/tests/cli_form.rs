@@ -19,26 +19,32 @@ fn form_list() {
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let trimmed = stdout.trim();
     assert!(
-        trimmed.contains("Form1"),
-        "should contain Form1, got: {trimmed}"
+        stdout.lines().any(|l| l == "Form1"),
+        "should have Form1 on a line, got: {stdout}"
     );
 }
 
 #[test]
 fn form_list_newline() {
-    let path = skip_if_missing!("vbaV2007.accdb");
+    let path = skip_if_missing!("formPropTest.accdb");
     let output = jetdb_bin()
         .args(["form", "list", "-1", path.to_str().unwrap()])
         .output()
         .expect("failed to run jetdb");
     assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let lines: Vec<&str> = stdout.lines().collect();
+    let default = jetdb_bin()
+        .args(["form", "list", path.to_str().unwrap()])
+        .output()
+        .expect("failed to run jetdb");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&default.stdout),
+        "-1 should print what the default prints"
+    );
     assert!(
-        lines.iter().any(|l| l.trim() == "Form1"),
-        "should have Form1 in output"
+        String::from_utf8_lossy(&default.stdout).lines().count() >= 2,
+        "should have a name a line"
     );
 }
 

@@ -234,20 +234,17 @@ A relationship for which Access does not enforce referential integrity is no con
 jetdb queries list [OPTIONS] <FILE>
 ```
 
-List the names of saved queries in the database (space-separated by default).
+List the names of saved queries in the database, one per line.
 
 ##### Options
 
-- `-1`, `--newline` — Print one query name per line
-- `-d`, `--delimiter <STRING>` — Custom delimiter between query names (default: space)
+- `-1`, `--newline` — Print one query name per line (the default; kept for compatibility, does nothing)
+- `-d`, `--delimiter <STRING>` — Print the query names on one line, separated by this string
 
 ##### Output examples
 
 ```
 $ jetdb queries list queryTest.mdb
-AppendQuery CrosstabQuery DataDefinitionQuery DeleteQuery MakeTableQuery PassthroughQuery SelectQuery UnionQuery UpdateQuery
-
-$ jetdb queries list -1 queryTest.mdb
 AppendQuery
 CrosstabQuery
 DataDefinitionQuery
@@ -347,21 +344,18 @@ Object: Customers
 jetdb vba list [OPTIONS] <FILE>
 ```
 
-List the names of VBA modules in the database (space-separated by default, sorted alphabetically).
+List the names of VBA modules in the database (one per line, sorted alphabetically).
 If the database has no VBA project, produces no output.
 
 ##### Options
 
-- `-1`, `--newline` — Print one module name per line
-- `-d`, `--delimiter <STRING>` — Custom delimiter between module names (default: space)
+- `-1`, `--newline` — Print one module name per line (the default; kept for compatibility, does nothing)
+- `-d`, `--delimiter <STRING>` — Print the module names on one line, separated by this string
 
 ##### Output examples
 
 ```
 $ jetdb vba list vbaTest.mdb
-Class1 Form_Form1 Module1
-
-$ jetdb vba list -1 vbaTest.mdb
 Class1
 Form_Form1
 Module1
@@ -405,13 +399,13 @@ jetdb does not read the forms and reports of an Access 97 (Jet3) database, which
 jetdb form list [OPTIONS] <FILE>
 ```
 
-List the names of forms and reports in the database (space-separated by default, sorted alphabetically).
+List the names of forms and reports in the database (one per line, sorted alphabetically).
 If the database has no forms or reports, produces no output.
 
 ##### Options
 
-- `-1`, `--newline` — Print one name per line
-- `-d`, `--delimiter <STRING>` — Custom delimiter between names (default: space)
+- `-1`, `--newline` — Print one name per line (the default; kept for compatibility, does nothing)
+- `-d`, `--delimiter <STRING>` — Print the names on one line, separated by this string
 - `--forms-only` — Show only forms
 - `--reports-only` — Show only reports
 
@@ -419,9 +413,11 @@ If the database has no forms or reports, produces no output.
 
 ```
 $ jetdb form list database.accdb
-F_Menu F_ClientList R_MonthlyReport
+F_Menu
+F_ClientList
+R_MonthlyReport
 
-$ jetdb form list -1 --forms-only database.accdb
+$ jetdb form list --forms-only database.accdb
 F_Menu
 F_ClientList
 
@@ -529,21 +525,23 @@ Form: F_ClientList
 jetdb macro list [OPTIONS] <FILE>
 ```
 
-List the names of named macros in the database (space-separated by default, sorted alphabetically).
+List the names of named macros in the database (one per line, sorted alphabetically).
 If the database has no named macros, produces no output.
 
 ##### Options
 
-- `-1`, `--newline` — Print one macro name per line
-- `-d`, `--delimiter <STRING>` — Custom delimiter between macro names (default: space)
+- `-1`, `--newline` — Print one macro name per line (the default; kept for compatibility, does nothing)
+- `-d`, `--delimiter <STRING>` — Print the macro names on one line, separated by this string
 
 ##### Output examples
 
 ```
 $ jetdb macro list database.accdb
-AutoExec mcrConditions mcrSimple
+AutoExec
+mcrConditions
+mcrSimple
 
-$ jetdb macro list -1 nwind.mdb
+$ jetdb macro list nwind.mdb
 Customer Labels Dialog
 Customers
 Sample Autokeys

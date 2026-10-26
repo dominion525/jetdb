@@ -21,14 +21,14 @@ fn stdout_of(output: &std::process::Output) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// List macros (default: space-separated, -1, -d)
+// List macros (default: one per line, -1, -d)
 // ---------------------------------------------------------------------------
 
 #[test]
 fn macro_list() {
     let path = skip_if_missing!(MACRO_FILE);
     let stdout = stdout_of(&run(&["macro", "list", path.to_str().unwrap()]));
-    let names: Vec<&str> = stdout.trim().split(' ').collect();
+    let names: Vec<&str> = stdout.lines().collect();
     assert!(names.contains(&"mcrStructure"), "got: {stdout}");
     let mut sorted = names.clone();
     sorted.sort_unstable();
@@ -39,7 +39,19 @@ fn macro_list() {
 fn macro_list_newline() {
     let path = skip_if_missing!(MACRO_FILE);
     let stdout = stdout_of(&run(&["macro", "list", path.to_str().unwrap(), "-1"]));
-    assert!(stdout.lines().any(|l| l == "mcrErrors"), "got: {stdout}");
+    let default = stdout_of(&run(&["macro", "list", path.to_str().unwrap()]));
+    assert_eq!(stdout, default, "-1 should print what the default prints");
+}
+
+#[test]
+fn macro_list_names_with_spaces() {
+    // nwind.mdb has macros whose names have spaces in them.
+    let path = skip_if_missing!("V1997/nwind.mdb");
+    let stdout = stdout_of(&run(&["macro", "list", path.to_str().unwrap()]));
+    assert!(
+        stdout.lines().any(|l| l == "Customer Labels Dialog"),
+        "got: {stdout}"
+    );
 }
 
 #[test]

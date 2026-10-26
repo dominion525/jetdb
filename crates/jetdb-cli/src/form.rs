@@ -34,11 +34,11 @@ pub struct FormListArgs {
     /// Database file path (.mdb / .accdb)
     pub file: PathBuf,
 
-    /// Print one name per line
+    /// Print one name per line (the default; kept for compatibility, does nothing)
     #[arg(short = '1', long = "newline", conflicts_with = "delimiter")]
     pub newline: bool,
 
-    /// Custom delimiter between names
+    /// Print the names on one line, separated by this string
     #[arg(short = 'd', long = "delimiter")]
     pub delimiter: Option<String>,
 
@@ -205,7 +205,7 @@ fn run_list(args: &FormListArgs, password: Option<&str>) -> Result<(), jetdb::Fi
         .collect();
     names.sort_unstable();
 
-    crate::print_names(&names, args.newline, args.delimiter.as_deref());
+    crate::print_names(&names, args.delimiter.as_deref());
 
     Ok(())
 }
