@@ -111,23 +111,28 @@ fn print_properties(
     maps.sort_by_key(|m| m.map_type != PropMapType::Default);
     for map in maps {
         writeln!(out)?;
-        writeln!(out, "  {}", map_heading(map, object_type))?;
+        writeln!(
+            out,
+            "  {}",
+            map_heading(map.map_type, &map.name, object_type)
+        )?;
         print_map(out, map)?;
     }
     Ok(())
 }
 
-/// The heading of the properties of `map`, of an object of `object_type`.
-fn map_heading(map: &PropertyMap, object_type: Option<ObjectType>) -> String {
-    match map.map_type {
+/// The heading of the properties of a map of `map_type` named `name`, of an
+/// object of `object_type`.
+fn map_heading(map_type: PropMapType, name: &str, object_type: Option<ObjectType>) -> String {
+    match map_type {
         PropMapType::Default => match object_type {
             Some(t) => format!("{} Properties:", object_type_label(t)),
             None => "Object Properties:".to_string(),
         },
-        PropMapType::Column => format!("Column: {}", map.name),
-        PropMapType::Additional if map.name.is_empty() => "Additional Properties:".to_string(),
-        PropMapType::Additional => format!("Additional: {}", map.name),
-        _ => format!("{:?}: {}", map.map_type, map.name),
+        PropMapType::Column => format!("Column: {name}"),
+        PropMapType::Additional if name.is_empty() => "Additional Properties:".to_string(),
+        PropMapType::Additional => format!("Additional: {name}"),
+        _ => format!("{map_type:?}: {name}"),
     }
 }
 
@@ -293,6 +298,21 @@ mod tests {
                 "Database",
                 "Database Property",
                 "User Info",
+            ]
+        );
+    }
+
+    #[test]
+    fn map_heading_all_variants() {
+        assert_eq!(
+            PropMapType::ALL.map(|t| [
+                map_heading(t, "", None),
+                map_heading(t, "Name", Some(ObjectType::Table)),
+            ]),
+            [
+                ["Object Properties:", "Table Properties:"],
+                ["Column: ", "Column: Name"],
+                ["Additional Properties:", "Additional: Name"],
             ]
         );
     }

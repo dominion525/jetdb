@@ -24,6 +24,15 @@ pub enum PropMapType {
     Additional,
 }
 
+impl PropMapType {
+    /// Every property map type, in the order of its chunk type.
+    pub const ALL: [PropMapType; 3] = [
+        PropMapType::Default,
+        PropMapType::Column,
+        PropMapType::Additional,
+    ];
+}
+
 /// A single property entry.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
@@ -429,6 +438,11 @@ fn text_value(raw: &[u8], text: TextEncoding) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prop_map_type_all() {
+        assert_all_variants!(PropMapType: Default, Column, Additional);
+    }
 
     // -- validate_header ------------------------------------------------------
 
