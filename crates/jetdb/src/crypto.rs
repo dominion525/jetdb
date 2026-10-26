@@ -1,7 +1,8 @@
 //! Encryption support for .accdb files (MS-OFFCRYPTO).
 //!
-//! Supports Agile Encryption, RC4 CryptoAPI, and NonStandard AES.
-//! The EncryptionInfo is stored at page 0 offset 0x299.
+//! Supports Agile Encryption, RC4 CryptoAPI, Standard AES and NonStandard AES.
+//! Page 0 holds the length of the EncryptionInfo (u16 LE) at offset 0x299,
+//! and the EncryptionInfo itself from offset 0x29B.
 
 use crate::file::FileError;
 use crate::format::db_header;

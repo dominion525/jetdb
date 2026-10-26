@@ -609,7 +609,7 @@ pub mod db_header {
     pub const DB_KEY: usize = 0x3E;
     /// Password offset for Jet 3.
     pub const PASSWORD_JET3: usize = 0x42;
-    /// Offset of the EncryptionInfo length field (Agile Encryption, .accdb).
+    /// Offset of the length of the EncryptionInfo of an .accdb, which every scheme has.
     pub const ENCRYPTION_INFO_OFFSET: usize = 0x299;
 }
 
