@@ -707,7 +707,12 @@ pub fn read_form_properties_in(
 
     // The Access 2000 format keeps the type of each control in the Blob.
     if blob_data.first() == Some(&crate::form2000::VERSION) {
-        let (properties, controls) = crate::form2000::read(&blob_data).unwrap_or_default();
+        let (properties, controls) = crate::form2000::read(&blob_data).unwrap_or_else(|| {
+            log::warn!(
+                "{name}: the properties and controls in the Access 2000 format could not be read"
+            );
+            Default::default()
+        });
         return Ok(FormProperties {
             form_name: name.to_string(),
             object_type,
@@ -3002,5 +3007,62 @@ pub(crate) mod tests {
             78,
             true,
         );
+    }
+
+    /// The warnings logged while the tests run, of every thread.
+    static WARNINGS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+    struct WarningLogger;
+
+    impl log::Log for WarningLogger {
+        fn enabled(&self, metadata: &log::Metadata) -> bool {
+            metadata.level() <= log::Level::Warn
+        }
+
+        fn log(&self, record: &log::Record) {
+            if self.enabled(record.metadata()) {
+                WARNINGS.lock().unwrap().push(record.args().to_string());
+            }
+        }
+
+        fn flush(&self) {}
+    }
+
+    /// Logs the warnings to [`WARNINGS`].
+    fn log_warnings() {
+        static INIT: std::sync::Once = std::sync::Once::new();
+        INIT.call_once(|| {
+            log::set_logger(&WarningLogger).unwrap();
+            log::set_max_level(log::LevelFilter::Warn);
+        });
+    }
+
+    #[test]
+    fn a_blob_of_the_access_2000_format_that_cannot_be_read_is_warned() {
+        // The Blob of the form Shared, cut after its header: neither its
+        // properties nor its controls can be read.
+        let path = skip_if_missing!("V2000/sameNameTestV2000.mdb");
+        let mut reader = PageReader::open(&path).unwrap();
+        let mut storage = storage::read_access_storage(&mut reader).unwrap();
+        let folder = storage::find_top_folder(&storage.entries, "Forms").unwrap();
+        let blob_id = storage::object_stream(&storage.entries, folder, "Shared", "Blob")
+            .unwrap()
+            .unwrap()
+            .id;
+        let blob = storage
+            .entries
+            .iter_mut()
+            .find(|e| e.id == blob_id)
+            .unwrap();
+        assert_eq!(blob.data.first(), Some(&crate::form2000::VERSION));
+        blob.data.truncate(10);
+
+        log_warnings();
+        let read = read_form_properties_in(&storage, "Shared", Some(FormObjectType::Form)).unwrap();
+        assert!(read.properties.is_empty());
+        assert!(read.controls.is_empty());
+        let warning =
+            "Shared: the properties and controls in the Access 2000 format could not be read";
+        assert!(WARNINGS.lock().unwrap().iter().any(|w| w == warning));
     }
 }
