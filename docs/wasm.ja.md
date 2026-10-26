@@ -6,7 +6,7 @@ jetdb-wasm は、jetdb を WebAssembly にしたもので、Microsoft Access の
 
 ## モジュールの読み込み
 
-パッケージは 2 つのビルドを持ち、package.json の `exports` で 1 つを選びます。`node` の条件で選ばれる Node.js 向けの CommonJS と、それ以外（ブラウザや、ブラウザ向けにビルドするバンドラーなど）向けの ES モジュールです。
+パッケージは 2 つのビルドを持ち、package.json の `exports` で 1 つを選びます。`node` の条件で選ばれる Node.js 向けのビルド（CommonJS で、`import` 用には ES モジュールの入口もある）と、それ以外（ブラウザや、ブラウザ向けにビルドするバンドラーなど）向けの ES モジュールです。
 
 ES モジュールでは、`Database` を使う前に、既定のエクスポートを 1 回呼びます。モジュールの隣にある Wasm のファイルを取得して、コンパイルします。
 
@@ -25,7 +25,7 @@ import wasm from "jetdb-wasm/web/jetdb_wasm_bg.wasm";
 initSync({ module: wasm });
 ```
 
-CommonJS のビルドでは、読み込んだときに Wasm のファイルが読まれるので、`Database` はそのまま使えます。Node.js と、サーバーサイドレンダリング（SSR）のようにバンドラーがサーバー向けにビルドするものが、このビルドを使います。このビルドでは既定のエクスポートを呼ぶ必要はありません。既定のエクスポートと `initSync` はあって、何もしないので、ブラウザと共有するコードのように、これらを呼ぶコードもそのまま動きます。
+Node.js 向けのビルド（`require` では CommonJS のファイル、`import` では ES モジュールの入口）では、読み込んだときに Wasm のファイルが読まれるので、`Database` はそのまま使えます。Node.js と、サーバーサイドレンダリング（SSR）のようにバンドラーがサーバー向けにビルドするものが、このビルドを使います。このビルドでは既定のエクスポートを呼ぶ必要はありません。既定のエクスポートと `initSync` はあって、何もしないので、ブラウザと共有するコードのように、これらを呼ぶコードもそのまま動きます。
 
 ```js
 import { Database } from "jetdb-wasm";
