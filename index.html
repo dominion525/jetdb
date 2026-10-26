@@ -121,15 +121,16 @@
               <h3>Password-protected files</h3>
               <p>
                 Opens password-protected .accdb files (Agile, RC4 CryptoAPI,
-                Standard AES) — just add <code>--password</code>.
+                Standard and NonStandard AES) — just add
+                <code>--password</code>.
               </p>
             </div>
             <div class="point">
               <h3>Never modifies the original file</h3>
               <p>
-                Opens files read-only and creates no lock file (.laccdb). You
-                can inspect a file someone handed you without worrying about
-                breaking it.
+                Opens files read-only and creates no lock file (.ldb /
+                .laccdb). You can inspect a file someone handed you without
+                worrying about breaking it.
               </p>
             </div>
           </div>
@@ -233,7 +234,7 @@ ORDER BY Format(tblOrders.OrderDate, &#39;yyyy-mm&#39;), tblCustomers.CustomerNa
               <h3><span class="num">05</span>VBA</h3>
               <p>
                 Extracts the source code of standard modules, class modules, and
-                form modules.
+                the modules of forms and reports.
               </p>
               <code class="cmd"
                 >jetdb vba show jetdb-sample.accdb modBilling</code

@@ -104,13 +104,13 @@
             <div class="point">
               <h3>パスワード付きのファイル</h3>
               <p>
-                パスワード付きの .accdb（Agile、RC4 CryptoAPI、Standard
+                パスワード付きの .accdb（Agile、RC4 CryptoAPI、Standard・NonStandard
                 AES）も、<code>--password</code> を付けるだけで開けます。
               </p>
             </div>
             <div class="point">
               <h3>元のファイルは書き換えません</h3>
-              <p>読み取り専用で開き、ロックファイル（.laccdb）も作りません。人から渡されたファイルも、壊す心配をせずに調べられます。</p>
+              <p>読み取り専用で開き、ロックファイル（.ldb / .laccdb）も作りません。人から渡されたファイルも、壊す心配をせずに調べられます。</p>
             </div>
           </div>
         </div>
@@ -199,7 +199,7 @@ ORDER BY Format(tblOrders.OrderDate, &#39;yyyy-mm&#39;), tblCustomers.CustomerNa
             </li>
             <li class="read">
               <h3><span class="num">05</span>VBA</h3>
-              <p>標準モジュール・クラスモジュール・フォームのモジュールのソースを取り出します。</p>
+              <p>標準モジュール・クラスモジュール・フォーム/レポートのモジュールのソースを取り出します。</p>
               <code class="cmd">jetdb vba show jetdb-sample.accdb modBilling</code>
               <details class="output">
                 <summary>出力を見る</summary>
