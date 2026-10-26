@@ -57,7 +57,7 @@ fn collect_inline(map_data: &[u8]) -> Result<Vec<u32>, FileError> {
 /// Type 1: reference (indirect) bitmap.
 fn collect_reference(reader: &mut PageReader, map_data: &[u8]) -> Result<Vec<u32>, FileError> {
     let ptr_data = &map_data[1..];
-    if ptr_data.len() % 4 != 0 {
+    if !ptr_data.len().is_multiple_of(4) {
         return Err(FileError::InvalidUsageMap {
             reason: "reference map pointer data not aligned to 4 bytes",
         });

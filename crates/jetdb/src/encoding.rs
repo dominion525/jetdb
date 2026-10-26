@@ -52,7 +52,7 @@ pub fn decode_latin1(bytes: &[u8]) -> String {
 /// Used for Jet4/ACE column names. Returns an error if the byte slice has
 /// an odd length or contains invalid surrogate pairs.
 pub fn decode_utf16le(bytes: &[u8]) -> Result<String, FormatError> {
-    if bytes.len() % 2 != 0 {
+    if !bytes.len().is_multiple_of(2) {
         return Err(FormatError::InvalidEncoding);
     }
     let u16s: Vec<u16> = bytes
