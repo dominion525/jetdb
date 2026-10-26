@@ -1269,6 +1269,12 @@ pre {
     white-space: normal;
   }
 
+  /* 狭い幅ではタブの余白と文字を少し詰め、インストールの 3 つのタブが 1 行に収まるようにする（360px 以上） */
+  .tab {
+    padding: 0 10px;
+    font-size: 0.9375rem;
+  }
+
   .viewer {
     grid-template-columns: minmax(0, 1fr);
   }

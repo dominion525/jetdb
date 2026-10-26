@@ -186,3 +186,18 @@ for (const [path, demo, label] of [
     await expect(page.locator("#demo-file")).toBeAttached();
   });
 }
+
+for (const path of ["/", "/ja/"] as const) {
+  test(`${path}: 375px でインストールのタブは 1 行に収まる`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 375, height: 800 });
+    await page.goto(path);
+    const tops = await page
+      .locator('#install [role="tab"]')
+      .evaluateAll((tabs) =>
+        tabs.map((t) => Math.round(t.getBoundingClientRect().top)),
+      );
+    expect(new Set(tops).size).toBe(1);
+  });
+}
