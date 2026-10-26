@@ -79,19 +79,20 @@ See [docs/cli.md](https://github.com/dominion525/jetdb/blob/main/docs/cli.md) fo
 ## Library Usage
 
 ```rust
-use jetdb::{PageReader, read_catalog, read_table_def, read_table_rows};
+use jetdb::{PageReader, find_table, read_catalog, read_table_def, read_table_rows, table_names};
 
 fn main() -> Result<(), jetdb::FileError> {
     let mut reader = PageReader::open("database.mdb")?;
 
     // List tables
-    let catalog = read_catalog(&mut reader)?;
-    for entry in &catalog {
-        println!("{}", entry.name);
+    let names = table_names(&mut reader)?;
+    for name in &names {
+        println!("{name}");
     }
 
     // Read table definition
-    let entry = &catalog[0];
+    let catalog = read_catalog(&mut reader)?;
+    let entry = find_table(&catalog, &names[0])?;
     let table_def = read_table_def(&mut reader, &entry.name, entry.table_page)?;
 
     // Read row data
