@@ -4001,4 +4001,180 @@ mod tests {
             .count();
         assert_eq!(controls, 5);
     }
+
+    /// A column of `col_type`, the variable-length column 0 of a row.
+    fn variable_column(col_type: ColumnType) -> ColumnDef {
+        ColumnDef {
+            name: "V".into(),
+            col_type,
+            col_num: 0,
+            var_col_num: 0,
+            fixed_offset: 0,
+            col_size: 0,
+            flags: 0x02,
+            is_fixed: false,
+            scale: 2,
+            precision: 18,
+            is_calculated: false,
+            display_index: 0,
+            complex_id: None,
+        }
+    }
+
+    /// The value of `bytes` read as the only variable-length column of a row,
+    /// of `col_type`.
+    fn variable_value(reader: &mut PageReader, col_type: ColumnType, bytes: &[u8]) -> Value {
+        let cracked = CrackedRow {
+            row_data: bytes,
+            col_count: 1,
+            null_mask: &[1],
+            var_col_count: 1,
+            var_offsets: vec![0, bytes.len() as u16],
+        };
+        read_variable_value(
+            &cracked,
+            &variable_column(col_type),
+            TextEncoding::Unicode,
+            reader,
+        )
+    }
+
+    /// Checks that each of `cases`, a type with bytes and the value they
+    /// hold, reads as the value, and as Null one byte short.
+    fn assert_variable_values(cases: Vec<(ColumnType, Vec<u8>, Value)>) {
+        // Fixed-size types are sometimes stored as variable-length, as in
+        // system tables.
+        let path = skip_if_missing!("V2003/testV2003.mdb");
+        let mut reader = PageReader::open(&path).unwrap();
+        for (col_type, bytes, expected) in cases {
+            assert_eq!(
+                variable_value(&mut reader, col_type, &bytes),
+                expected,
+                "{col_type:?}"
+            );
+            let short = &bytes[..bytes.len() - 1];
+            assert_eq!(
+                variable_value(&mut reader, col_type, short),
+                Value::Null,
+                "{col_type:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn variable_values_of_integer_types() {
+        assert_variable_values(vec![
+            (ColumnType::Byte, vec![7], Value::Byte(7)),
+            (ColumnType::Int, vec![0x34, 0x12], Value::Int(0x1234)),
+            (ColumnType::Long, vec![1, 0, 0, 0], Value::Long(1)),
+            (
+                ColumnType::BigInt,
+                2i64.to_le_bytes().to_vec(),
+                Value::BigInt(2),
+            ),
+            (ColumnType::ComplexType, vec![5, 0, 0, 0], Value::Long(5)),
+        ]);
+    }
+
+    #[test]
+    fn variable_values_of_other_fixed_size_types() {
+        let money = 12_345i64.to_le_bytes();
+        let mut numeric = [0u8; 17];
+        numeric[1] = 0x39;
+        let guid: Vec<u8> = (1..=16).collect();
+        let ext = ext_datetime_bytes(1, 2, 3);
+        assert_variable_values(vec![
+            (
+                ColumnType::Float,
+                1.5f32.to_le_bytes().to_vec(),
+                Value::Float(1.5),
+            ),
+            (
+                ColumnType::Double,
+                2.5f64.to_le_bytes().to_vec(),
+                Value::Double(2.5),
+            ),
+            (
+                ColumnType::Money,
+                money.to_vec(),
+                Value::Money(crate::money::money_to_string(&money)),
+            ),
+            (
+                ColumnType::Numeric,
+                numeric.to_vec(),
+                Value::Numeric(crate::money::numeric_to_string(&numeric, 2)),
+            ),
+            (
+                ColumnType::Timestamp,
+                3.25f64.to_le_bytes().to_vec(),
+                Value::Timestamp(3.25),
+            ),
+            (
+                ColumnType::Guid,
+                guid.clone(),
+                Value::Guid(format_guid(&guid)),
+            ),
+            (
+                ColumnType::DateTimeExtended,
+                ext.to_vec(),
+                Value::DateTimeExtended(parse_ext_datetime(&ext).unwrap()),
+            ),
+        ]);
+    }
+
+    #[test]
+    fn variable_values_that_cannot_be_read() {
+        let path = skip_if_missing!("V2003/testV2003.mdb");
+        let mut reader = PageReader::open(&path).unwrap();
+        // A DateTimeExtended that cannot be read is the bytes of the value.
+        let mut broken = ext_datetime_bytes(1, 2, 3).to_vec();
+        broken[19] = b'x';
+        broken.push(9);
+        assert_eq!(
+            variable_value(&mut reader, ColumnType::DateTimeExtended, &broken),
+            Value::Binary(broken.clone())
+        );
+        // A Boolean is not stored as variable-length.
+        assert_eq!(
+            variable_value(&mut reader, ColumnType::Boolean, &[1]),
+            Value::Null
+        );
+    }
+
+    #[test]
+    fn calculated_values_too_short_or_of_other_types() {
+        let read = |result_type, payload: &[u8]| {
+            read_calculated_value(&calc_envelope(payload), result_type, TextEncoding::Unicode)
+        };
+        assert_eq!(read(ColumnType::Byte, &[7]), Value::Byte(7));
+        assert_eq!(
+            read(ColumnType::Float, &1.5f32.to_le_bytes()),
+            Value::Float(1.5)
+        );
+        for (result_type, size) in [
+            (ColumnType::Int, 2),
+            (ColumnType::Long, 4),
+            (ColumnType::Float, 4),
+            (ColumnType::Double, 8),
+            (ColumnType::Money, 8),
+            (ColumnType::BigInt, 8),
+            (ColumnType::Timestamp, 8),
+            (ColumnType::Guid, 16),
+            (ColumnType::Numeric, 16),
+        ] {
+            assert_eq!(
+                read(result_type, &vec![1; size - 1]),
+                Value::Null,
+                "{result_type:?}"
+            );
+        }
+        assert_eq!(read(ColumnType::Byte, &[]), Value::Null);
+        assert_eq!(read(ColumnType::Boolean, &[]), Value::Null);
+        // A calculated value is not of these types, or not in these forms.
+        assert_eq!(read(ColumnType::ComplexType, &[1, 0, 0, 0]), Value::Null);
+        assert_eq!(read(ColumnType::Numeric, &[1; 8]), Value::Null);
+        let mut ext = ext_datetime_bytes(1, 2, 3).to_vec();
+        ext.push(0);
+        assert_eq!(read(ColumnType::DateTimeExtended, &ext), Value::Null);
+    }
 }
