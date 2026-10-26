@@ -120,7 +120,8 @@ pub fn read_table_rows(reader: &mut PageReader, table: &TableDef) -> Result<Read
 
 /// [`read_table_rows`] with the result types of the calculated columns
 /// already found, by [`calculated_column_types`] or
-/// [`calculated_column_types_in`], rather than read MSysObjects again.
+/// [`calculated_column_types_in`], rather than read MSysObjects again. A
+/// calculated column whose result type `calculated` does not give is `Null`.
 pub fn read_table_rows_with(
     reader: &mut PageReader,
     table: &TableDef,
@@ -841,11 +842,11 @@ fn read_column_value(
     // Access "Calculated" fields are always delivered through the
     // variable-length mechanism, whatever their nominal `col.col_type`
     // says (often just a generic placeholder -- see
-    // `read_calculated_value`'s doc comment).
+    // `read_calculated_value`'s doc comment). Without its result type the
+    // cached value cannot be read, so it is Null rather than the bytes read
+    // as the placeholder type.
     if col.is_calculated && !col.is_fixed {
-        if let Some(value) = read_calculated_column(cracked, col, reader, calculated) {
-            return value;
-        }
+        return read_calculated_column(cracked, col, reader, calculated).unwrap_or(Value::Null);
     }
 
     if col.is_fixed {
@@ -3709,6 +3710,33 @@ mod tests {
         assert_eq!(types.get("lastfirst"), Some(&ColumnType::Text));
         assert_eq!(types.get("firstname"), None);
         assert_eq!(types.len(), 11);
+    }
+
+    /// Calculated columns whose result types are not given are Null, not
+    /// their cached values read as the placeholder types; the other columns
+    /// are read as usual.
+    #[test]
+    fn calculated_columns_without_result_types_are_null() {
+        let path = skip_if_missing!("V2010/calcFieldTestV2010.accdb");
+        let mut reader = PageReader::open(&path).unwrap();
+        let catalog = crate::catalog::read_catalog(&mut reader).unwrap();
+        let entry = catalog.iter().find(|e| e.name == "Table1").unwrap();
+        let table =
+            crate::table::read_table_def(&mut reader, &entry.name, entry.table_page).unwrap();
+        let expected = read_table_rows(&mut reader, &table).unwrap().rows;
+        let rows = read_table_rows_with(&mut reader, &table, &HashMap::new())
+            .unwrap()
+            .rows;
+        assert_eq!(rows.len(), expected.len());
+        for (row, expected_row) in rows.iter().zip(&expected) {
+            for ((col, value), expected_value) in table.columns.iter().zip(row).zip(expected_row) {
+                if col.is_calculated {
+                    assert_eq!(*value, Value::Null, "{}", col.name);
+                } else {
+                    assert_eq!(value, expected_value, "{}", col.name);
+                }
+            }
+        }
     }
 
     fn text(s: &str) -> Value {
