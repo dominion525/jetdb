@@ -38,7 +38,7 @@ console.log(rows[0]);
 db.free();
 ```
 
-`Database.open` takes the bytes of the file, and the password of a password-protected .accdb file. Call `free()` when the database is no longer needed, or open it with `using` where JavaScript supports it, to release the memory it holds.
+`Database.open` takes the bytes of the file, and the password of a password-protected .accdb file. Call `free()` when the database is no longer needed, or open it with `using` where JavaScript supports it, to release the memory it holds. `free()` may be called more than once, and a method called after it throws a `JetdbError` with the code `DATABASE_FREED`.
 
 ## What It Reads
 

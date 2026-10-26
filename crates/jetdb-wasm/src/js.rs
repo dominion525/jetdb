@@ -504,13 +504,16 @@ export interface Rows {
  *   is not valid, such as a value of the wrong type or one outside its
  *   list, or with a name that objects of different types share and no
  *   `type` option to choose one.
+ * - `DATABASE_FREED`: a method was called after `free`, or after the end of
+ *   the block of the `using` that opened the database.
  * - `IO`: reading the bytes failed.
  */
 export type ErrorCode =
     | "PASSWORD_REQUIRED" | "INVALID_PASSWORD" | "UNSUPPORTED_ENCRYPTION"
     | "TABLE_NOT_FOUND" | "QUERY_NOT_FOUND" | "MODULE_NOT_FOUND"
     | "FORM_NOT_FOUND" | "MACRO_NOT_FOUND" | "OBJECT_NOT_FOUND"
-    | "INVALID_FILE" | "NOT_SUPPORTED" | "INVALID_ARGUMENT" | "IO";
+    | "INVALID_FILE" | "NOT_SUPPORTED" | "INVALID_ARGUMENT"
+    | "DATABASE_FREED" | "IO";
 
 /** The error that the methods of `Database` throw. */
 export interface JetdbError extends Error {
@@ -579,7 +582,8 @@ fn panic_message(info: &std::panic::PanicHookInfo) -> String {
 /// A Microsoft Access database opened from its bytes.
 #[wasm_bindgen(js_name = Database)]
 pub struct JsDatabase {
-    inner: Database,
+    /// The database, until `free` takes it.
+    inner: Option<Database>,
 }
 
 #[wasm_bindgen(js_class = Database)]
@@ -597,21 +601,40 @@ impl JsDatabase {
             None => None,
         };
         let inner = Database::open(bytes_of(&bytes)?, password.as_deref()).map_err(to_js_error)?;
-        Ok(JsDatabase { inner })
+        Ok(JsDatabase { inner: Some(inner) })
+    }
+
+    /// Releases the memory the database holds. Calling it again, or leaving
+    /// the block of a `using` that opened the database, does nothing, and a
+    /// method called after it throws DATABASE_FREED.
+    //
+    // wasm-bindgen 0.2.108 (pinned in Cargo.toml) generates a free() of its
+    // own, which frees the Rust value and sets the pointer to 0, so that a
+    // second call or a method called after it throws a plain Error, "null
+    // pointer passed to rust". The glue writes this method after that one in
+    // the class body, so this one is the free() of the class, and it sets
+    // Symbol.dispose to free() after the class body, so `using` calls this
+    // one too. The pointer stays valid, and the rest of the value is freed
+    // when the object is garbage-collected. The package smoke test calls
+    // free() twice, which fails if a later wasm-bindgen writes the methods
+    // in another order.
+    pub fn free(&mut self) {
+        self.inner = None;
     }
 
     /// The database engine version: `JET3`, `JET4`, `ACE12`, `ACE14`,
     /// `ACE15`, `ACE16`, or `ACE17`.
     #[wasm_bindgen(unchecked_return_type = "Version")]
-    pub fn version(&self) -> String {
-        self.inner.version().to_string()
+    pub fn version(&self) -> Result<String, JsValue> {
+        let database = self.inner.as_ref().ok_or_else(freed_error)?;
+        Ok(database.version().to_string())
     }
 
     /// The names of the user tables, sorted. With `{ system: true }`, the
     /// system and hidden tables are included too.
     pub fn tables(&mut self, options: Option<TablesOptions>) -> Result<Vec<String>, JsValue> {
         let include_system = option_bool(options.as_deref(), "system", false)?;
-        self.inner.tables(include_system).map_err(to_js_error)
+        self.database()?.tables(include_system).map_err(to_js_error)
     }
 
     /// The columns of a table in the order Access shows them, without the
@@ -622,7 +645,7 @@ impl JsDatabase {
         #[wasm_bindgen(unchecked_param_type = "string")] table: JsValue,
     ) -> Result<Array, JsValue> {
         let columns = self
-            .inner
+            .database()?
             .columns(&string_arg(&table, "table")?)
             .map_err(to_js_error)?;
         Ok(columns.iter().map(column_object).collect())
@@ -636,7 +659,7 @@ impl JsDatabase {
         #[wasm_bindgen(unchecked_param_type = "string")] table: JsValue,
     ) -> Result<Array, JsValue> {
         let indexes = self
-            .inner
+            .database()?
             .indexes(&string_arg(&table, "table")?)
             .map_err(to_js_error)?;
         Ok(indexes.iter().map(index_object).collect())
@@ -652,7 +675,7 @@ impl JsDatabase {
     ) -> Result<Array, JsValue> {
         let include_system = option_bool(options.as_deref(), "system", false)?;
         let relationships = self
-            .inner
+            .database()?
             .relationships(include_system)
             .map_err(to_js_error)?;
         Ok(relationships.iter().map(relationship_object).collect())
@@ -663,7 +686,10 @@ impl JsDatabase {
     #[wasm_bindgen(unchecked_return_type = "Query[]")]
     pub fn queries(&mut self, options: Option<QueriesOptions>) -> Result<Array, JsValue> {
         let include_system = option_bool(options.as_deref(), "system", false)?;
-        let queries = self.inner.queries(include_system).map_err(to_js_error)?;
+        let queries = self
+            .database()?
+            .queries(include_system)
+            .map_err(to_js_error)?;
         Ok(queries
             .iter()
             .map(|q| name_and_type(&q.name, q.type_name))
@@ -677,7 +703,7 @@ impl JsDatabase {
         &mut self,
         #[wasm_bindgen(unchecked_param_type = "string")] name: JsValue,
     ) -> Result<String, JsValue> {
-        self.inner
+        self.database()?
             .query_sql(&string_arg(&name, "name")?)
             .map_err(to_js_error)
     }
@@ -686,7 +712,7 @@ impl JsDatabase {
     /// and none for an Access 97 file, whose VBA jetdb does not read.
     #[wasm_bindgen(unchecked_return_type = "Module[]")]
     pub fn modules(&mut self) -> Result<Array, JsValue> {
-        let modules = self.inner.modules().map_err(to_js_error)?;
+        let modules = self.database()?.modules().map_err(to_js_error)?;
         Ok(modules
             .iter()
             .map(|m| name_and_type(&m.name, m.type_name))
@@ -700,7 +726,7 @@ impl JsDatabase {
         &mut self,
         #[wasm_bindgen(unchecked_param_type = "string")] name: JsValue,
     ) -> Result<String, JsValue> {
-        self.inner
+        self.database()?
             .module_source(&string_arg(&name, "name")?)
             .map_err(to_js_error)
     }
@@ -709,7 +735,7 @@ impl JsDatabase {
     /// whose form and report designs jetdb does not read.
     #[wasm_bindgen(unchecked_return_type = "Form[]")]
     pub fn forms(&mut self) -> Result<Array, JsValue> {
-        let forms = self.inner.forms().map_err(to_js_error)?;
+        let forms = self.database()?.forms().map_err(to_js_error)?;
         Ok(forms
             .iter()
             .map(|f| name_and_type(&f.name, f.type_name))
@@ -728,7 +754,7 @@ impl JsDatabase {
         let name = string_arg(&name, "name")?;
         let form_type = form_type_option(options.as_deref())?;
         let controls = self
-            .inner
+            .database()?
             .form_controls(&name, form_type)
             .map_err(|e| properties_error(e, &name))?;
         Ok(controls
@@ -758,7 +784,7 @@ impl JsDatabase {
         let form_type = form_type_option(options)?;
         let kind = option_stream_kind(options)?;
         let bytes = self
-            .inner
+            .database()?
             .form_stream(&name, kind, form_type)
             .map_err(|e| properties_error(e, &name))?;
         Ok(Uint8Array::from(bytes.as_slice()))
@@ -776,7 +802,7 @@ impl JsDatabase {
         let name = string_arg(&name, "name")?;
         let form_type = form_type_option(options.as_deref())?;
         let design = self
-            .inner
+            .database()?
             .form_properties(&name, form_type)
             .map_err(|e| properties_error(e, &name))?;
         let object = Object::new();
@@ -812,7 +838,7 @@ impl JsDatabase {
     /// too.
     pub fn macros(&mut self, options: Option<MacrosOptions>) -> Result<Vec<String>, JsValue> {
         let include_system = option_bool(options.as_deref(), "system", false)?;
-        self.inner.macros(include_system).map_err(to_js_error)
+        self.database()?.macros(include_system).map_err(to_js_error)
     }
 
     /// A named macro.
@@ -822,7 +848,7 @@ impl JsDatabase {
         #[wasm_bindgen(unchecked_param_type = "string")] name: JsValue,
     ) -> Result<Object, JsValue> {
         let m = self
-            .inner
+            .database()?
             .named_macro(&string_arg(&name, "name")?)
             .map_err(to_js_error)?;
         Ok(macro_object(m))
@@ -839,7 +865,7 @@ impl JsDatabase {
         let form = string_arg(&form, "form")?;
         let form_type = form_type_option(options.as_deref())?;
         let macros = self
-            .inner
+            .database()?
             .embedded_macros(&form, form_type)
             .map_err(|e| properties_error(e, &form))?;
         Ok(macros.into_iter().map(macro_object).collect())
@@ -852,7 +878,7 @@ impl JsDatabase {
         #[wasm_bindgen(unchecked_param_type = "string")] table: JsValue,
     ) -> Result<Array, JsValue> {
         let macros = self
-            .inner
+            .database()?
             .data_macros(&string_arg(&table, "table")?)
             .map_err(to_js_error)?;
         Ok(macros.into_iter().map(macro_object).collect())
@@ -865,7 +891,7 @@ impl JsDatabase {
         &mut self,
         #[wasm_bindgen(unchecked_param_type = "string")] table: JsValue,
     ) -> Result<String, JsValue> {
-        self.inner
+        self.database()?
             .data_macros_text(&string_arg(&table, "table")?)
             .map_err(to_js_error)
     }
@@ -884,7 +910,7 @@ impl JsDatabase {
             None => None,
         };
         let properties = self
-            .inner
+            .database()?
             .properties(&name, object_type)
             .map_err(|e| properties_error(e, &name))?;
         Ok(properties_object(properties))
@@ -913,7 +939,7 @@ impl JsDatabase {
         let table = option_string(options, "table")?;
         let indexes = option_bool(options, "indexes", true)?;
         let relations = option_bool(options, "relations", true)?;
-        self.inner
+        self.database()?
             .ddl(dialect, table.as_deref(), indexes, relations)
             .map_err(to_js_error)
     }
@@ -927,7 +953,7 @@ impl JsDatabase {
     ) -> Result<String, JsValue> {
         let table = string_arg(&table, "table")?;
         let options = csv_options(options.as_deref())?;
-        self.inner.csv(&table, &options).map_err(to_js_error)
+        self.database()?.csv(&table, &options).map_err(to_js_error)
     }
 
     /// The names of the columns, in the order of the table, and the rows of
@@ -946,7 +972,7 @@ impl JsDatabase {
         let start = option_start(options)?;
         let limit = option_limit(options)?;
         let rows = self
-            .inner
+            .database()?
             .rows_from(&table, start, limit)
             .map_err(to_js_error)?;
         let names: Vec<JsValue> = rows.columns.iter().map(|c| JsValue::from_str(c)).collect();
@@ -975,6 +1001,21 @@ impl JsDatabase {
                 .map_or(JsValue::NULL, |p| position_number(p).into()),
         );
         Ok(object)
+    }
+}
+
+/// The error of a method called after `free`.
+fn freed_error() -> JsValue {
+    jetdb_error(
+        "DATABASE_FREED",
+        "the database was freed; open it again to read it",
+    )
+}
+
+impl JsDatabase {
+    /// The database, or the error of a method called after `free`.
+    fn database(&mut self) -> Result<&mut Database, JsValue> {
+        self.inner.as_mut().ok_or_else(freed_error)
     }
 }
 
