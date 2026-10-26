@@ -365,3 +365,32 @@ fn form_props_shared_name_needs_type() {
         assert!(stdout.starts_with(header), "{object_type}: {stdout}");
     }
 }
+
+// ---------------------------------------------------------------------------
+// Access 97: forms and reports are not read
+// ---------------------------------------------------------------------------
+
+#[test]
+fn form_access97_not_read() {
+    // nwind.mdb has a form named Customers, in the format of Access 97.
+    let path = skip_if_missing!("V1997/nwind.mdb");
+    let output = jetdb_bin()
+        .args(["form", "list", path.to_str().unwrap()])
+        .output()
+        .expect("failed to run jetdb");
+    assert!(output.status.success());
+    assert!(output.stdout.is_empty(), "should list nothing");
+
+    for command in ["props", "controls", "dump"] {
+        let output = jetdb_bin()
+            .args(["form", command, path.to_str().unwrap(), "Customers"])
+            .output()
+            .expect("failed to run jetdb");
+        assert!(!output.status.success(), "{command}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("the forms and reports of Access 97 are not read"),
+            "{command}: {stderr}"
+        );
+    }
+}

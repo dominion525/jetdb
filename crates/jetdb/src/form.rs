@@ -226,7 +226,7 @@ pub(crate) fn stream_in(
     object_type: Option<FormObjectType>,
     stream_kind: StreamKind,
 ) -> Result<FormStream, FileError> {
-    let (object_type, stream_data) = find_stream(&storage.entries, name, object_type, stream_kind)?;
+    let (object_type, stream_data) = find_stream(storage, name, object_type, stream_kind)?;
 
     Ok(FormStream {
         name: name.to_string(),
@@ -267,9 +267,8 @@ pub fn read_form_type_info_in(
     name: &str,
     object_type: Option<FormObjectType>,
 ) -> Result<FormTypeInfo, FileError> {
-    let (object_type, stream_data) =
-        find_stream(&storage.entries, name, object_type, StreamKind::TypeInfo)?;
-    let names = blob_names(&storage.entries, name, object_type);
+    let (object_type, stream_data) = find_stream(storage, name, object_type, StreamKind::TypeInfo)?;
+    let names = blob_names(storage, name, object_type);
     let (controls, _) = type_info_named(&stream_data, storage.code_page, &names)?;
 
     Ok(FormTypeInfo {
@@ -706,8 +705,7 @@ pub fn read_form_properties_in(
     name: &str,
     object_type: Option<FormObjectType>,
 ) -> Result<FormProperties, FileError> {
-    let entries = &storage.entries;
-    let (object_type, blob_data) = find_stream(entries, name, object_type, StreamKind::Blob)?;
+    let (object_type, blob_data) = find_stream(storage, name, object_type, StreamKind::Blob)?;
 
     // The Access 2000 format keeps the type of each control in the Blob.
     if blob_data.first() == Some(&crate::form2000::VERSION) {
@@ -750,12 +748,7 @@ fn type_info_controls(
     object_type: FormObjectType,
     names: &[String],
 ) -> Vec<ControlInfo> {
-    match find_stream(
-        &storage.entries,
-        name,
-        Some(object_type),
-        StreamKind::TypeInfo,
-    ) {
+    match find_stream(storage, name, Some(object_type), StreamKind::TypeInfo) {
         Ok((_, ti_data)) => type_info_named(&ti_data, storage.code_page, names)
             .map(|(controls, _)| controls)
             .unwrap_or_default(),
@@ -799,12 +792,8 @@ fn name_in_blob(props: &[BlobProperty]) -> Option<String> {
 
 /// The names of the controls of the Blob of the object `name` of
 /// `object_type`, empty when it has none that can be read.
-fn blob_names(
-    entries: &[storage::StorageEntry],
-    name: &str,
-    object_type: FormObjectType,
-) -> Vec<String> {
-    let Ok((_, blob)) = find_stream(entries, name, Some(object_type), StreamKind::Blob) else {
+fn blob_names(storage: &AccessStorage, name: &str, object_type: FormObjectType) -> Vec<String> {
+    let Ok((_, blob)) = find_stream(storage, name, Some(object_type), StreamKind::Blob) else {
         return Vec::new();
     };
     if blob.first() == Some(&crate::form2000::VERSION) {
@@ -872,13 +861,18 @@ fn type_info_by_name<'a>(controls: &'a [ControlInfo], name: &str) -> Option<&'a 
 ///
 /// Searches the Forms folder and then the Reports folder, or only the one
 /// of `object_type` when it is given. Returns the object type and the
-/// stream binary data.
+/// stream binary data. Fails in an Access 97 database, whose forms and
+/// reports jetdb does not read.
 fn find_stream(
-    entries: &[storage::StorageEntry],
+    storage: &AccessStorage,
     name: &str,
     object_type: Option<FormObjectType>,
     stream_kind: StreamKind,
 ) -> Result<(FormObjectType, Vec<u8>), FileError> {
+    if storage.jet3 {
+        return Err(FileError::Jet3FormsNotRead);
+    }
+    let entries = &storage.entries;
     // Try Forms first, then Reports
     for (folder_name, obj_type) in FORM_FOLDERS {
         if object_type.is_some_and(|t| t != obj_type) {
@@ -1548,6 +1542,27 @@ pub(crate) mod tests {
         let mut reader = PageReader::open(&path).unwrap();
         let forms = list_forms(&mut reader).unwrap();
         assert!(forms.is_empty(), "expected no forms in plain test database");
+    }
+
+    #[test]
+    fn access97_forms_not_read() {
+        // nwind.mdb has a form named Customers, in the format of Access 97:
+        // none is listed, and reading one fails as not read, not as not found.
+        let path = skip_if_missing!("V1997/nwind.mdb");
+        let mut reader = PageReader::open(&path).unwrap();
+        assert!(list_forms(&mut reader).unwrap().is_empty());
+        assert!(matches!(
+            read_form_stream(&mut reader, "Customers", StreamKind::Blob),
+            Err(FileError::Jet3FormsNotRead)
+        ));
+        assert!(matches!(
+            read_form_type_info(&mut reader, "Customers"),
+            Err(FileError::Jet3FormsNotRead)
+        ));
+        assert!(matches!(
+            read_form_properties_of_type(&mut reader, "Customers", FormObjectType::Report),
+            Err(FileError::Jet3FormsNotRead)
+        ));
     }
 
     // -- Blob parser unit tests (synthetic binary) ----------------------------

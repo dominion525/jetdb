@@ -392,6 +392,8 @@ End Function
 
 ### form — フォーム/レポートの管理
 
+Access 97 (Jet3) のデータベースのフォームとレポートは別の形式で保存されており、jetdb は読まない。`form list` は何も出力せず、`form dump`・`form controls`・`form props` は読まないことを伝えるエラーで失敗する。
+
 #### form list — フォーム/レポート名の一覧表示
 
 ```
