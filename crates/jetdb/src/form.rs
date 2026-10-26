@@ -1025,6 +1025,12 @@ fn parse_blob(data: &[u8]) -> Result<(Vec<BlobProperty>, Vec<BlobControl>), File
 /// of the form or report, of its pages and of its groups.
 const SECTIONS: std::ops::RangeInclusive<u16> = 0x98..=0x9E;
 
+/// How deep the nodes of the tree a Blob keeps may nest, in both formats.
+/// The reading, the listing and the drop of the tree recur on each level,
+/// and a file can nest them deep enough to use up the stack, which is 1 MB
+/// in Wasm. Forms and reports Access makes nest a few levels.
+pub(crate) const MAX_TREE_DEPTH: usize = 256;
+
 /// A node of the tree a Blob keeps: a default control, a section or a
 /// control, with the nodes in it.
 struct BlobNode {
@@ -1038,7 +1044,7 @@ struct BlobNode {
 /// that ended with `end`, in the order of the Blob: each section followed by
 /// its controls. `None` when the bytes do not read to the end as a tree.
 fn controls_of_tree(data: &[u8], mut pos: usize, end: u32) -> Option<Vec<BlobControl>> {
-    let nodes = parse_nodes(data, &mut pos, end)?;
+    let nodes = parse_nodes(data, &mut pos, end, 0)?;
     if pos != data.len() {
         return None;
     }
@@ -1065,7 +1071,8 @@ fn push_with_children(node: BlobNode, out: &mut Vec<BlobControl>) {
 /// for 253, one for 254, and a count (u16) of them for 255. Each node is its
 /// type (u16), 4 bytes jetdb does not use, a group of entries, and the nodes
 /// that follow it: the controls of a section, the pages of a tab control.
-fn parse_nodes(data: &[u8], pos: &mut usize, end: u32) -> Option<Vec<BlobNode>> {
+/// `depth` is the number of nodes the nodes are in.
+fn parse_nodes(data: &[u8], pos: &mut usize, end: u32, depth: usize) -> Option<Vec<BlobNode>> {
     let count = match end {
         253 => 0,
         254 => 1,
@@ -1078,17 +1085,22 @@ fn parse_nodes(data: &[u8], pos: &mut usize, end: u32) -> Option<Vec<BlobNode>> 
     // The count comes from the file: grow as nodes are read.
     let mut nodes = Vec::new();
     for _ in 0..count {
-        nodes.push(parse_node(data, pos)?);
+        nodes.push(parse_node(data, pos, depth)?);
     }
     Some(nodes)
 }
 
-fn parse_node(data: &[u8], pos: &mut usize) -> Option<BlobNode> {
+/// The node at `pos`, in `depth` nodes; `None` when that would nest the
+/// nodes deeper than [`MAX_TREE_DEPTH`].
+fn parse_node(data: &[u8], pos: &mut usize, depth: usize) -> Option<BlobNode> {
+    if depth == MAX_TREE_DEPTH {
+        return None;
+    }
     let b = data.get(*pos..*pos + 6)?;
     let type_code = u16::from_le_bytes([b[0], b[1]]);
     let (properties, next, end) = parse_group(data, *pos + 6, data.len());
     *pos = next;
-    let children = parse_nodes(data, pos, end?)?;
+    let children = parse_nodes(data, pos, end?, depth + 1)?;
     Some(BlobNode {
         type_code,
         properties,
@@ -1253,7 +1265,7 @@ fn parse_section_props(data: &[u8], start: usize, end: usize) -> Vec<BlobPropert
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::save_as_text;
     use std::collections::HashMap;
@@ -1945,6 +1957,60 @@ mod tests {
             let section = parse_section_props(&entries, 0, entries.len());
             assert_eq!(section.len(), 2, "{end}");
         }
+    }
+
+    /// Runs `f` on a thread with the stack of Wasm, 1 MB; in Wasm, which has
+    /// no threads, on its own stack.
+    pub(crate) fn on_small_stack<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
+        if cfg!(target_family = "wasm") {
+            return f();
+        }
+        std::thread::Builder::new()
+            .stack_size(1 << 20)
+            .spawn(f)
+            .unwrap()
+            .join()
+            .unwrap()
+    }
+
+    /// A Blob whose tree nests `depth` nodes, one in each: a section, and
+    /// controls in it and in each other.
+    fn nested_blob(depth: usize) -> Vec<u8> {
+        let last = |end: u32| {
+            let mut value = vec![0x01];
+            value.extend_from_slice(&end.to_le_bytes());
+            make_entry(0x0029, 0x01, 1, 1, &value)
+        };
+        let mut data = make_blob(&last(254));
+        for level in 1..=depth {
+            let type_code: u16 = if level == 1 { 0x98 } else { 0x64 };
+            data.extend_from_slice(&type_code.to_le_bytes());
+            data.extend_from_slice(&[0; 4]);
+            data.extend(last(if level == depth { 253 } else { 254 }));
+        }
+        data
+    }
+
+    #[test]
+    fn a_tree_nests_up_to_the_limit() {
+        // Within the limit, each node is a control; deeper, the tree is not
+        // read, and no control is found by its name.
+        let (props, controls) =
+            on_small_stack(|| parse_blob(&nested_blob(MAX_TREE_DEPTH)).unwrap());
+        assert_eq!(props.len(), 1);
+        assert_eq!(controls.len(), MAX_TREE_DEPTH);
+        let (props, controls) =
+            on_small_stack(|| parse_blob(&nested_blob(MAX_TREE_DEPTH + 1)).unwrap());
+        assert_eq!(props.len(), 1);
+        assert!(controls.is_empty());
+    }
+
+    #[test]
+    fn deep_nesting_is_not_read_as_a_tree_rather_than_overflowing_the_stack() {
+        // 100,000 levels, which would use up the stack reading the tree and
+        // dropping it.
+        let (_, controls) = on_small_stack(|| parse_blob(&nested_blob(100_000)).unwrap());
+        assert!(controls.is_empty());
     }
 
     #[test]

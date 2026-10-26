@@ -21,7 +21,7 @@
 
 use crate::data::format_guid;
 use crate::encoding;
-use crate::form::{BlobProperty, BlobValue, ControlProperties};
+use crate::form::{BlobProperty, BlobValue, ControlProperties, MAX_TREE_DEPTH};
 
 /// The first byte of the Blob of a form or report in the Access 2000 format.
 pub(crate) const VERSION: u8 = 0x13;
@@ -128,7 +128,8 @@ impl Reader<'_> {
         }
     }
 
-    fn list(&mut self) -> Option<Vec<Entry>> {
+    /// The entries of a list in `depth` entries.
+    fn list(&mut self, depth: usize) -> Option<Vec<Entry>> {
         let count = match self.byte()? {
             0xFF => self.u16()?,
             0xFE => 1,
@@ -137,19 +138,24 @@ impl Reader<'_> {
         // The count comes from the file: grow as entries are read.
         let mut entries = Vec::new();
         for _ in 0..count {
-            entries.push(self.entry()?);
+            entries.push(self.entry(depth)?);
         }
         Some(entries)
     }
 
-    fn entry(&mut self) -> Option<Entry> {
+    /// An entry in `depth` entries; `None` when that would nest the entries
+    /// deeper than [`MAX_TREE_DEPTH`].
+    fn entry(&mut self, depth: usize) -> Option<Entry> {
+        if depth == MAX_TREE_DEPTH {
+            return None;
+        }
         let type_code = self.u16()?;
         let props = self.props()?;
         let children = if self.data.get(self.pos) == Some(&0xFD) {
             self.pos += 1;
             None
         } else {
-            Some(self.list()?)
+            Some(self.list(depth + 1)?)
         };
         Some(Entry {
             type_code,
@@ -166,7 +172,7 @@ pub(crate) fn read(data: &[u8]) -> Option<(Vec<BlobProperty>, Vec<ControlPropert
     // The properties of the object follow its type, at 8.
     let mut reader = Reader { data, pos: 10 };
     let object = reader.props()?;
-    let entries = reader.list()?;
+    let entries = reader.list(0)?;
     if reader.pos != data.len() {
         return None;
     }
@@ -996,6 +1002,7 @@ const TYPE_156: Table = &[(0xDF, 0x0014, Kind::Text), (0xE7, 0x0178, Kind::Guid)
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::form::tests::on_small_stack;
     use crate::form::{
         list_forms, read_form_properties_of_type, read_form_stream_of_type, FormObjectType,
         StreamKind,
@@ -1085,6 +1092,32 @@ mod tests {
         assert!(read(&blob(&[0x30, 2], &[])).is_none());
         assert!(read(&blob(&[], &[0xFF, 5, 0, 109, 0, 0xFD])).is_none());
         assert!(read(&blob(&[], &[0xFF, 0, 0, 0x00])).is_none());
+    }
+
+    /// A Blob whose tree nests `depth` entries, one in each list (FE): a
+    /// section, and controls in it and in each other, the last ending (FD).
+    fn nested_blob(depth: usize) -> Vec<u8> {
+        let mut rest = vec![0xFE, 152, 0];
+        for _ in 1..depth {
+            rest.extend([0xFE, 100, 0]);
+        }
+        rest.push(0xFD);
+        blob(&[], &rest)
+    }
+
+    #[test]
+    fn entries_nest_up_to_the_limit() {
+        let read_nested = |depth| on_small_stack(move || read(&nested_blob(depth)));
+        let (_, controls) = read_nested(MAX_TREE_DEPTH).unwrap();
+        assert_eq!(controls.len(), MAX_TREE_DEPTH);
+        assert!(read_nested(MAX_TREE_DEPTH + 1).is_none());
+    }
+
+    #[test]
+    fn deep_nesting_is_none_rather_than_a_stack_overflow() {
+        // 100,000 levels, which would use up the stack reading the tree and
+        // dropping it.
+        assert!(on_small_stack(|| read(&nested_blob(100_000))).is_none());
     }
 
     /// The names of the forms and reports of the Access 2000 format in
