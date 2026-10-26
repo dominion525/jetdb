@@ -829,8 +829,9 @@ fn read_column_value(
 ) -> Value {
     let text = reader.text_encoding();
     // Boolean is special: value comes from the null mask. A calculated
-    // Boolean is not stored there; its cached value is read below.
-    if col.col_type == ColumnType::Boolean && !col.is_calculated {
+    // Boolean, stored as variable-length, is not stored there; its cached
+    // value is read below. A fixed-length one has only its null mask bit.
+    if col.col_type == ColumnType::Boolean && (col.is_fixed || !col.is_calculated) {
         return Value::Bool(!is_null(cracked.null_mask, col.col_num));
     }
 
@@ -2597,6 +2598,33 @@ mod tests {
             read_column_value(&cracked, &col, false, &mut reader, &calculated),
             Value::Bool(false)
         );
+    }
+
+    #[test]
+    fn dispatch_calculated_fixed_boolean_from_null_mask() {
+        // A calculated column is stored as variable-length; a fixed-length
+        // Boolean marked calculated has nothing in the row but its bit of the
+        // null mask, so that bit is its value, as for any other Boolean.
+        let path = skip_if_missing!("V2003/testV2003.mdb");
+        let mut reader = PageReader::open(&path).unwrap();
+
+        let mut row_data = vec![0x02, 0x00]; // col_count = 2
+        row_data.extend_from_slice(&[0x00, 0x00]); // fixed data placeholder
+        row_data.extend_from_slice(&4u16.to_le_bytes()); // EOD
+        row_data.extend_from_slice(&0u16.to_le_bytes()); // var_col_count = 0
+        row_data.push(0b00000010); // null_mask: col 1 NOT NULL, col 0 NULL
+        let cracked = crack_row_jet4(&row_data).unwrap();
+
+        let calculated = HashMap::from([("flag".to_string(), ColumnType::Boolean)]);
+        let mut read = |col_num| {
+            let column = ColumnDef {
+                is_calculated: true,
+                ..boolean_column(col_num)
+            };
+            read_column_value(&cracked, &column, false, &mut reader, &calculated)
+        };
+        assert_eq!(read(1), Value::Bool(true));
+        assert_eq!(read(0), Value::Bool(false));
     }
 
     // -- ACE12/ACE14 LVAL overflow --------------------------------------------
