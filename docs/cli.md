@@ -292,7 +292,8 @@ such as a table or query. Properties are grouped into object-level,
 per-column, and additional property maps. The heading of the object-level
 properties names the type of the object, such as `Table Properties:` or
 `Query Properties:`, and is `Object Properties:` for an object of a type
-jetdb does not know.
+jetdb does not know. The object-level properties come first, and the other
+maps follow in the order the database stores them.
 
 Objects of different types can share a name, such as a table and a form
 both named `Customers`. The command then fails and lists the types; name
