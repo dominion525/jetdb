@@ -156,6 +156,24 @@ function setUpCardRows(list: HTMLElement): void {
 for (const tablist of document.querySelectorAll('[role="tablist"]')) {
   setUpTabs(tablist);
 }
+// ---- 横にスクロールする表 ----
+
+// 表が枠より広く、まだ右に続きがある間だけ、枠の右端のかすむ帯（CSS の ::after）を出す
+function setUpTableScroll(scroll: HTMLElement): void {
+  const wrap = scroll.querySelector<HTMLElement>(".table-wrap");
+  if (!wrap) return;
+  const update = () => {
+    const more = wrap.scrollLeft + wrap.clientWidth < wrap.scrollWidth - 1;
+    scroll.classList.toggle("is-scrollable", more);
+  };
+  update();
+  wrap.addEventListener("scroll", update, { passive: true });
+  window.addEventListener("resize", update);
+}
+
 for (const list of document.querySelectorAll<HTMLElement>(".reads")) {
   setUpCardRows(list);
+}
+for (const scroll of document.querySelectorAll<HTMLElement>(".table-scroll")) {
+  setUpTableScroll(scroll);
 }

@@ -115,3 +115,19 @@ for (const width of [1280, 375]) {
     await expect(pre).toContainText("ORDER BY");
   });
 }
+
+test("比較表は、横に続きがある間だけ右端にかすむ帯を出す", async ({ page }) => {
+  const band = (p: typeof page) =>
+    p
+      .locator("#compare .table-scroll")
+      .evaluate((e) => getComputedStyle(e, "::after").opacity);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto("/");
+  expect(await band(page)).toBe("0");
+  await page.setViewportSize({ width: 375, height: 800 });
+  await expect.poll(() => band(page)).toBe("1");
+  await page.locator("#compare .table-wrap").evaluate((e) => {
+    e.scrollLeft = e.scrollWidth;
+  });
+  await expect.poll(() => band(page)).toBe("0");
+});

@@ -206,3 +206,22 @@ describe("読めるもののカードの高さ", () => {
     expect($("#c1").style.minHeight).toBe(`${h2}px`);
   });
 });
+
+const TABLE_HTML = `
+  <div class="table-scroll" id="wide"><div class="table-wrap" style="width: 200px; overflow-x: auto"><table style="width: 600px"><tr><td>a</td></tr></table></div></div>
+  <div class="table-scroll" id="fits"><div class="table-wrap" style="width: 200px; overflow-x: auto"><table style="width: 100px"><tr><td>a</td></tr></table></div></div>`;
+
+describe("横にスクロールする表", () => {
+  it("枠より広い表にだけ印を付け、右端まで行ったら外す", async () => {
+    await loadMain(TABLE_HTML);
+    expect($("#wide").classList.contains("is-scrollable")).toBe(true);
+    expect($("#fits").classList.contains("is-scrollable")).toBe(false);
+    const wrap = $("#wide .table-wrap");
+    wrap.scrollLeft = 1000;
+    wrap.dispatchEvent(new Event("scroll"));
+    expect($("#wide").classList.contains("is-scrollable")).toBe(false);
+    wrap.scrollLeft = 0;
+    wrap.dispatchEvent(new Event("scroll"));
+    expect($("#wide").classList.contains("is-scrollable")).toBe(true);
+  });
+});

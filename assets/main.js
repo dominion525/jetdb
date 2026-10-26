@@ -144,6 +144,23 @@ function setUpCardRows(list) {
 for (const tablist of document.querySelectorAll('[role="tablist"]')) {
     setUpTabs(tablist);
 }
+// ---- 横にスクロールする表 ----
+// 表が枠より広く、まだ右に続きがある間だけ、枠の右端のかすむ帯（CSS の ::after）を出す
+function setUpTableScroll(scroll) {
+    const wrap = scroll.querySelector(".table-wrap");
+    if (!wrap)
+        return;
+    const update = () => {
+        const more = wrap.scrollLeft + wrap.clientWidth < wrap.scrollWidth - 1;
+        scroll.classList.toggle("is-scrollable", more);
+    };
+    update();
+    wrap.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
+}
 for (const list of document.querySelectorAll(".reads")) {
     setUpCardRows(list);
+}
+for (const scroll of document.querySelectorAll(".table-scroll")) {
+    setUpTableScroll(scroll);
 }

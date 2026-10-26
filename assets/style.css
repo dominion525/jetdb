@@ -439,6 +439,28 @@ pre {
   border-radius: var(--radius);
 }
 
+/* 表が横にスクロールできる間、右端にかすむ帯を重ねて、続きがあることを見せる。
+   帯の出し入れは src/main.ts（is-scrollable を付け外しする） */
+.table-scroll {
+  position: relative;
+}
+.table-scroll::after {
+  content: "";
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  bottom: 1px;
+  width: 56px;
+  pointer-events: none;
+  border-radius: 0 var(--radius) var(--radius) 0;
+  background: linear-gradient(to right, rgb(255 255 255 / 0), var(--bg) 70%);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.table-scroll.is-scrollable::after {
+  opacity: 1;
+}
+
 .compare {
   width: 100%;
   min-width: 560px;

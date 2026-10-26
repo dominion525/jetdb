@@ -315,130 +315,132 @@ End</code></pre>
       <section class="section" id="compare" aria-labelledby="compare-title">
         <div class="container">
           <h2 id="compare-title">ほかのツールとの比較</h2>
-          <div
-            class="table-wrap"
-            tabindex="0"
-            role="region"
-            aria-labelledby="compare-title"
-          >
-            <table class="compare">
-              <thead>
-                <tr>
-                  <th scope="col"><span class="visually-hidden">機能</span></th>
-                  <th scope="col" class="me">jetdb<span class="ver">0.4.0</span></th>
-                  <th scope="col">MDB Tools<span class="ver"><a href="https://github.com/mdbtools/mdbtools/releases/tag/v1.0.1">1.0.1</a></span></th>
-                  <th scope="col">Jackcess<span class="ver"><a href="https://central.sonatype.com/artifact/com.healthmarketscience.jackcess/jackcess/5.0.3">5.0.3</a> / <a href="https://github.com/spannm/jackcess/releases/tag/jackcess-5.1.7">フォーク 5.1.7</a></span></th>
-                  <th scope="col">mdb-reader<span class="ver"><a href="https://www.npmjs.com/package/mdb-reader/v/3.2.0">3.2.0</a></span></th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <th scope="row">実装言語</th>
-                  <td class="me">Rust</td>
-                  <td>C</td>
-                  <td>Java</td>
-                  <td>TypeScript</td>
-                </tr>
-                <tr>
-                  <th scope="row">ライセンス</th>
-                  <td class="me">MIT OR Apache-2.0</td>
-                  <td>LGPL / GPL</td>
-                  <td>Apache-2.0</td>
-                  <td>MIT</td>
-                </tr>
-                <tr>
-                  <th scope="row">.mdb と .accdb の両方</th>
-                  <td class="me">○</td>
-                  <td>○</td>
-                  <td>○</td>
-                  <td>○</td>
-                </tr>
-                <tr>
-                  <th scope="row">VBA の取り出し</th>
-                  <td class="me">○</td>
-                  <td>×</td>
-                  <td>×</td>
-                  <td>×</td>
-                </tr>
-                <tr>
-                  <th scope="row">名前付きマクロ</th>
-                  <td class="me">○</td>
-                  <td>×</td>
-                  <td>×</td>
-                  <td>×</td>
-                </tr>
-                <tr>
-                  <th scope="row">埋め込みマクロ（フォーム/レポート）</th>
-                  <td class="me">○</td>
-                  <td>×</td>
-                  <td>×</td>
-                  <td>×</td>
-                </tr>
-                <tr>
-                  <th scope="row">データマクロ（テーブル）</th>
-                  <td class="me">○</td>
-                  <td>×</td>
-                  <td>×</td>
-                  <td>×</td>
-                </tr>
-                <tr>
-                  <th scope="row">フォーム/レポートの定義</th>
-                  <td class="me">○</td>
-                  <td>×</td>
-                  <td>×</td>
-                  <td>×</td>
-                </tr>
-                <tr>
-                  <th scope="row">クエリの SQL</th>
-                  <td class="me">○</td>
-                  <td>△</td>
-                  <td>○</td>
-                  <td>×</td>
-                </tr>
-                <tr>
-                  <th scope="row">DDL 生成</th>
-                  <td class="me">○</td>
-                  <td>○</td>
-                  <td>×</td>
-                  <td>×</td>
-                </tr>
-                <tr>
-                  <th scope="row">添付ファイル列の中身</th>
-                  <td class="me">○</td>
-                  <td>×</td>
-                  <td>○</td>
-                  <td>○</td>
-                </tr>
-                <tr>
-                  <th scope="row">パスワード付きの .accdb</th>
-                  <td class="me">○</td>
-                  <td>×</td>
-                  <td>△</td>
-                  <td>△</td>
-                </tr>
-                <tr>
-                  <th scope="row">CLI</th>
-                  <td class="me">○</td>
-                  <td>○</td>
-                  <td>×</td>
-                  <td>×</td>
-                </tr>
-                <tr>
-                  <th scope="row">ブラウザで動く</th>
-                  <td class="me">○</td>
-                  <td>×</td>
-                  <td>×</td>
-                  <td>○</td>
-                </tr>
-                <tr>
-                  <th scope="row">書き込み</th>
-                  <td class="me">×</td>
-                  <td>△</td>
-                  <td>○</td>
-                  <td>×</td>
-                </tr>
-              </tbody>
-            </table>
+          <div class="table-scroll">
+            <div
+              class="table-wrap"
+              tabindex="0"
+              role="region"
+              aria-labelledby="compare-title"
+            >
+              <table class="compare">
+                <thead>
+                  <tr>
+                    <th scope="col"><span class="visually-hidden">機能</span></th>
+                    <th scope="col" class="me">jetdb<span class="ver">0.4.0</span></th>
+                    <th scope="col">MDB Tools<span class="ver"><a href="https://github.com/mdbtools/mdbtools/releases/tag/v1.0.1">1.0.1</a></span></th>
+                    <th scope="col">Jackcess<span class="ver"><a href="https://central.sonatype.com/artifact/com.healthmarketscience.jackcess/jackcess/5.0.3">5.0.3</a> / <a href="https://github.com/spannm/jackcess/releases/tag/jackcess-5.1.7">フォーク 5.1.7</a></span></th>
+                    <th scope="col">mdb-reader<span class="ver"><a href="https://www.npmjs.com/package/mdb-reader/v/3.2.0">3.2.0</a></span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <th scope="row">実装言語</th>
+                    <td class="me">Rust</td>
+                    <td>C</td>
+                    <td>Java</td>
+                    <td>TypeScript</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">ライセンス</th>
+                    <td class="me">MIT OR Apache-2.0</td>
+                    <td>LGPL / GPL</td>
+                    <td>Apache-2.0</td>
+                    <td>MIT</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">.mdb と .accdb の両方</th>
+                    <td class="me">○</td>
+                    <td>○</td>
+                    <td>○</td>
+                    <td>○</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">VBA の取り出し</th>
+                    <td class="me">○</td>
+                    <td>×</td>
+                    <td>×</td>
+                    <td>×</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">名前付きマクロ</th>
+                    <td class="me">○</td>
+                    <td>×</td>
+                    <td>×</td>
+                    <td>×</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">埋め込みマクロ（フォーム/レポート）</th>
+                    <td class="me">○</td>
+                    <td>×</td>
+                    <td>×</td>
+                    <td>×</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">データマクロ（テーブル）</th>
+                    <td class="me">○</td>
+                    <td>×</td>
+                    <td>×</td>
+                    <td>×</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">フォーム/レポートの定義</th>
+                    <td class="me">○</td>
+                    <td>×</td>
+                    <td>×</td>
+                    <td>×</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">クエリの SQL</th>
+                    <td class="me">○</td>
+                    <td>△</td>
+                    <td>○</td>
+                    <td>×</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">DDL 生成</th>
+                    <td class="me">○</td>
+                    <td>○</td>
+                    <td>×</td>
+                    <td>×</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">添付ファイル列の中身</th>
+                    <td class="me">○</td>
+                    <td>×</td>
+                    <td>○</td>
+                    <td>○</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">パスワード付きの .accdb</th>
+                    <td class="me">○</td>
+                    <td>×</td>
+                    <td>△</td>
+                    <td>△</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">CLI</th>
+                    <td class="me">○</td>
+                    <td>○</td>
+                    <td>×</td>
+                    <td>×</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">ブラウザで動く</th>
+                    <td class="me">○</td>
+                    <td>×</td>
+                    <td>×</td>
+                    <td>○</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">書き込み</th>
+                    <td class="me">×</td>
+                    <td>△</td>
+                    <td>○</td>
+                    <td>×</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
           <p class="note">○ 対応　△ 一部対応・条件付き　× 非対応</p>
           <p class="note">○ は Access 2000 以降で使えるもの。Access 97 だけの例外は注記に書きます。</p>
