@@ -120,12 +120,12 @@ jobs:
 
       - name: Package (Unix)
         if: matrix.archive == 'tar.gz'
-        run: tar czf jetdb-${{ matrix.target }}.tar.gz -C target/release jetdb
+        run: tar czf jetdb-${{ matrix.target }}.tar.gz LICENSE-MIT LICENSE-APACHE -C target/release jetdb
 
       - name: Package (Windows)
         if: matrix.archive == 'zip'
         shell: pwsh
-        run: Compress-Archive -Path target/release/jetdb.exe -DestinationPath jetdb-${{ matrix.target }}.zip
+        run: Compress-Archive -Path target/release/jetdb.exe, LICENSE-MIT, LICENSE-APACHE -DestinationPath jetdb-${{ matrix.target }}.zip
 
       - uses: actions/upload-artifact@v4
         with:
