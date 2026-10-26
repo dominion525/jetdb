@@ -131,51 +131,26 @@ pub fn list_forms(reader: &mut PageReader) -> Result<Vec<FormEntry>, FileError> 
     list_forms_in(&storage::read_access_storage(reader)?)
 }
 
+/// The folders of forms and of reports in the storage, in the order jetdb
+/// looks in them.
+const FORM_FOLDERS: [(&str, FormObjectType); 2] = [
+    ("Forms", FormObjectType::Form),
+    ("Reports", FormObjectType::Report),
+];
+
 /// [`list_forms`] in the storage already read.
 pub fn list_forms_in(storage: &AccessStorage) -> Result<Vec<FormEntry>, FileError> {
     let entries = &storage.entries;
-    if entries.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let root_id = storage::find_root_id(entries);
-
     let mut result = Vec::new();
-
-    // Collect forms
-    if let Some(forms_folder) = entries
-        .iter()
-        .find(|e| e.parent_id == root_id && e.name == "Forms" && storage::is_storage(e))
-    {
-        let dir = storage::find_dir_data(entries, forms_folder.id);
-        if let Some(dir_data) = dir {
-            let mapping = storage::parse_dir_data(&dir_data.data)?;
-            for (name, _storage_num) in mapping {
-                result.push(FormEntry {
-                    name,
-                    object_type: FormObjectType::Form,
-                });
-            }
+    // Collect forms, then reports
+    for (folder_name, object_type) in FORM_FOLDERS {
+        let Some(folder) = storage::find_top_folder(entries, folder_name) else {
+            continue;
+        };
+        for (name, _storage_num) in storage::folder_mapping(entries, folder)? {
+            result.push(FormEntry { name, object_type });
         }
     }
-
-    // Collect reports
-    if let Some(reports_folder) = entries
-        .iter()
-        .find(|e| e.parent_id == root_id && e.name == "Reports" && storage::is_storage(e))
-    {
-        let dir = storage::find_dir_data(entries, reports_folder.id);
-        if let Some(dir_data) = dir {
-            let mapping = storage::parse_dir_data(&dir_data.data)?;
-            for (name, _storage_num) in mapping {
-                result.push(FormEntry {
-                    name,
-                    object_type: FormObjectType::Report,
-                });
-            }
-        }
-    }
-
     Ok(result)
 }
 
@@ -562,69 +537,73 @@ fn name_in(table: &[(u16, &'static str)], prop_id: u16) -> Option<&'static str> 
 }
 
 /// Return the known control type name for a given TypeInfo type_code, or `None`.
+/// The control types jetdb knows by their codes, sorted by code: the codes of
+/// TypeInfo for form controls (0x06xx to 0x24xx), report controls (0x1Bxx)
+/// and sections (0x18xx, 0x19xx, 0x1Fxx), and the types in the Blob, of the
+/// Access 2000 format and of the tree of later formats (0x0064 to 0x009E),
+/// which are the acControlType of Access. 0x0099 and 0x009A are the header
+/// and footer of a form or of a report, so not named here.
+const CONTROL_TYPE_NAMES: &[(u16, &str)] = &[
+    (0x0064, "Label"),
+    (0x0065, "Rectangle"),
+    (0x0066, "Line"),
+    (0x0067, "Image"),
+    (0x0068, "CommandButton"),
+    (0x0069, "OptionButton"),
+    (0x006A, "CheckBox"),
+    (0x006B, "OptionGroup"),
+    (0x006C, "BoundObjectFrame"),
+    (0x006D, "TextBox"),
+    (0x006E, "ListBox"),
+    (0x006F, "ComboBox"),
+    (0x0070, "SubForm"),
+    (0x0072, "ObjectFrame"),
+    (0x0076, "PageBreak"),
+    (0x0077, "CustomControl"),
+    (0x007A, "ToggleButton"),
+    (0x007B, "TabControl"),
+    (0x007C, "Page"),
+    (0x0098, "Detail"),
+    (0x009B, "PageHeader"),
+    (0x009C, "PageFooter"),
+    (0x009D, "GroupHeader"),
+    (0x009E, "GroupFooter"),
+    (0x066A, "CheckBox"),
+    (0x0A7A, "ToggleButton"),
+    (0x0B68, "CommandButton"),
+    (0x0C64, "Label"),
+    (0x0D64, "Label"),
+    (0x0E65, "Rectangle"),
+    (0x0F67, "Image"),
+    (0x126D, "TextBox"),
+    (0x136F, "ComboBox"),
+    (0x1470, "SubForm"),
+    (0x1666, "Line"),
+    (0x1898, "Detail"),
+    (0x1899, "FormHeader"),
+    (0x189A, "FormFooter"),
+    (0x1998, "Detail"),
+    (0x1999, "ReportHeader"),
+    (0x199A, "ReportFooter"),
+    (0x199D, "GroupHeader"),
+    (0x199E, "GroupFooter"),
+    (0x1B64, "Label"),
+    (0x1B65, "Rectangle"),
+    (0x1B66, "Line"),
+    (0x1B67, "Image"),
+    (0x1B68, "CommandButton"),
+    (0x1B6A, "CheckBox"),
+    (0x1B6D, "TextBox"),
+    (0x1B6F, "ComboBox"),
+    (0x1B70, "SubReport"),
+    (0x1F9B, "PageHeader"),
+    (0x1F9C, "PageFooter"),
+    (0x247F, "EmptyCell"),
+];
+
+/// Return the known control type name for a given TypeInfo type_code, or `None`.
 pub fn control_type_name(type_code: u16) -> Option<&'static str> {
-    match type_code {
-        // Form controls
-        0x066A => Some("CheckBox"),
-        0x0A7A => Some("ToggleButton"),
-        0x0B68 => Some("CommandButton"),
-        0x0C64 | 0x0D64 => Some("Label"),
-        0x0E65 => Some("Rectangle"),
-        0x0F67 => Some("Image"),
-        0x126D => Some("TextBox"),
-        0x136F => Some("ComboBox"),
-        0x1470 => Some("SubForm"),
-        0x1666 => Some("Line"),
-        0x1898 | 0x1998 => Some("Detail"),
-        0x1899 => Some("FormHeader"),
-        0x189A => Some("FormFooter"),
-        0x247F => Some("EmptyCell"),
-        // The types in the Blob, of the Access 2000 format and of the tree of
-        // later formats: the acControlType of Access. 0x0099 and 0x009A are
-        // the header and footer of a form or of a report, so not named here.
-        0x0064 => Some("Label"),
-        0x0065 => Some("Rectangle"),
-        0x0066 => Some("Line"),
-        0x0067 => Some("Image"),
-        0x0068 => Some("CommandButton"),
-        0x0069 => Some("OptionButton"),
-        0x006A => Some("CheckBox"),
-        0x006B => Some("OptionGroup"),
-        0x006C => Some("BoundObjectFrame"),
-        0x006D => Some("TextBox"),
-        0x006E => Some("ListBox"),
-        0x006F => Some("ComboBox"),
-        0x0070 => Some("SubForm"),
-        0x0072 => Some("ObjectFrame"),
-        0x0076 => Some("PageBreak"),
-        0x0077 => Some("CustomControl"),
-        0x007A => Some("ToggleButton"),
-        0x007B => Some("TabControl"),
-        0x007C => Some("Page"),
-        0x0098 => Some("Detail"),
-        0x009B => Some("PageHeader"),
-        0x009C => Some("PageFooter"),
-        0x009D => Some("GroupHeader"),
-        0x009E => Some("GroupFooter"),
-        // Report controls
-        0x1B64 => Some("Label"),
-        0x1B65 => Some("Rectangle"),
-        0x1B66 => Some("Line"),
-        0x1B67 => Some("Image"),
-        0x1B68 => Some("CommandButton"),
-        0x1B6A => Some("CheckBox"),
-        0x1B6D => Some("TextBox"),
-        0x1B6F => Some("ComboBox"),
-        0x1B70 => Some("SubReport"),
-        // Report sections
-        0x1999 => Some("ReportHeader"),
-        0x199A => Some("ReportFooter"),
-        0x199D => Some("GroupHeader"),
-        0x199E => Some("GroupFooter"),
-        0x1F9B => Some("PageHeader"),
-        0x1F9C => Some("PageFooter"),
-        _ => None,
-    }
+    name_in(CONTROL_TYPE_NAMES, type_code)
 }
 
 /// The known control type name for `type_code`, or the code as `0x....` for
@@ -730,43 +709,59 @@ pub fn read_form_properties_in(
         .filter_map(|(_, props)| name_in_blob(props))
         .collect();
 
-    // Try to get TypeInfo for control name/type mapping; not fatal if missing.
-    // It is that of the object the Blob is of, even when a report shares the
-    // name of a form.
-    let type_info_controls =
-        match find_stream(entries, name, Some(object_type), StreamKind::TypeInfo) {
-            Ok((_, ti_data)) => type_info_named(&ti_data, storage.code_page, &names)
-                .map(|(controls, _)| controls)
-                .unwrap_or_default(),
-            Err(_) => Vec::new(),
-        };
+    let type_info_controls = type_info_controls(storage, name, object_type, &names);
+    Ok(FormProperties {
+        form_name: name.to_string(),
+        object_type,
+        properties: form_props,
+        controls: merge_controls(control_prop_groups, &type_info_controls),
+    })
+}
 
-    // Merge control property groups with TypeInfo data.
-    let controls = control_prop_groups
+/// The controls of the TypeInfo of the form or report `name`, named by the
+/// `names` in its Blob; none when it has no TypeInfo that can be read. It is
+/// that of the object the Blob is of, even when a report shares the name of a
+/// form.
+fn type_info_controls(
+    storage: &AccessStorage,
+    name: &str,
+    object_type: FormObjectType,
+    names: &[String],
+) -> Vec<ControlInfo> {
+    match find_stream(
+        &storage.entries,
+        name,
+        Some(object_type),
+        StreamKind::TypeInfo,
+    ) {
+        Ok((_, ti_data)) => type_info_named(&ti_data, storage.code_page, names)
+            .map(|(controls, _)| controls)
+            .unwrap_or_default(),
+        Err(_) => Vec::new(),
+    }
+}
+
+/// The controls of the Blob, each named by its Name property and typed by
+/// the control of the same name in TypeInfo, or else by its type in the Blob.
+/// Not by index: TypeInfo can list the controls in another order.
+fn merge_controls(
+    control_prop_groups: Vec<BlobControl>,
+    type_info_controls: &[ControlInfo],
+) -> Vec<ControlProperties> {
+    control_prop_groups
         .into_iter()
         .enumerate()
         .map(|(i, (blob_type, props))| {
             let blob_name = name_in_blob(&props).unwrap_or_else(|| format!("Control_{i}"));
-
-            // Match with TypeInfo by name, else the type in the Blob. Not by
-            // index: TypeInfo can list the controls in another order.
-            let type_code = type_info_by_name(&type_info_controls, &blob_name)
+            let type_code = type_info_by_name(type_info_controls, &blob_name)
                 .map_or(blob_type, |c| c.type_code);
-
             ControlProperties {
                 name: blob_name,
                 type_code,
                 properties: props,
             }
         })
-        .collect();
-
-    Ok(FormProperties {
-        form_name: name.to_string(),
-        object_type,
-        properties: form_props,
-        controls,
-    })
+        .collect()
 }
 
 /// The name of a control of the Blob, its Name property (0x14).
@@ -862,39 +857,17 @@ fn find_stream(
     object_type: Option<FormObjectType>,
     stream_kind: StreamKind,
 ) -> Result<(FormObjectType, Vec<u8>), FileError> {
-    let root_id = storage::find_root_id(entries);
-
     // Try Forms first, then Reports
-    for (folder_name, obj_type) in [
-        ("Forms", FormObjectType::Form),
-        ("Reports", FormObjectType::Report),
-    ] {
+    for (folder_name, obj_type) in FORM_FOLDERS {
         if object_type.is_some_and(|t| t != obj_type) {
             continue;
         }
-        if let Some(folder) = entries
-            .iter()
-            .find(|e| e.parent_id == root_id && e.name == folder_name && storage::is_storage(e))
-        {
-            if let Some(dir_data) = storage::find_dir_data(entries, folder.id) {
-                let mapping = storage::parse_dir_data(&dir_data.data)?;
-                if let Some((_form_name, storage_num)) = mapping.iter().find(|(n, _)| n == name) {
-                    // Find the storage entry with this number under the folder
-                    if let Some(form_storage) = entries.iter().find(|e| {
-                        e.parent_id == folder.id && e.name == *storage_num && storage::is_storage(e)
-                    }) {
-                        // Find the requested stream under this form storage
-                        let stream_name = stream_kind.storage_name();
-                        if let Some(stream_entry) = entries.iter().find(|e| {
-                            e.parent_id == form_storage.id
-                                && e.name == stream_name
-                                && !storage::is_storage(e)
-                        }) {
-                            return Ok((obj_type, stream_entry.data.clone()));
-                        }
-                    }
-                }
-            }
+        let Some(folder) = storage::find_top_folder(entries, folder_name) else {
+            continue;
+        };
+        let stream_name = stream_kind.storage_name();
+        if let Some(stream) = storage::object_stream(entries, folder, name, stream_name)? {
+            return Ok((obj_type, stream.data.clone()));
         }
     }
 
@@ -2094,7 +2067,7 @@ mod tests {
     #[test]
     fn name_tables_are_sorted_by_id_without_repeats() {
         // name_in looks names up by binary search.
-        for table in [TEXT_NAMES, NUMBER_NAMES, BYTES_NAMES] {
+        for table in [TEXT_NAMES, NUMBER_NAMES, BYTES_NAMES, CONTROL_TYPE_NAMES] {
             assert!(table.windows(2).all(|w| w[0].0 < w[1].0));
         }
     }
@@ -2465,7 +2438,10 @@ mod tests {
         // (Forms.SpinButton.1 in Strings.mdb), and the sections of pages and
         // groups. The header and footer of a form or report are not named.
         for (code, expected) in [
+            (0x0072, Some("ObjectFrame")),
             (0x0077, Some("CustomControl")),
+            (0x007C, Some("Page")),
+            (0x0098, Some("Detail")),
             (0x009B, Some("PageHeader")),
             (0x009C, Some("PageFooter")),
             (0x009D, Some("GroupHeader")),
@@ -2582,55 +2558,90 @@ mod tests {
     /// Reads the string properties of a form or report from its SaveAsText
     /// output. A long string goes on in quoted lines of its own.
     fn read_saveastext(text: &str) -> Saved {
-        let mut saved = Saved {
-            properties: HashMap::new(),
-            objects: Vec::new(),
+        let mut reader = SaveAsTextReader {
+            saved: Saved {
+                properties: HashMap::new(),
+                objects: Vec::new(),
+            },
+            blocks: Vec::new(),
+            last_key: None,
         };
-        // The open blocks: `Begin <Type>`, or `<Key> = Begin` for binary data.
-        let mut blocks: Vec<(String, HashMap<String, String>)> = Vec::new();
-        let mut last_key: Option<String> = None;
         for line in text.trim_start_matches('\u{feff}').lines().map(str::trim) {
-            let properties = match blocks.len() {
+            reader.read_line(line);
+        }
+        reader.saved
+    }
+
+    /// SaveAsText output read so far, line by line.
+    struct SaveAsTextReader {
+        saved: Saved,
+        /// The open blocks: `Begin <Type>`, or `<Key> = Begin` for binary data.
+        blocks: Vec<(String, HashMap<String, String>)>,
+        /// The key of the last string, which a quoted line of its own goes on.
+        last_key: Option<String>,
+    }
+
+    impl SaveAsTextReader {
+        /// The properties of the innermost open block: those of the form or
+        /// report itself in the outermost, and none outside any block.
+        fn properties(&mut self) -> Option<&mut HashMap<String, String>> {
+            match self.blocks.len() {
                 0 => None,
-                1 => Some(&mut saved.properties),
-                _ => blocks.last_mut().map(|(_, p)| p),
-            };
-            if let (Some(key), Some(more), Some(properties)) =
-                (&last_key, saved_string(line), properties)
-            {
-                properties.get_mut(key).unwrap().push_str(&more);
-                continue;
+                1 => Some(&mut self.saved.properties),
+                _ => self.blocks.last_mut().map(|(_, p)| p),
             }
-            last_key = None;
-            if line == "End" {
-                if let Some((type_name, properties)) = blocks.pop() {
-                    if let Some(name) = properties.get("Name").cloned() {
-                        saved.objects.push(SavedObject {
-                            name,
-                            type_name,
-                            properties,
-                        });
-                    }
+        }
+
+        fn read_line(&mut self, line: &str) {
+            if let (Some(key), Some(more)) = (self.last_key.clone(), saved_string(line)) {
+                if let Some(properties) = self.properties() {
+                    properties.get_mut(&key).unwrap().push_str(&more);
+                    return;
                 }
+            }
+            self.last_key = None;
+            if line == "End" {
+                self.end_block();
             } else if line == "Begin" || line.starts_with("Begin ") {
-                blocks.push((line["Begin".len()..].trim().to_string(), HashMap::new()));
+                let type_name = line["Begin".len()..].trim().to_string();
+                self.blocks.push((type_name, HashMap::new()));
             } else if line.ends_with(" = Begin") {
-                blocks.push((String::new(), HashMap::new()));
+                self.blocks.push((String::new(), HashMap::new()));
             } else if let Some((key, value)) = line.split_once(" =") {
-                let properties = match blocks.len() {
-                    0 => continue,
-                    1 => &mut saved.properties,
-                    _ => &mut blocks.last_mut().unwrap().1,
-                };
-                if let Some(value) = saved_string(value) {
-                    properties.insert(key.to_string(), value);
-                    last_key = Some(key.to_string());
-                } else {
+                self.property(key, value);
+            }
+        }
+
+        /// Close the innermost block, which is an object when it has a name.
+        fn end_block(&mut self) {
+            if let Some((type_name, properties)) = self.blocks.pop() {
+                if let Some(name) = properties.get("Name").cloned() {
+                    self.saved.objects.push(SavedObject {
+                        name,
+                        type_name,
+                        properties,
+                    });
+                }
+            }
+        }
+
+        /// Keep the property `key` of the innermost block, whose value is a
+        /// string that later lines may go on, or a value as it is written.
+        fn property(&mut self, key: &str, value: &str) {
+            let string = saved_string(value);
+            let Some(properties) = self.properties() else {
+                return;
+            };
+            match string {
+                Some(string) => {
+                    properties.insert(key.to_string(), string);
+                    self.last_key = Some(key.to_string());
+                }
+                None => {
                     properties.insert(key.to_string(), value.trim().to_string());
                 }
             }
         }
-        saved
     }
 
     /// The ways SaveAsText writes `value`: a Yes value is -1, 1 or 255.
