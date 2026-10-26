@@ -16,6 +16,15 @@ import init, { Database } from "jetdb-wasm";
 await init();
 ```
 
+Cloudflare Workers のように、モジュールの隣にある Wasm のファイルを取得できない環境や、esbuild のようなバンドラーに Wasm のファイルを読み込ませる場合は、`jetdb-wasm/web/jetdb_wasm_bg.wasm` としてファイルをインポートし、`WebAssembly.Module` かバイト列として `initSync` に渡します。
+
+```js
+import { initSync, Database } from "jetdb-wasm";
+import wasm from "jetdb-wasm/web/jetdb_wasm_bg.wasm";
+
+initSync({ module: wasm });
+```
+
 CommonJS のビルドでは、読み込んだときに Wasm のファイルが読まれるので、`Database` はそのまま使えます。Node.js と、サーバーサイドレンダリング（SSR）のようにバンドラーがサーバー向けにビルドするものが、このビルドを使います。このビルドでは既定のエクスポートを呼ぶ必要はありません。既定のエクスポートと `initSync` はあって、何もしないので、ブラウザと共有するコードのように、これらを呼ぶコードもそのまま動きます。
 
 ```js

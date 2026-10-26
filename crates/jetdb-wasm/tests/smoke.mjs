@@ -586,7 +586,14 @@ assert.equal(await required.default(), undefined);
 assert.equal(required.initSync(), undefined);
 check(NodeDatabase, "node");
 
-const packageDir = dirname(dirname(createRequire(import.meta.url).resolve("jetdb-wasm")));
+// The package exports its package.json and the Wasm files of its builds, for
+// tools that read its version and for setups that pass the Wasm to initSync.
+const require = createRequire(import.meta.url);
+assert.equal(require("jetdb-wasm/package.json").name, "jetdb-wasm");
+const packageDir = dirname(require.resolve("jetdb-wasm/package.json"));
+const webWasm = require.resolve("jetdb-wasm/web/jetdb_wasm_bg.wasm");
+assert.equal(webWasm, join(packageDir, "web", "jetdb_wasm_bg.wasm"));
+assert.equal(require.resolve("jetdb-wasm/node/jetdb_wasm_bg.wasm"), join(packageDir, "node", "jetdb_wasm_bg.wasm"));
 const web = await import(pathToFileURL(join(packageDir, "web", "jetdb_wasm.js")).href);
-web.initSync({ module: readFileSync(join(packageDir, "web", "jetdb_wasm_bg.wasm")) });
+web.initSync({ module: readFileSync(webWasm) });
 check(web.Database, "web");

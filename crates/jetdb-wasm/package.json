@@ -36,7 +36,10 @@
         "types": "./web/jetdb_wasm.d.ts",
         "default": "./web/jetdb_wasm.js"
       }
-    }
+    },
+    "./package.json": "./package.json",
+    "./web/jetdb_wasm_bg.wasm": "./web/jetdb_wasm_bg.wasm",
+    "./node/jetdb_wasm_bg.wasm": "./node/jetdb_wasm_bg.wasm"
   },
   "types": "./web/jetdb_wasm.d.ts",
   "files": [
