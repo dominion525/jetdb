@@ -210,6 +210,57 @@ fn export_tab_delimiter() {
     );
 }
 
+#[test]
+fn export_wide_character_delimiter() {
+    let path = skip_if_missing!("V2003/testV2003.mdb");
+    let output = jetdb_bin()
+        .args(["export", path.to_str().unwrap(), "Table1", "-d", "、"])
+        .output()
+        .expect("failed to run jetdb");
+    assert!(
+        output.status.success(),
+        "should succeed, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.starts_with("A、B、"),
+        "header should be joined by the delimiter, got: {stdout}"
+    );
+}
+
+/// A delimiter that is not one character is an error, and nothing is written.
+fn assert_delimiter_rejected(delimiter: &str) {
+    let path = skip_if_missing!("V2003/testV2003.mdb");
+    let output = jetdb_bin()
+        .args(["export", path.to_str().unwrap(), "Table1", "-d", delimiter])
+        .output()
+        .expect("failed to run jetdb");
+    assert_eq!(output.status.code(), Some(1), "should exit with 1");
+    assert!(output.stdout.is_empty(), "should write nothing");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(
+        stderr,
+        format!("jetdb: delimiter must be one character, got '{delimiter}'\n")
+    );
+}
+
+#[test]
+fn export_empty_delimiter_is_an_error() {
+    assert_delimiter_rejected("");
+}
+
+#[test]
+fn export_two_character_delimiter_is_an_error() {
+    assert_delimiter_rejected(";;");
+}
+
+#[test]
+fn export_backslash_t_delimiter_is_an_error() {
+    // What `-d "\t"` passes in a shell: a backslash and `t`.
+    assert_delimiter_rejected("\\t");
+}
+
 // ---------------------------------------------------------------------------
 // Date format (-D)
 // ---------------------------------------------------------------------------

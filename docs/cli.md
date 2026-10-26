@@ -654,7 +654,7 @@ By default, the columns Access maintains and hides are excluded. System tables, 
 #### Options
 
 - `-H`, `--no-header` — Suppress the header row
-- `-d`, `--delimiter <CHAR>` — Column delimiter (default: `,`)
+- `-d`, `--delimiter <CHAR>` — Column delimiter, one character (default: `,`); an empty or longer value is an error. In bash or zsh, `-d $'\t'` gives a tab; `-d "\t"` gives a backslash and `t`, which is an error
 - `-D`, `--date-format <FMT>` — Date format, strftime subset (default: `%Y-%m-%d`)
 - `-T`, `--datetime-format <FMT>` — Date-time format, strftime subset (default: `%Y-%m-%d %H:%M:%S`)
 - `-b`, `--bin <MODE>` — Binary output mode (default: `hex`)
@@ -683,7 +683,7 @@ A,B,C,D,E,F,G,H,I
 $ jetdb export test.mdb Table1 -H
 "foo","bar",1,2,3,1.5,2003-01-02,"12.3400",1
 
-$ jetdb export test.mdb Table1 -d "\t"
+$ jetdb export test.mdb Table1 -d $'\t'
 A	B	C	D	E	F	G	H	I
 
 $ jetdb export test.mdb Table1 -B
