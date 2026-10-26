@@ -174,14 +174,33 @@ jobs:
         id: auth
 
       # jetdb-cli depends on jetdb by version, so jetdb has to reach the
-      # registry first.
-      - run: cargo publish -p jetdb
+      # registry first. A crate whose version is on crates.io already is
+      # skipped, so that a re-run of this job, after jetdb-cli failed, publishes
+      # what is left.
+      - name: Publish the crates unless their versions are on crates.io
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
-
-      - run: cargo publish -p jetdb-cli
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: |
+          for crate in jetdb jetdb-cli; do
+            version="$(sed -n 's/^version = "\(.*\)"$/\1/p' "crates/$crate/Cargo.toml" | head -1)"
+            # crates.io answers 200 for a version it has, and 404 for a version,
+            # or a crate, it has not. It refuses a request with no User-Agent.
+            status="$(curl -sS -o /dev/null -w '%{http_code}' \
+              -A 'jetdb release workflow (https://github.com/dominion525/jetdb)' \
+              "https://crates.io/api/v1/crates/$crate/$version")" || status=failed
+            case "$status" in
+              200)
+                echo "$crate $version is on crates.io; not publishing"
+                ;;
+              404)
+                cargo publish -p "$crate"
+                ;;
+              *)
+                echo "::error::could not tell whether $crate $version is on crates.io (HTTP $status)"
+                exit 1
+                ;;
+            esac
+          done
 
   npm:
     name: Publish (npm)
