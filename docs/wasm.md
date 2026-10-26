@@ -40,6 +40,8 @@ A `Database` holds the bytes of the file in the memory of the Wasm module. Call 
 }
 ```
 
+`free()` may be called more than once, also on a database opened with `using`, and a method called after it throws `DATABASE_FREED`.
+
 ## Tables
 
 | Method | Returns |
@@ -167,6 +169,7 @@ A method that fails throws an `Error` whose `name` is `JetdbError` and whose `co
 | `INVALID_FILE` | Not an Access database, or a broken one; the message says what is wrong |
 | `NOT_SUPPORTED` | The database holds what jetdb does not read, such as the forms and reports of Access 97 |
 | `INVALID_ARGUMENT` | A method was called with an argument or option that is not valid, such as a value of the wrong type or one outside its list, or with a name that objects of different types share and no `type` option to choose one |
+| `DATABASE_FREED` | A method was called after `free()`, or after the end of the block of the `using` that opened the database |
 | `IO` | Reading the bytes failed |
 
 ```js

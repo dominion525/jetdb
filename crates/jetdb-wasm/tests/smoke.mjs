@@ -39,6 +39,7 @@ function check(Database, build) {
   checkProperties(Database, build);
   checkPropertiesOfAType(Database, build);
   checkErrors(Database, build);
+  checkFree(Database, build);
   checkStringArguments(Database, build);
   checkPassword(Database, build);
   console.log(`ok: ${build}`);
@@ -546,6 +547,27 @@ function checkErrors(Database, build) {
     (e) => e instanceof Error && e.name === "JetdbError" && e.code === "INVALID_FILE",
     build,
   );
+}
+
+function checkFree(Database, build) {
+  // free can be called again, and together with using, which calls it at the
+  // end of its block; a method called after it is a DATABASE_FREED error
+  // rather than an error of the glue wasm-bindgen generates.
+  const freed = { name: "JetdbError", code: "DATABASE_FREED" };
+  const db = openTest(Database);
+  db.free();
+  db.free();
+  db[Symbol.dispose]();
+  assert.throws(() => db.version(), freed, build);
+  assert.throws(() => db.tables(), freed, build);
+  assert.throws(() => db.rows("Table1"), freed, build);
+  let kept;
+  {
+    using db = openTest(Database);
+    db.free();
+    kept = db;
+  }
+  assert.throws(() => kept.columns("Table1"), freed, build);
 }
 
 function checkStringArguments(Database, build) {

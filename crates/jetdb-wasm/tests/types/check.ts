@@ -290,7 +290,7 @@ declare const caught: unknown;
 if (caught instanceof Error && caught.name === "JetdbError") {
   const error = caught as JetdbError;
   const code: ErrorCode = error.code;
-  if (code === "PASSWORD_REQUIRED" || code === "OBJECT_NOT_FOUND") {
+  if (code === "PASSWORD_REQUIRED" || code === "OBJECT_NOT_FOUND" || code === "DATABASE_FREED") {
   }
   // @ts-expect-error: NOT_FOUND is not an error code.
   if (code === "NOT_FOUND") {
