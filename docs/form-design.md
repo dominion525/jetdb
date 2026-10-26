@@ -214,7 +214,7 @@ jetdb gives a property the ID of Access 2002 and later from a table of each type
 ### Parser Limitations
 
 - **Tree**: The Blob is read as a tree from its beginning. An entry of an unknown type is read by its length, and its value is given as bytes. When the bytes do not read to the end as a tree, a byte scan finds each control by the Name property pattern `[14 00 0A 00 00 00]`, and only the properties from its Name on are read. All the Blobs of the test data read to the end as a tree.
-- **Layout coordinates & printer settings**: Stored in non-property regions within the Blob and are not extraction targets.
+- **Layout and printer settings**: The position and size of a section or control (`Left`, `Top`, `Width`, `Height`) are properties of the Blob and are read. The printer settings (`PrtMip`, `PrtDevMode`, `PrtDevNames`) are given as their bytes, such as `(5364 bytes)`, without reading what they hold.
 - **Jet3 (Access 97)**: Not supported because it uses a different format stored in MSysAccessObjects rather than MSysAccessStorage.
 
 ### prop_id Mapping
