@@ -30,6 +30,10 @@ pub(crate) const VERSION: u8 = 0x13;
 /// of the form or report, of its pages and of its groups.
 const SECTIONS: std::ops::RangeInclusive<u16> = 0x98..=0x9E;
 
+/// The types of the header and footer of the form or report, which a form
+/// and a report share.
+const HEADER_FOOTER: std::ops::RangeInclusive<u16> = 0x99..=0x9A;
+
 /// The ID holding the name of a control.
 const CONTROL_NAME: u8 = 0xDC;
 /// The ID holding the name of a section.
@@ -172,15 +176,15 @@ pub(crate) fn read(data: &[u8]) -> Option<(Vec<BlobProperty>, Vec<ControlPropert
     if reader.pos != data.len() {
         return None;
     }
-    let mut controls = Vec::new();
-    for section in entries.iter().filter(|e| is_section(e)) {
-        push_with_children(section, &mut controls);
-    }
     let scope = if data.get(8) == Some(&0x97) {
         Scope::Report
     } else {
         Scope::Form
     };
+    let mut controls = Vec::new();
+    for section in entries.iter().filter(|e| is_section(e)) {
+        push_with_children(section, scope, &mut controls);
+    }
     Some((properties(&object, scope), controls))
 }
 
@@ -190,8 +194,9 @@ fn is_section(entry: &Entry) -> bool {
     SECTIONS.contains(&entry.type_code) || entry.children.is_some()
 }
 
-/// Adds `entry`, and the entries in it, to `out`.
-fn push_with_children(entry: &Entry, out: &mut Vec<ControlProperties>) {
+/// Adds `entry`, and the entries in it, of the form or report `object`, to
+/// `out`.
+fn push_with_children(entry: &Entry, object: Scope, out: &mut Vec<ControlProperties>) {
     let name_id = if SECTIONS.contains(&entry.type_code) {
         SECTION_NAME
     } else {
@@ -208,11 +213,23 @@ fn push_with_children(entry: &Entry, out: &mut Vec<ControlProperties>) {
         .unwrap_or_else(|| format!("Control_{}", out.len()));
     out.push(ControlProperties {
         name,
-        type_code: entry.type_code,
+        type_code: type_code(entry.type_code, object),
         properties: properties(&entry.props, Scope::Entry(entry.type_code)),
     });
     for child in entry.children.iter().flatten() {
-        push_with_children(child, out);
+        push_with_children(child, object, out);
+    }
+}
+
+/// The type code given for an entry of the type `type_code` of the form or
+/// report `object`: its type, but for the header and footer of the form or
+/// report, which are given the type codes of TypeInfo, 0x1899 and 0x189A of
+/// a form and 0x1999 and 0x199A of a report, which tell them apart.
+fn type_code(type_code: u16, object: Scope) -> u16 {
+    match object {
+        Scope::Form if HEADER_FOOTER.contains(&type_code) => 0x1800 | type_code,
+        Scope::Report if HEADER_FOOTER.contains(&type_code) => 0x1900 | type_code,
+        _ => type_code,
     }
 }
 
@@ -306,6 +323,8 @@ const ENTRY_TABLES: &[(u16, Table)] = &[
     (123, TYPE_123),
     (124, TYPE_124),
     (152, TYPE_152),
+    (153, TYPE_153),
+    (154, TYPE_154),
     (155, TYPE_155),
     (156, TYPE_156),
 ];
@@ -332,9 +351,13 @@ fn value_as(raw: &Raw, kind: Kind) -> Option<BlobValue> {
 // the later format, the pair follows the name. The other pairs were tied by
 // that output alone: the values of an ID of an entry type, or of the form or
 // report, are all held by one key, and by no other, and the ID of the later
-// format is the one form.rs names after that key. The IDs of the later format
-// are those of Access for Microsoft 365, one higher above 0x01C4 than in
-// files of earlier Access (see form.rs).
+// format is the one form.rs names after that key. The pairs of the header and
+// footer of a form (153 and 154), which those files do not have, were tied by
+// the form tblItems of V2000/macroTestV2000.mdb against the same form in
+// V2003/macroTestV2003.mdb and V2010/macroTestV2010.accdb: each value is held
+// by one ID there, and by no other. The IDs of the later format are those of
+// Access for Microsoft 365, one higher above 0x01C4 than in files of earlier
+// Access (see form.rs).
 
 const FORM: Table = &[
     (0x14, 0x013A, Kind::Number),
@@ -991,17 +1014,38 @@ const TYPE_152: Table = &[
     (0xE7, 0x0178, Kind::Guid),
 ];
 
-const TYPE_155: Table = &[(0xDF, 0x0014, Kind::Text), (0xE7, 0x0178, Kind::Guid)];
+const TYPE_153: Table = &[
+    (0x60, 0x002C, Kind::Number),
+    (0x9C, 0x001C, Kind::Number),
+    (0xDF, 0x0014, Kind::Text),
+    (0xE7, 0x0178, Kind::Guid),
+];
 
-const TYPE_156: Table = &[(0xDF, 0x0014, Kind::Text), (0xE7, 0x0178, Kind::Guid)];
+const TYPE_154: Table = &[
+    (0x60, 0x002C, Kind::Number),
+    (0xDF, 0x0014, Kind::Text),
+    (0xE7, 0x0178, Kind::Guid),
+];
+
+const TYPE_155: Table = &[
+    (0x60, 0x002C, Kind::Number),
+    (0xDF, 0x0014, Kind::Text),
+    (0xE7, 0x0178, Kind::Guid),
+];
+
+const TYPE_156: Table = &[
+    (0x60, 0x002C, Kind::Number),
+    (0xDF, 0x0014, Kind::Text),
+    (0xE7, 0x0178, Kind::Guid),
+];
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::form::tests::on_small_stack;
     use crate::form::{
-        list_forms, read_form_properties_of_type, read_form_stream_of_type, FormObjectType,
-        StreamKind,
+        control_type_name, list_forms, read_form_properties_of_type, read_form_stream_of_type,
+        FormObjectType, StreamKind,
     };
     use crate::PageReader;
     use std::collections::HashMap;
@@ -1069,6 +1113,37 @@ mod tests {
             controls[2].properties[0].value,
             BlobValue::Long(70000)
         ));
+    }
+
+    #[test]
+    fn the_header_of_a_form_and_of_a_report() {
+        // One section (FE) of type 153, the header of a form or report, with
+        // 0x60 = 546, 0x9C = 15783096 and the name "H".
+        let mut rest = vec![0xFE, 153, 0, 0x60];
+        rest.extend(546i16.to_le_bytes());
+        rest.push(0x9C);
+        rest.extend(15783096i32.to_le_bytes());
+        rest.extend(text_prop(0xDF, "H"));
+        rest.push(0xFD);
+        let mut data = blob(&[], &rest);
+        for (object, type_name) in [(0x96, "FormHeader"), (0x97, "ReportHeader")] {
+            data[8] = object;
+            let (_, controls) = read(&data).unwrap();
+            assert_eq!(control_type_name(controls[0].type_code), Some(type_name));
+            let props: Vec<(u16, String)> = controls[0]
+                .properties
+                .iter()
+                .map(|p| (p.prop_id, p.value.to_string()))
+                .collect();
+            assert_eq!(
+                props,
+                [
+                    (0x002C, "546".to_string()),
+                    (0x001C, "15783096".to_string()),
+                    (0x0014, "H".to_string()),
+                ]
+            );
+        }
     }
 
     #[test]
@@ -1352,6 +1427,50 @@ mod tests {
                 .controls
                 .iter()
                 .any(|c| c.name == "詳細" && c.type_code == 152));
+        }
+    }
+
+    #[test]
+    fn the_header_and_footer_of_a_form_as_in_access_2010() {
+        // The form tblItems, with a header and a footer, in both formats: each
+        // gets the type and the properties, by name and value, of Access 2010.
+        let path2000 = skip_if_missing!("V2000/macroTestV2000.mdb");
+        let path2010 = skip_if_missing!("V2010/macroTestV2010.accdb");
+        let sections = |path: &std::path::Path| {
+            let mut reader = PageReader::open(path).unwrap();
+            let read = read_form_properties_of_type(&mut reader, "tblItems", FormObjectType::Form)
+                .unwrap();
+            read.controls
+                .into_iter()
+                .filter(|c| matches!(c.type_code, 0x1899 | 0x189A))
+                .map(|c| {
+                    let props: Vec<(&str, String)> = c
+                        .properties
+                        .iter()
+                        .filter_map(|p| Some((p.name()?, p.value.to_string())))
+                        .filter(|(name, _)| ["Height", "BackColor", "Name", "GUID"].contains(name))
+                        .collect();
+                    (c.name, c.type_code, props)
+                })
+                .collect::<Vec<_>>()
+        };
+        let found = sections(&path2000);
+        assert_eq!(found.len(), 2);
+        assert_eq!(found, sections(&path2010));
+        // Each of the properties of the header and footer is named.
+        let mut reader = PageReader::open(&path2000).unwrap();
+        let read =
+            read_form_properties_of_type(&mut reader, "tblItems", FormObjectType::Form).unwrap();
+        for c in read
+            .controls
+            .iter()
+            .filter(|c| matches!(c.type_code, 0x1899 | 0x189A))
+        {
+            assert!(
+                c.properties.iter().all(|p| p.name().is_some()),
+                "{}",
+                c.name
+            );
         }
     }
 
