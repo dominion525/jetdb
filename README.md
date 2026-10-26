@@ -1,12 +1,12 @@
 # jetdb
 
 [![CI](https://github.com/dominion525/jetdb/actions/workflows/ci.yml/badge.svg)](https://github.com/dominion525/jetdb/actions/workflows/ci.yml)
-[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](LICENSE-MIT)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](https://github.com/dominion525/jetdb/blob/main/LICENSE-MIT)
 [![MSRV: 1.86](https://img.shields.io/badge/MSRV-1.86-orange)](https://blog.rust-lang.org/2025/04/03/Rust-1.86.0.html)
 [![Crates.io](https://img.shields.io/crates/v/jetdb)](https://crates.io/crates/jetdb)
 [![docs.rs](https://img.shields.io/docsrs/jetdb)](https://docs.rs/jetdb)
 
-[日本語版 (Japanese)](README.ja.md)
+[日本語版 (Japanese)](https://github.com/dominion525/jetdb/blob/main/README.ja.md)
 
 A Rust library and CLI tool for reading Microsoft Access database files (.mdb / .accdb).
 
@@ -74,7 +74,7 @@ jetdb macro data database.accdb Table1
 jetdb prop database.mdb Table1
 ```
 
-See [docs/cli.md](docs/cli.md) for detailed options and output examples.
+See [docs/cli.md](https://github.com/dominion525/jetdb/blob/main/docs/cli.md) for detailed options and output examples.
 
 ## Library Usage
 
@@ -104,7 +104,7 @@ fn main() -> Result<(), jetdb::FileError> {
 }
 ```
 
-For more examples, such as reading forms and reports, macros and object properties, see [docs/lib.md](docs/lib.md). For detailed API documentation, run `cargo doc --open` or see [docs.rs/jetdb](https://docs.rs/jetdb).
+For more examples, such as reading forms and reports, macros and object properties, see [docs/lib.md](https://github.com/dominion525/jetdb/blob/main/docs/lib.md). For detailed API documentation, run `cargo doc --open` or see [docs.rs/jetdb](https://docs.rs/jetdb).
 
 ## Supported Versions
 
@@ -135,7 +135,7 @@ ACE15 is the name of the version byte 0x04, after Access 2013. Access 2013 write
 - Decrypt RC4-encrypted databases and password-protected .accdb files (Agile, RC4 CryptoAPI, Standard/NonStandard AES)
 - Handle Jet3 (the code page of the database, such as 1252 or 932) and Jet4+ (UTF-16LE, compressed text) encodings
 - Run on WebAssembly, including the browser target (`wasm32-unknown-unknown`), by opening a database from bytes in memory with `PageReader::open_reader`
-- Read databases from JavaScript in the browser and Node.js with the `jetdb-wasm` package in `crates/jetdb-wasm`; see [docs/wasm.md](docs/wasm.md) for its API
+- Read databases from JavaScript in the browser and Node.js with the `jetdb-wasm` package in `crates/jetdb-wasm`; see [docs/wasm.md](https://github.com/dominion525/jetdb/blob/main/docs/wasm.md) for its API
 
 ## Limitations
 
@@ -164,7 +164,7 @@ npx skills add dominion525/agent-skills --skill jetdb-cli -a claude-code
 ## Acknowledgments
 
 - [mdbtools](https://github.com/mdbtools/mdbtools) — [HACKING.md](https://github.com/mdbtools/mdbtools/blob/dev/HACKING.md) was an invaluable reference for understanding the MDB/ACCDB file format
-- [Jackcess](https://github.com/spannm/jackcess) (Apache License 2.0) — most test .mdb/.accdb files are sourced from this project (some were created independently or contributed). See [testdata/SOURCES.md](testdata/SOURCES.md) for details.
+- [Jackcess](https://github.com/spannm/jackcess) (Apache License 2.0) — most test .mdb/.accdb files are sourced from this project (some were created independently or contributed). See [testdata/SOURCES.md](https://github.com/dominion525/jetdb/blob/main/testdata/SOURCES.md) for details.
 - [jackcessencrypt](https://github.com/jahlborn/jackcessencrypt) (Apache License 2.0) — encryption-related test files are sourced from this Jackcess plugin
 - [MS-OFFCRYPTO](https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-offcrypto/) — Microsoft's specification for Office document encryption, used as a reference for implementing encryption support
 
