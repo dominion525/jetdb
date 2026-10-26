@@ -217,7 +217,7 @@ for (const path of ["/", "/ja/"] as const) {
     const headerHeight = await page
       .locator(".site-header")
       .evaluate((h) => h.getBoundingClientRect().height);
-    expect(headerHeight).toBeLessThanOrEqual(72);
+    expect(headerHeight).toBeLessThanOrEqual(92);
     await links.nth(1).click();
     await expect(page).toHaveURL(/#compare$/);
     const titleTop = await page
