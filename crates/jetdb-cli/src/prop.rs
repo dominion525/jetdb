@@ -1,3 +1,4 @@
+use std::io::{self, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -34,7 +35,7 @@ pub fn cmd_prop(args: PropArgs, password: Option<&str>) -> ExitCode {
     crate::exit_code(run_prop(&args, password))
 }
 
-fn run_prop(args: &PropArgs, password: Option<&str>) -> Result<(), String> {
+fn run_prop(args: &PropArgs, password: Option<&str>) -> Result<(), crate::CliError> {
     let mut reader =
         PageReader::open_with_password(&args.file, password).map_err(|e| e.to_string())?;
     let catalog = read_catalog(&mut reader).map_err(|e| e.to_string())?;
@@ -49,9 +50,9 @@ fn run_prop(args: &PropArgs, password: Option<&str>) -> Result<(), String> {
     // An object with properties is there even when the catalog leaves it
     // out; one without them is there when the catalog has it.
     if props.maps.is_empty() && !in_catalog(&catalog, &args.object_name, object_type) {
-        return Err(not_found(args));
+        return Err(not_found(args).into());
     }
-    print_properties(&props, object_type);
+    print_properties(&mut io::stdout().lock(), &props, object_type)?;
     Ok(())
 }
 
@@ -89,12 +90,16 @@ fn object_type_named(name: &str) -> ObjectType {
 
 /// Prints the properties of an object of `object_type`, nothing when it has
 /// none. An object of a type the catalog leaves out has none given.
-fn print_properties(props: &ObjectProperties, object_type: Option<ObjectType>) {
+fn print_properties(
+    out: &mut impl Write,
+    props: &ObjectProperties,
+    object_type: Option<ObjectType>,
+) -> io::Result<()> {
     if props.maps.is_empty() {
-        return;
+        return Ok(());
     }
 
-    println!("Object: {}", props.object_name);
+    writeln!(out, "Object: {}", props.object_name)?;
 
     // The object's own properties first, then the others in the order they
     // are stored: the maps of the columns can come before or after them.
@@ -105,10 +110,11 @@ fn print_properties(props: &ObjectProperties, object_type: Option<ObjectType>) {
         .collect();
     maps.sort_by_key(|m| m.map_type != PropMapType::Default);
     for map in maps {
-        println!();
-        println!("  {}", map_heading(map, object_type));
-        print_map(map);
+        writeln!(out)?;
+        writeln!(out, "  {}", map_heading(map, object_type))?;
+        print_map(out, map)?;
     }
+    Ok(())
 }
 
 /// The heading of the properties of `map`, of an object of `object_type`.
@@ -148,7 +154,7 @@ fn object_type_label(t: ObjectType) -> &'static str {
 }
 
 /// Print the properties of `map`, their names aligned.
-fn print_map(map: &PropertyMap) {
+fn print_map(out: &mut impl Write, map: &PropertyMap) -> io::Result<()> {
     // Calculate name width for alignment
     let name_width = map
         .properties
@@ -159,11 +165,13 @@ fn print_map(map: &PropertyMap) {
 
     for prop in &map.properties {
         let display_value = format_value(&prop.value);
-        println!(
+        writeln!(
+            out,
             "    {}  {display_value}",
             crate::padded(&prop.name, name_width)
-        );
+        )?;
     }
+    Ok(())
 }
 
 /// The type of the object named `name` in `catalog`, `None` when there is

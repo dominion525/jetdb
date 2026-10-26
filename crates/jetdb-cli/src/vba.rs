@@ -1,3 +1,4 @@
+use std::io::{self, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -63,7 +64,7 @@ fn run_list(args: &VbaListArgs, password: Option<&str>) -> Result<(), jetdb::Fil
     let mut names: Vec<&str> = project.modules.iter().map(|m| m.name.as_str()).collect();
     names.sort_unstable();
 
-    crate::print_names(&names, args.delimiter.as_deref());
+    crate::print_names(&mut io::stdout().lock(), &names, args.delimiter.as_deref())?;
 
     Ok(())
 }
@@ -79,7 +80,7 @@ fn run_show(args: &VbaShowArgs, password: Option<&str>) -> Result<(), jetdb::Fil
         .ok_or(jetdb::FileError::ModuleNotFound {
             name: args.module_name.clone(),
         })?;
-    println!("{}", module.source);
+    writeln!(io::stdout(), "{}", module.source)?;
 
     Ok(())
 }

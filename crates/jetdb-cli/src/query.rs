@@ -1,3 +1,4 @@
+use std::io::{self, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -62,7 +63,7 @@ fn run_list(args: &QueryListArgs, password: Option<&str>) -> Result<(), jetdb::F
 
     let mut names: Vec<&str> = queries.iter().map(|q| q.name.as_str()).collect();
     names.sort_unstable();
-    crate::print_names(&names, args.delimiter.as_deref());
+    crate::print_names(&mut io::stdout().lock(), &names, args.delimiter.as_deref())?;
 
     Ok(())
 }
@@ -82,7 +83,7 @@ fn run_show(args: &QueryShowArgs, password: Option<&str>) -> Result<(), jetdb::F
         });
     }
     let sql = query_to_sql(qdef);
-    println!("{sql}");
+    writeln!(io::stdout(), "{sql}")?;
 
     Ok(())
 }

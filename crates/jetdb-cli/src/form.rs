@@ -1,6 +1,6 @@
 //! `form` subcommand — list forms/reports and dump binary streams.
 
-use std::io::Write;
+use std::io::{self, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -205,7 +205,7 @@ fn run_list(args: &FormListArgs, password: Option<&str>) -> Result<(), jetdb::Fi
         .collect();
     names.sort_unstable();
 
-    crate::print_names(&names, args.delimiter.as_deref());
+    crate::print_names(&mut io::stdout().lock(), &names, args.delimiter.as_deref())?;
 
     Ok(())
 }
@@ -221,7 +221,7 @@ fn is_listed(args: &FormListArgs, object_type: FormObjectType) -> bool {
     }
 }
 
-fn run_dump(args: &FormDumpArgs, password: Option<&str>) -> Result<(), String> {
+fn run_dump(args: &FormDumpArgs, password: Option<&str>) -> Result<(), crate::CliError> {
     let mut reader =
         PageReader::open_with_password(&args.file, password).map_err(|e| e.to_string())?;
     let kind = args.stream.to_stream_kind();
@@ -235,12 +235,12 @@ fn run_dump(args: &FormDumpArgs, password: Option<&str>) -> Result<(), String> {
 
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
-    handle.write_all(&stream.data).map_err(|e| e.to_string())?;
+    handle.write_all(&stream.data)?;
 
     Ok(())
 }
 
-fn run_controls(args: &FormControlsArgs, password: Option<&str>) -> Result<(), String> {
+fn run_controls(args: &FormControlsArgs, password: Option<&str>) -> Result<(), crate::CliError> {
     let mut reader =
         PageReader::open_with_password(&args.file, password).map_err(|e| e.to_string())?;
     // The sections and controls of the Blob, which TypeInfo can lack.
@@ -252,15 +252,16 @@ fn run_controls(args: &FormControlsArgs, password: Option<&str>) -> Result<(), S
         jetdb::read_form_properties,
     )?;
 
+    let mut out = io::stdout().lock();
     for (index, ctrl) in form_props.controls.iter().enumerate() {
         let type_name = jetdb::control_type_label(ctrl.type_code);
-        println!("{}\t{}\t{}", ctrl.name, type_name, index);
+        writeln!(out, "{}\t{}\t{}", ctrl.name, type_name, index)?;
     }
 
     Ok(())
 }
 
-fn run_props(args: &FormPropsArgs, password: Option<&str>) -> Result<(), String> {
+fn run_props(args: &FormPropsArgs, password: Option<&str>) -> Result<(), crate::CliError> {
     let mut reader =
         PageReader::open_with_password(&args.file, password).map_err(|e| e.to_string())?;
     let form_props = read_named(
@@ -271,20 +272,21 @@ fn run_props(args: &FormPropsArgs, password: Option<&str>) -> Result<(), String>
         jetdb::read_form_properties,
     )?;
 
+    let mut out = io::stdout().lock();
     let type_label = form_type_label(form_props.object_type);
-    println!("{type_label}: {}", form_props.form_name);
+    writeln!(out, "{type_label}: {}", form_props.form_name)?;
 
     if !form_props.properties.is_empty() {
-        println!();
-        println!("  {type_label} Properties:");
-        print_properties(&form_props.properties);
+        writeln!(out)?;
+        writeln!(out, "  {type_label} Properties:")?;
+        print_properties(&mut out, &form_props.properties)?;
     }
 
     for ctrl in &form_props.controls {
-        println!();
+        writeln!(out)?;
         let type_label = jetdb::control_type_label(ctrl.type_code);
-        println!("  Control: {} ({})", ctrl.name, type_label);
-        print_properties(&ctrl.properties);
+        writeln!(out, "  Control: {} ({})", ctrl.name, type_label)?;
+        print_properties(&mut out, &ctrl.properties)?;
     }
 
     Ok(())
@@ -297,7 +299,7 @@ fn form_type_label(object_type: FormObjectType) -> &'static str {
     }
 }
 
-fn print_properties(props: &[jetdb::BlobProperty]) {
+fn print_properties(out: &mut impl Write, props: &[jetdb::BlobProperty]) -> io::Result<()> {
     // Calculate max label width for alignment.
     let max_width = props
         .iter()
@@ -307,8 +309,13 @@ fn print_properties(props: &[jetdb::BlobProperty]) {
 
     for prop in props {
         let label = prop.display_name();
-        println!("    {label:<max_width$}  {}", format_value(&prop.value));
+        writeln!(
+            out,
+            "    {label:<max_width$}  {}",
+            format_value(&prop.value)
+        )?;
     }
+    Ok(())
 }
 
 /// Format a property value for display: text quoted on one line, the others

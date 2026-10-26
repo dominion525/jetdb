@@ -5,6 +5,7 @@ mod prop;
 mod query;
 mod vba;
 
+use std::io::{self, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -22,7 +23,13 @@ use unicode_width::UnicodeWidthStr;
 
 /// Read-only tool for Microsoft Access (.mdb / .accdb) databases
 #[derive(Parser)]
-#[command(name = "jetdb", bin_name = "jetdb", version, about, arg_required_else_help = true)]
+#[command(
+    name = "jetdb",
+    bin_name = "jetdb",
+    version,
+    about,
+    arg_required_else_help = true
+)]
 struct Cli {
     /// Database password (for password-protected .accdb files)
     #[arg(long = "password", global = true)]
@@ -108,34 +115,74 @@ struct SchemaArgs {
     no_relations: bool,
 }
 
+/// What ends a subcommand that fails.
+pub(crate) enum CliError {
+    /// The reader of standard output has closed it.
+    ClosedOutput,
+    /// Any other error, as its message.
+    Message(String),
+}
+
+impl From<String> for CliError {
+    fn from(message: String) -> Self {
+        Self::Message(message)
+    }
+}
+
+impl From<io::Error> for CliError {
+    fn from(e: io::Error) -> Self {
+        if e.kind() == io::ErrorKind::BrokenPipe {
+            Self::ClosedOutput
+        } else {
+            Self::Message(e.to_string())
+        }
+    }
+}
+
+impl From<jetdb::FileError> for CliError {
+    fn from(e: jetdb::FileError) -> Self {
+        match e {
+            jetdb::FileError::Io(e) if e.kind() == io::ErrorKind::BrokenPipe => Self::ClosedOutput,
+            e => Self::Message(e.to_string()),
+        }
+    }
+}
+
 /// The exit code of a subcommand that gave `result`, after writing its error.
-pub(crate) fn exit_code<E: std::fmt::Display>(result: Result<(), E>) -> ExitCode {
-    match result {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
-            log::error!("{e}");
+/// A subcommand whose standard output the reader has closed ends quietly, as
+/// one that succeeds.
+pub(crate) fn exit_code<E: Into<CliError>>(result: Result<(), E>) -> ExitCode {
+    match result.map_err(Into::into) {
+        Ok(()) | Err(CliError::ClosedOutput) => ExitCode::SUCCESS,
+        Err(CliError::Message(message)) => {
+            log::error!("{message}");
             ExitCode::FAILURE
         }
     }
 }
 
-/// Print `names` as the list subcommands do: on one line joined by
+/// Write `names` to `out` as the list subcommands do: on one line joined by
 /// `delimiter`, or else one a line; nothing when there are none.
-pub(crate) fn print_names(names: &[impl AsRef<str>], delimiter: Option<&str>) {
+pub(crate) fn print_names(
+    out: &mut impl Write,
+    names: &[impl AsRef<str>],
+    delimiter: Option<&str>,
+) -> io::Result<()> {
     if names.is_empty() {
-        return;
+        return Ok(());
     }
     match delimiter {
         Some(delimiter) => {
             let names: Vec<&str> = names.iter().map(AsRef::as_ref).collect();
-            println!("{}", names.join(delimiter));
+            writeln!(out, "{}", names.join(delimiter))?;
         }
         None => {
             for name in names {
-                println!("{}", name.as_ref());
+                writeln!(out, "{}", name.as_ref())?;
             }
         }
     }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -150,10 +197,11 @@ fn run_ver(args: &VerArgs, password: Option<&str>) -> Result<(), jetdb::FileErro
     let reader = PageReader::open_with_password(&args.file, password)?;
     let version = reader.header().version;
 
+    let mut out = io::stdout().lock();
     if args.long {
-        println!("{version}");
+        writeln!(out, "{version}")?;
     } else {
-        println!("{}", version.short_name());
+        writeln!(out, "{}", version.short_name())?;
     }
     Ok(())
 }
@@ -176,13 +224,14 @@ fn run_tables(args: &TablesArgs, password: Option<&str>) -> Result<(), jetdb::Fi
         .collect();
     entries.sort_unstable_by(|a, b| a.name.cmp(&b.name));
 
+    let mut out = io::stdout().lock();
     for entry in &entries {
         if args.show_type {
-            println!("{}\t{}", entry.object_type as i32, entry.name);
+            writeln!(out, "{}\t{}", entry.object_type as i32, entry.name)?;
         } else if args.show_type_name {
-            println!("{}\t{}", resolve_type_name(entry), entry.name);
+            writeln!(out, "{}\t{}", resolve_type_name(entry), entry.name)?;
         } else {
-            println!("{}", entry.name);
+            writeln!(out, "{}", entry.name)?;
         }
     }
     Ok(())
@@ -249,6 +298,7 @@ fn run_schema(args: &SchemaArgs, password: Option<&str>) -> Result<(), jetdb::Fi
     };
 
     // DDL mode or human-readable mode
+    let mut out = io::stdout().lock();
     if let Some(ref name) = args.ddl_format {
         let dialect = jetdb::ddl::dialect(name).expect("clap accepts only the dialect names");
         let output = jetdb::ddl::generate_ddl(
@@ -258,13 +308,13 @@ fn run_schema(args: &SchemaArgs, password: Option<&str>) -> Result<(), jetdb::Fi
             !args.no_indexes,
             need_relations,
         );
-        print!("{output}");
+        write!(out, "{output}")?;
     } else {
         for (i, tdef) in tables.iter().enumerate() {
             if i > 0 {
-                println!();
+                writeln!(out)?;
             }
-            print_table_schema(tdef, &relationships, args);
+            print_table_schema(&mut out, tdef, &relationships, args)?;
         }
     }
 
@@ -336,16 +386,22 @@ fn quoted(s: &str) -> String {
     out
 }
 
-fn print_table_schema(tdef: &TableDef, rels: &[Relationship], args: &SchemaArgs) {
-    println!("Table: {}", tdef.name);
-    println!();
-    print_columns(tdef);
+fn print_table_schema(
+    out: &mut impl Write,
+    tdef: &TableDef,
+    rels: &[Relationship],
+    args: &SchemaArgs,
+) -> io::Result<()> {
+    writeln!(out, "Table: {}", tdef.name)?;
+    writeln!(out)?;
+    print_columns(out, tdef)?;
     if !args.no_indexes {
-        print_indexes(tdef);
+        print_indexes(out, tdef)?;
     }
     if !args.no_relations {
-        print_relationships(tdef, rels);
+        print_relationships(out, tdef, rels)?;
     }
+    Ok(())
 }
 
 /// The widest of `texts` in the columns of a terminal.
@@ -357,22 +413,23 @@ fn max_width<'a>(texts: impl IntoIterator<Item = &'a str>) -> usize {
 /// `name_width`, and `text`, padded to `text_width` when it is given and
 /// `extra` follows, then `extra` when it is not empty.
 fn print_aligned(
+    out: &mut impl Write,
     name: &str,
     name_width: usize,
     text: &str,
     text_width: Option<usize>,
     extra: &str,
-) {
+) -> io::Result<()> {
     if extra.is_empty() {
-        println!("    {}  {text}", padded(name, name_width));
+        writeln!(out, "    {}  {text}", padded(name, name_width))
     } else {
         let text = text_width.map_or_else(|| text.to_string(), |w| padded(text, w));
-        println!("    {}  {text}  {extra}", padded(name, name_width));
+        writeln!(out, "    {}  {text}  {extra}", padded(name, name_width))
     }
 }
 
-fn print_columns(tdef: &TableDef) {
-    println!("  Columns:");
+fn print_columns(out: &mut impl Write, tdef: &TableDef) -> io::Result<()> {
+    writeln!(out, "  Columns:")?;
 
     // Pre-compute type strings to avoid double formatting
     let col_types: Vec<String> = tdef
@@ -385,26 +442,28 @@ fn print_columns(tdef: &TableDef) {
 
     for (col, col_type) in tdef.columns.iter().zip(&col_types) {
         print_aligned(
+            out,
             &col.name,
             name_width,
             col_type,
             Some(type_width),
             &format_col_attrs(col),
-        );
+        )?;
     }
+    Ok(())
 }
 
-fn print_indexes(tdef: &TableDef) {
+fn print_indexes(out: &mut impl Write, tdef: &TableDef) -> io::Result<()> {
     let visible_indexes: Vec<&IndexDef> = tdef
         .indexes
         .iter()
         .filter(|idx| idx.index_type != index_type::FOREIGN_KEY)
         .collect();
     if visible_indexes.is_empty() {
-        return;
+        return Ok(());
     }
-    println!();
-    println!("  Indexes:");
+    writeln!(out)?;
+    writeln!(out, "  Indexes:")?;
 
     let idx_name_width = max_width(visible_indexes.iter().map(|i| i.name.as_str()));
     let cols_strs: Vec<String> = visible_indexes
@@ -415,37 +474,45 @@ fn print_indexes(tdef: &TableDef) {
 
     for (idx, cols_str) in visible_indexes.iter().zip(&cols_strs) {
         print_aligned(
+            out,
             &idx.name,
             idx_name_width,
             cols_str,
             Some(cols_width),
             &format_index_flags(idx),
-        );
+        )?;
     }
+    Ok(())
 }
 
-fn print_relationships(tdef: &TableDef, rels: &[Relationship]) {
+fn print_relationships(
+    out: &mut impl Write,
+    tdef: &TableDef,
+    rels: &[Relationship],
+) -> io::Result<()> {
     let table_rels: Vec<&Relationship> = rels
         .iter()
         .filter(|r| r.from_table == tdef.name || r.to_table == tdef.name)
         .collect();
     if table_rels.is_empty() {
-        return;
+        return Ok(());
     }
-    println!();
-    println!("  Relationships:");
+    writeln!(out)?;
+    writeln!(out, "  Relationships:")?;
 
     let rel_name_width = max_width(table_rels.iter().map(|r| r.name.as_str()));
     for rel in &table_rels {
         let mapping = format_relationship_mapping(rel);
         print_aligned(
+            out,
             &rel.name,
             rel_name_width,
             &mapping,
             None,
             &format_relationship_flags(rel),
-        );
+        )?;
     }
+    Ok(())
 }
 
 fn format_index_columns(idx: &IndexDef, tdef: &TableDef) -> String {
@@ -527,8 +594,7 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
 
     if cli.help_skill {
-        print_skill_moved();
-        return ExitCode::SUCCESS;
+        return exit_code(print_skill_moved(&mut io::stdout().lock()));
     }
 
     let Some(command) = cli.command else {
@@ -574,9 +640,10 @@ fn init_logger() {
         .init();
 }
 
-/// Print where the Claude Code Skill of jetdb has moved, for `--help-skill`.
-fn print_skill_moved() {
-    println!(
+/// Write where the Claude Code Skill of jetdb has moved, for `--help-skill`.
+fn print_skill_moved(out: &mut impl Write) -> io::Result<()> {
+    writeln!(
+        out,
         "The jetdb Claude Code Skill has moved to the agent-skills repository.
 
 Install via Claude Code Plugin Marketplace:
@@ -587,7 +654,7 @@ Install via Vercel skills CLI:
   npx skills add dominion525/agent-skills --skill jetdb-cli -a claude-code
 
 Details: https://github.com/dominion525/agent-skills"
-    );
+    )
 }
 
 // ---------------------------------------------------------------------------
