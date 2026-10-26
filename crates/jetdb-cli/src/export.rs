@@ -117,11 +117,15 @@ fn csv_options(args: &ExportArgs) -> Result<CsvOptions, String> {
 }
 
 /// Write the file `name` of the attachment that holds `number` in a row to
-/// `dir/<number>/<name>`, and give that path under `dir`.
+/// `dir/<number>/<name>`, and give that path under `dir`. An I/O error names
+/// the path it failed on.
 fn write_attachment(dir: &Path, number: i32, name: &str, data: &[u8]) -> io::Result<String> {
+    let with_path =
+        |path: &Path, e: io::Error| io::Error::new(e.kind(), format!("{}: {e}", path.display()));
     let folder = dir.join(number.to_string());
-    fs::create_dir_all(&folder)?;
-    fs::write(folder.join(name), data)?;
+    fs::create_dir_all(&folder).map_err(|e| with_path(&folder, e))?;
+    let file = folder.join(name);
+    fs::write(&file, data).map_err(|e| with_path(&file, e))?;
     Ok(format!("{number}/{name}"))
 }
 

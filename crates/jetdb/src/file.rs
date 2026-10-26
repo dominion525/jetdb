@@ -536,9 +536,15 @@ impl PageReader {
     }
 
     /// Internal: open a file and decrypt header without checking for Agile Encryption.
+    ///
+    /// An I/O error in opening the file names the path, which
+    /// [`std::io::Error`] does not.
     fn open_raw(path: impl AsRef<Path>) -> Result<Self, FileError> {
-        let file = File::open(path.as_ref())?;
-        let file_size = file.metadata()?.len();
+        let path = path.as_ref();
+        let with_path =
+            |e: std::io::Error| std::io::Error::new(e.kind(), format!("{}: {e}", path.display()));
+        let file = File::open(path).map_err(with_path)?;
+        let file_size = file.metadata().map_err(with_path)?.len();
         Self::open_raw_from_source(Box::new(file), file_size)
     }
 
@@ -914,6 +920,10 @@ mod tests {
     fn open_nonexistent_file() {
         let err = PageReader::open("/nonexistent/path/to/file.mdb").unwrap_err();
         assert!(matches!(err, FileError::Io(_)));
+        assert!(
+            err.to_string().contains("/nonexistent/path/to/file.mdb"),
+            "the error should name the path, got: {err}"
+        );
     }
 
     #[test]
