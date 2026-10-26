@@ -14,6 +14,7 @@ use crate::table;
 
 /// Property map classification based on chunk type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum PropMapType {
     /// Table-level properties (chunk type 0x0000).
     Default,
@@ -25,6 +26,7 @@ pub enum PropMapType {
 
 /// A single property entry.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Property {
     pub name: String,
     pub value: Value,
@@ -33,6 +35,7 @@ pub struct Property {
 
 /// A named group of properties (table-level or per-column).
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct PropertyMap {
     pub map_type: PropMapType,
     /// Map name (empty for table-level, column name for column-level).
@@ -42,6 +45,7 @@ pub struct PropertyMap {
 
 /// All properties for a single database object.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ObjectProperties {
     pub object_name: String,
     pub maps: Vec<PropertyMap>,

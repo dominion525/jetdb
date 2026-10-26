@@ -12,6 +12,7 @@ use crate::storage::{self, AccessStorage, StorageEntry};
 
 /// VBA module type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum VbaModuleType {
     /// A standard module.
     Standard,
@@ -23,6 +24,7 @@ pub enum VbaModuleType {
 
 /// A single VBA module with its source code.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct VbaModule {
     pub name: String,
     pub module_type: VbaModuleType,
@@ -31,6 +33,7 @@ pub struct VbaModule {
 
 /// A VBA project extracted from a database.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct VbaProject {
     pub modules: Vec<VbaModule>,
 }

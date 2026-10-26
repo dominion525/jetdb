@@ -219,6 +219,7 @@ fn object_type_name(t: ObjectType) -> &'static str {
         ObjectType::UserInfo => "userinfo",
         ObjectType::Database => "database",
         ObjectType::DatabaseProperty => "dbproperty",
+        _ => "unknown",
     }
 }
 

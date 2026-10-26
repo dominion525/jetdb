@@ -29,6 +29,7 @@ pub struct IndexColumn {
 
 /// Foreign key reference information (for `index_type == 2`).
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ForeignKeyReference {
     /// FK index type (0x00 or 0x01).
     pub fk_index_type: u8,
@@ -100,6 +101,7 @@ pub struct ColumnDef {
 
 /// A parsed table definition.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct TableDef {
     pub name: String,
     pub num_rows: u32,

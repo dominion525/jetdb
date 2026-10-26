@@ -48,12 +48,14 @@ use crate::table::{column_index, read_table_def, TableDef};
 /// names starting with `~`, matching how callers already treat `~sq_...`
 /// internal queries.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct MacroEntry {
     pub name: String,
 }
 
 /// A macro read from its XML definition.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct MacroDef {
     /// Where the macro comes from.
     pub source: MacroSource,
@@ -86,6 +88,7 @@ pub struct MacroDef {
 /// Macros written by newer Access versions store `If` blocks as conditions and
 /// internal `SetLocalVar` rows here, and their XML as `_AXL:` comment rows.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct MacroGrid {
     /// The first four bytes of the grid, which differ with the columns shown
     /// in the macro designer (0, 1, or 3 in the files examined).
@@ -99,6 +102,7 @@ pub struct MacroGrid {
 
 /// One row of a [`MacroGrid`].
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct MacroGridRow {
     /// The row number in the macro sheet. Empty rows are not stored.
     pub row: u16,
@@ -113,6 +117,7 @@ pub struct MacroGridRow {
 
 /// Where a [`MacroDef`] comes from.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum MacroSource {
     /// A named macro object.
     Named { name: String },
@@ -149,6 +154,7 @@ pub struct MacroParameter {
 
 /// One statement of a macro.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum MacroStatement {
     /// An action and its arguments, in document order.
     Action {

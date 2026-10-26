@@ -20,6 +20,7 @@
 
 /// A macro action that has a number in the macro grid.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct MacroAction {
     /// The number stored in a macro grid row.
     pub code: u16,

@@ -45,6 +45,7 @@ const UNION_PART2: &str = "X7YZ_____2";
 
 /// Query type, determined by the Flag field of the TYPE attribute row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum QueryType {
     Select = 1,
     MakeTable = 2,

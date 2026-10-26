@@ -95,16 +95,16 @@ fn csv_options(args: &ExportArgs) -> CsvOptions {
     if args.delimiter.chars().count() > 1 {
         log::warn!("only the first character of delimiter is used");
     }
-    CsvOptions {
-        header: !args.no_header,
-        delimiter: args.delimiter.chars().next().unwrap_or(','),
-        date_format: args.date_format.clone(),
-        datetime_format: args.datetime_format.clone(),
-        binary: args.bin_mode.into(),
-        null: args.null_string.clone(),
-        boolean_words: args.boolean_words,
-        system_columns: args.system_columns,
-    }
+    let mut options = CsvOptions::default();
+    options.header = !args.no_header;
+    options.delimiter = args.delimiter.chars().next().unwrap_or(',');
+    options.date_format = args.date_format.clone();
+    options.datetime_format = args.datetime_format.clone();
+    options.binary = args.bin_mode.into();
+    options.null = args.null_string.clone();
+    options.boolean_words = args.boolean_words;
+    options.system_columns = args.system_columns;
+    options
 }
 
 /// Write the file `name` of the attachment that holds `number` in a row to
