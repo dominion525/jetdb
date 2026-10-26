@@ -7,18 +7,45 @@
 /// negative, and the time of day is the absolute value of the fractional
 /// part: -1.25 is 1899-12-29 06:00:00, a day before the epoch at 6 a.m., as
 /// Access shows it (not 1899-12-28 18:00:00, 1.25 days before the epoch).
+///
+/// Access stores the dates of the years 100 to 9999.  A value out of them,
+/// which only a broken file gives, is the epoch, as a NaN or an infinity is.
 /// Access epoch expressed as Julian Day Number (1899-12-30).
 const ACCESS_EPOCH_JDN: i64 = 2_415_019;
+
+/// The day of 0100-01-01, the first date Access stores.
+const FIRST_DAY: i64 = -657_434;
+
+/// The day of 9999-12-31, the last date Access stores.
+const LAST_DAY: i64 = 2_958_465;
 
 /// Seconds in a day.
 const SECS_PER_DAY: f64 = 86_400.0;
 
 /// Convert an Access timestamp to calendar parts.
 ///
-/// Returns `(year, month, day, hour, minute, second)`.
+/// Returns `(year, month, day, hour, minute, second)`, those of the epoch
+/// for a value out of the years 100 to 9999.
 pub fn timestamp_to_parts(ts: f64) -> (i32, u32, u32, u32, u32, u32) {
-    if !ts.is_finite() {
+    let Some((days, total_secs)) = day_and_seconds(ts) else {
         return (1899, 12, 30, 0, 0, 0); // epoch
+    };
+    let (year, month, day) = jdn_to_gregorian(ACCESS_EPOCH_JDN + days);
+
+    let hour = total_secs / 3600;
+    let minute = (total_secs % 3600) / 60;
+    let second = total_secs % 60;
+
+    (year, month, day, hour, minute, second)
+}
+
+/// The day of an Access timestamp and the seconds of its time of day,
+/// rounded to the second; `None` when it is not a date of the years 100 to
+/// 9999, NaN and the infinities too.
+fn day_and_seconds(ts: f64) -> Option<(i64, u32)> {
+    // Compared as a double first, so that the day count fits in an i64.
+    if !(ts > (FIRST_DAY - 1) as f64 && ts < (LAST_DAY + 1) as f64) {
+        return None;
     }
     // The day is the integer part toward zero and the time of day the
     // absolute value of the fraction, also for a negative value (see the
@@ -32,15 +59,7 @@ pub fn timestamp_to_parts(ts: f64) -> (i32, u32, u32, u32, u32, u32) {
         days += 1;
         total_secs = 0;
     }
-
-    let jdn = ACCESS_EPOCH_JDN + days;
-    let (year, month, day) = jdn_to_gregorian(jdn);
-
-    let hour = total_secs / 3600;
-    let minute = (total_secs % 3600) / 60;
-    let second = total_secs % 60;
-
-    (year, month, day, hour, minute, second)
+    (days <= LAST_DAY).then_some((days, total_secs))
 }
 
 /// The format of a timestamp whose time is midnight, as `jetdb export` writes
@@ -105,9 +124,10 @@ fn push_directive(
 
 /// Return `true` if the timestamp has no time component (date only).
 ///
-/// Tolerates floating-point noise up to 1e-9.
+/// Tolerates floating-point noise up to 1e-9.  A value out of the years 100
+/// to 9999 is date only, as the epoch it gives.
 pub fn is_date_only(ts: f64) -> bool {
-    if !ts.is_finite() {
+    if day_and_seconds(ts).is_none() {
         return true;
     }
     let frac = (ts - ts.floor()).abs();
@@ -121,12 +141,30 @@ pub fn is_date_only(ts: f64) -> bool {
 /// DateTimeExtended epoch (0001-01-01) expressed as Julian Day Number.
 const EXT_DATETIME_EPOCH_JDN: i64 = 1_721_426;
 
+/// The day of 9999-12-31, the last date of DateTimeExtended.
+const EXT_DATETIME_LAST_DAY: i64 = 3_652_058;
+
+/// Whether the parts of a DateTimeExtended value are those of a date and
+/// time of the years 1 to 9999.
+pub(crate) fn is_ext_datetime_in_range(days: i64, seconds: i64, nanos100: i64) -> bool {
+    (0..=EXT_DATETIME_LAST_DAY).contains(&days)
+        && (0..86_400).contains(&seconds)
+        && (0..10_000_000).contains(&nanos100)
+}
+
 /// Format a DateTimeExtended value as an ISO 8601 string.
 ///
 /// `days` is the number of days since epoch 0001-01-01,
 /// `seconds` is the elapsed seconds within that day,
 /// `nanos100` is the sub-second fraction in 100-nanosecond units.
+/// A value out of the years 1 to 9999 is the epoch, as an Access timestamp
+/// out of its years is.
 pub fn format_ext_datetime(days: i64, seconds: i64, nanos100: i64) -> String {
+    let (days, seconds, nanos100) = if is_ext_datetime_in_range(days, seconds, nanos100) {
+        (days, seconds, nanos100)
+    } else {
+        (0, 0, 0)
+    };
     let (y, m, d) = jdn_to_gregorian(EXT_DATETIME_EPOCH_JDN + days);
     let h = seconds / 3600;
     let min = (seconds % 3600) / 60;
@@ -350,6 +388,39 @@ mod tests {
     }
 
     #[test]
+    fn first_and_last_dates_access_stores() {
+        assert_eq!(timestamp_to_parts(-657_434.0), (100, 1, 1, 0, 0, 0));
+        assert_eq!(
+            timestamp_to_parts(-657_434.999_988),
+            (100, 1, 1, 23, 59, 59)
+        );
+        assert_eq!(timestamp_to_parts(2_958_465.0), (9999, 12, 31, 0, 0, 0));
+        assert_eq!(
+            timestamp_to_parts(2_958_465.999_988),
+            (9999, 12, 31, 23, 59, 59)
+        );
+    }
+
+    #[test]
+    fn out_of_range_returns_epoch() {
+        // A broken file can give any double, and the date of one far out of
+        // the years 100 to 9999 overflowed the day count.
+        for ts in [1e300, -1e300, 3e18, 1e15, -657_435.0, 2_958_466.0] {
+            assert_eq!(timestamp_to_parts(ts), (1899, 12, 30, 0, 0, 0), "{ts}");
+            assert_eq!(format_default(ts), "1899-12-30", "{ts}");
+            assert_eq!(format_timestamp(ts, "%Y-%m-%d"), "1899-12-30", "{ts}");
+        }
+        // 23:59:59.9 on 9999-12-31 rounds to 10000-01-01.
+        let ts = 2_958_465.0 + 86_399.9 / 86_400.0;
+        assert_eq!(timestamp_to_parts(ts), (1899, 12, 30, 0, 0, 0));
+    }
+
+    #[test]
+    fn is_date_only_out_of_range() {
+        assert!(is_date_only(1e15 + 0.5));
+    }
+
+    #[test]
     fn is_date_only_nan() {
         assert!(is_date_only(f64::NAN));
     }
@@ -409,5 +480,34 @@ mod tests {
     fn ext_datetime_time_no_nanos() {
         // 2021-06-14 12:45:00
         assert_eq!(format_ext_datetime(737954, 45900, 0), "2021-06-14 12:45:00");
+    }
+
+    #[test]
+    fn ext_datetime_last_date() {
+        assert_eq!(
+            format_ext_datetime(3_652_058, 86_399, 9_999_999),
+            "9999-12-31 23:59:59.9999999"
+        );
+    }
+
+    #[test]
+    fn ext_datetime_out_of_range_returns_epoch() {
+        for (days, seconds, nanos100) in [
+            (3_000_000_000_000_000_000, 0, 0),
+            (i64::MAX, 0, 0),
+            (i64::MIN, 0, 0),
+            (3_652_059, 0, 0),
+            (-1, 0, 0),
+            (737_954, 86_400, 0),
+            (737_954, -1, 0),
+            (737_954, 0, 10_000_000),
+            (737_954, 0, -1),
+        ] {
+            assert_eq!(
+                format_ext_datetime(days, seconds, nanos100),
+                "0001-01-01",
+                "{days} {seconds} {nanos100}"
+            );
+        }
     }
 }

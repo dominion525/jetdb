@@ -1267,7 +1267,7 @@ fn parse_ext_datetime(buf: &[u8]) -> Option<String> {
     let days = parse_zero_padded_i64(days_str)?;
     let seconds = parse_zero_padded_i64(secs_str)?;
     let nanos100 = parse_zero_padded_i64(nanos_str)?;
-    if seconds >= 86_400 || nanos100 >= 10_000_000 {
+    if !timestamp::is_ext_datetime_in_range(days, seconds, nanos100) {
         return None;
     }
 
@@ -3273,6 +3273,30 @@ mod tests {
     fn parse_ext_datetime_seconds_out_of_range() {
         let buf = ext_datetime_bytes(737954, 86_400, 0);
         assert_eq!(parse_ext_datetime(&buf), None);
+    }
+
+    #[test]
+    fn parse_ext_datetime_days_out_of_range() {
+        // 9999-12-31 is the last date; the day count of a broken file can
+        // be up to 19 digits, which overflowed in the date of it.
+        let last = ext_datetime_bytes(3_652_058, 0, 0);
+        assert_eq!(parse_ext_datetime(&last), Some("9999-12-31".to_string()));
+        for days in [3_652_059, 3_000_000_000_000_000_000] {
+            let buf = ext_datetime_bytes(days, 0, 0);
+            assert_eq!(parse_ext_datetime(&buf), None, "{days}");
+        }
+    }
+
+    #[test]
+    fn read_fixed_datetime_extended_out_of_range_is_binary() {
+        let ascii = ext_datetime_bytes(3_000_000_000_000_000_000, 0, 0);
+        let row_data = make_jet4_row_with_fixed(&ascii[..42]);
+        let cracked = crack_row_jet4(&row_data).unwrap();
+        let col = make_col_def(ColumnType::DateTimeExtended, 42);
+        assert_eq!(
+            read_fixed_value(&cracked, &col, false),
+            Value::Binary(ascii.to_vec())
+        );
     }
 
     #[test]
