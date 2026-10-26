@@ -11,6 +11,7 @@
 - The values of calculated columns, with the type of their result.
 - Reading the rows of a table one at a time (`TableRows`, `read_row_at`), in `jetdb export` and jetdb-wasm too.
 - Writing CSV in the library (`write_csv`).
+- `ALL` on `ObjectType`, `QueryType`, `PropMapType` and `VbaModuleType`, listing every variant.
 - `--type` for `jetdb prop`, `jetdb form dump`, `jetdb form controls`, `jetdb form props` and `jetdb macro embedded`, to choose among objects of different types that share a name; without it, such a name is an error rather than one of them.
 
 ### Changed
@@ -55,12 +56,12 @@
 
 For 0.2.0 to 0.3.3, see the [GitHub releases](https://github.com/dominion525/jetdb/releases).
 
-## 0.1.1 — 2026-02-16
+## 0.1.1
 
 - Improve robustness of VBA extraction and data row reading.
 - Add module-level documentation to all public modules.
 - Clean up crate metadata (MSRV, exclude patterns).
 
-## 0.1.0 — 2026-02-15
+## 0.1.0
 
 Initial release.

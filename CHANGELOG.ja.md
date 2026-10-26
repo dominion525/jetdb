@@ -11,6 +11,7 @@
 - 集計フィールドの値（結果の型で返す）。
 - テーブルの行を 1 行ずつ読む（`TableRows`、`read_row_at`）。`jetdb export` と jetdb-wasm でも使う。
 - ライブラリでの CSV の書き出し（`write_csv`）。
+- `ObjectType`、`QueryType`、`PropMapType`、`VbaModuleType` の `ALL`：すべての種類の一覧。
 - `jetdb prop`、`jetdb form dump`、`jetdb form controls`、`jetdb form props`、`jetdb macro embedded` の `--type`：種類の違うオブジェクトが同じ名前を持つとき、どれかを選ぶ。指定しないと、そのような名前はどれか 1 つを選ばずにエラーになる。
 
 ### 変更
@@ -55,12 +56,12 @@
 
 0.2.0 から 0.3.3 までは、[GitHub のリリース](https://github.com/dominion525/jetdb/releases) を参照。
 
-## 0.1.1 — 2026-02-16
+## 0.1.1
 
 - VBA 抽出およびデータ行読み取りの堅牢性を改善。
 - 全公開モジュールにモジュールレベルのドキュメントを追加。
 - crate メタデータの整備（MSRV、exclude パターン）。
 
-## 0.1.0 — 2026-02-15
+## 0.1.0
 
 初回リリース。
