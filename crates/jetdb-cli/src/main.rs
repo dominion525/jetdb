@@ -119,20 +119,22 @@ pub(crate) fn exit_code<E: std::fmt::Display>(result: Result<(), E>) -> ExitCode
     }
 }
 
-/// Print `names` as the list subcommands do: one a line with `newline`, or
-/// else on one line joined by `delimiter`, or by a space; nothing when there
-/// are none.
-pub(crate) fn print_names(names: &[impl AsRef<str>], newline: bool, delimiter: Option<&str>) {
+/// Print `names` as the list subcommands do: on one line joined by
+/// `delimiter`, or else one a line; nothing when there are none.
+pub(crate) fn print_names(names: &[impl AsRef<str>], delimiter: Option<&str>) {
     if names.is_empty() {
         return;
     }
-    if newline {
-        for name in names {
-            println!("{}", name.as_ref());
+    match delimiter {
+        Some(delimiter) => {
+            let names: Vec<&str> = names.iter().map(AsRef::as_ref).collect();
+            println!("{}", names.join(delimiter));
         }
-    } else {
-        let names: Vec<&str> = names.iter().map(AsRef::as_ref).collect();
-        println!("{}", names.join(delimiter.unwrap_or(" ")));
+        None => {
+            for name in names {
+                println!("{}", name.as_ref());
+            }
+        }
     }
 }
 

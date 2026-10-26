@@ -3,7 +3,7 @@ mod common;
 use common::jetdb_bin;
 
 // ---------------------------------------------------------------------------
-// List queries (default: space-separated)
+// List queries (default: one per line)
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -19,21 +19,24 @@ fn queries_list() {
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let trimmed = stdout.trim();
-    assert!(!trimmed.is_empty(), "should have query names in output");
-    // Should contain known query names
+    // Should contain known query names, one a line
     assert!(
-        trimmed.contains("SelectQuery"),
-        "should contain SelectQuery, got: {trimmed}"
+        stdout.lines().any(|l| l == "SelectQuery"),
+        "should have SelectQuery on a line, got: {stdout}"
     );
     assert!(
-        trimmed.contains("UnionQuery"),
-        "should contain UnionQuery, got: {trimmed}"
+        stdout.lines().any(|l| l == "UnionQuery"),
+        "should have UnionQuery on a line, got: {stdout}"
+    );
+    // queryTestV2003.mdb has 9 queries
+    assert!(
+        stdout.lines().count() >= 9,
+        "should have at least 9 query names, got: {stdout}"
     );
 }
 
 // ---------------------------------------------------------------------------
-// List queries with newline delimiter (-1)
+// List queries with -1: the same as the default
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -44,13 +47,14 @@ fn queries_list_newline() {
         .output()
         .expect("failed to run jetdb");
     assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let lines: Vec<&str> = stdout.lines().collect();
-    // queryTestV2003.mdb has 9 queries
-    assert!(
-        lines.len() >= 9,
-        "should have at least 9 query names, got {}",
-        lines.len()
+    let default = jetdb_bin()
+        .args(["queries", "list", path.to_str().unwrap()])
+        .output()
+        .expect("failed to run jetdb");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&default.stdout),
+        "-1 should print what the default prints"
     );
 }
 

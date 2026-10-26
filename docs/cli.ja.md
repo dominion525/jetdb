@@ -234,20 +234,17 @@ Access が参照整合性を強制しないリレーションシップは制約�
 jetdb queries list [OPTIONS] <FILE>
 ```
 
-データベースに保存されたクエリの名前一覧を表示する (デフォルトはスペース区切り)。
+データベースに保存されたクエリの名前一覧を表示する (1 行に 1 つ)。
 
 ##### オプション
 
-- `-1`, `--newline` — クエリ名を1行ずつ出力
-- `-d`, `--delimiter <STRING>` — クエリ名間のカスタム区切り文字列 (デフォルト: スペース)
+- `-1`, `--newline` — クエリ名を1行ずつ出力 (デフォルトの動作。互換のために受け付けるだけで、何もしない)
+- `-d`, `--delimiter <STRING>` — クエリ名を、この文字列で区切って 1 行に出力
 
 ##### 出力例
 
 ```
 $ jetdb queries list queryTest.mdb
-AppendQuery CrosstabQuery DataDefinitionQuery DeleteQuery MakeTableQuery PassthroughQuery SelectQuery UnionQuery UpdateQuery
-
-$ jetdb queries list -1 queryTest.mdb
 AppendQuery
 CrosstabQuery
 DataDefinitionQuery
@@ -342,21 +339,18 @@ Object: Customers
 jetdb vba list [OPTIONS] <FILE>
 ```
 
-データベースに含まれる VBA モジュールの名前一覧を表示する (デフォルトはスペース区切り、名前順ソート)。
+データベースに含まれる VBA モジュールの名前一覧を表示する (1 行に 1 つ、名前順ソート)。
 VBA プロジェクトを含まないデータベースでは何も出力しない。
 
 ##### オプション
 
-- `-1`, `--newline` — モジュール名を1行ずつ出力
-- `-d`, `--delimiter <STRING>` — モジュール名間のカスタム区切り文字列 (デフォルト: スペース)
+- `-1`, `--newline` — モジュール名を1行ずつ出力 (デフォルトの動作。互換のために受け付けるだけで、何もしない)
+- `-d`, `--delimiter <STRING>` — モジュール名を、この文字列で区切って 1 行に出力
 
 ##### 出力例
 
 ```
 $ jetdb vba list vbaTest.mdb
-Class1 Form_Form1 Module1
-
-$ jetdb vba list -1 vbaTest.mdb
 Class1
 Form_Form1
 Module1
@@ -398,13 +392,13 @@ End Function
 jetdb form list [OPTIONS] <FILE>
 ```
 
-データベース内のフォームとレポートの名前を一覧表示する（デフォルトはスペース区切り、アルファベット順）。
+データベース内のフォームとレポートの名前を一覧表示する（1 行に 1 つ、アルファベット順）。
 フォーム/レポートがない場合は何も出力しない。
 
 ##### オプション
 
-- `-1`, `--newline` — 1行に1つの名前を出力
-- `-d`, `--delimiter <STRING>` — 名前の間の区切り文字（デフォルト: スペース）
+- `-1`, `--newline` — 1行に1つの名前を出力（デフォルトの動作。互換のために受け付けるだけで、何もしない）
+- `-d`, `--delimiter <STRING>` — 名前を、この文字列で区切って 1 行に出力
 - `--forms-only` — フォームのみ表示
 - `--reports-only` — レポートのみ表示
 
@@ -412,9 +406,11 @@ jetdb form list [OPTIONS] <FILE>
 
 ```
 $ jetdb form list database.accdb
-F_メニュー F_クライアント一覧 R_月次レポート
+F_メニュー
+F_クライアント一覧
+R_月次レポート
 
-$ jetdb form list -1 --forms-only database.accdb
+$ jetdb form list --forms-only database.accdb
 F_メニュー
 F_クライアント一覧
 
@@ -522,21 +518,23 @@ Form: F_クライアント一覧
 jetdb macro list [OPTIONS] <FILE>
 ```
 
-データベースに含まれる名前付きマクロの名前一覧を表示する (デフォルトはスペース区切り、名前順ソート)。
+データベースに含まれる名前付きマクロの名前一覧を表示する (1 行に 1 つ、名前順ソート)。
 名前付きマクロを含まないデータベースでは何も出力しない。
 
 ##### オプション
 
-- `-1`, `--newline` — マクロ名を1行ずつ出力
-- `-d`, `--delimiter <STRING>` — マクロ名間のカスタム区切り文字列 (デフォルト: スペース)
+- `-1`, `--newline` — マクロ名を1行ずつ出力 (デフォルトの動作。互換のために受け付けるだけで、何もしない)
+- `-d`, `--delimiter <STRING>` — マクロ名を、この文字列で区切って 1 行に出力
 
 ##### 出力例
 
 ```
 $ jetdb macro list database.accdb
-AutoExec mcrConditions mcrSimple
+AutoExec
+mcrConditions
+mcrSimple
 
-$ jetdb macro list -1 nwind.mdb
+$ jetdb macro list nwind.mdb
 Customer Labels Dialog
 Customers
 Sample Autokeys

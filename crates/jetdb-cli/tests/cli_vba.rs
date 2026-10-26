@@ -3,7 +3,7 @@ mod common;
 use common::jetdb_bin;
 
 // ---------------------------------------------------------------------------
-// List VBA modules (default: space-separated)
+// List VBA modules (default: one per line)
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -19,24 +19,16 @@ fn vba_list() {
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let trimmed = stdout.trim();
-    assert!(!trimmed.is_empty(), "should have module names in output");
-    assert!(
-        trimmed.contains("Module1"),
-        "should contain Module1, got: {trimmed}"
-    );
-    assert!(
-        trimmed.contains("Class1"),
-        "should contain Class1, got: {trimmed}"
-    );
-    assert!(
-        trimmed.contains("Form_Form1"),
-        "should contain Form_Form1, got: {trimmed}"
-    );
+    for name in ["Class1", "Form_Form1", "Module1"] {
+        assert!(
+            stdout.lines().any(|l| l == name),
+            "should have {name} on a line, got: {stdout}"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
-// List VBA modules with newline delimiter (-1)
+// List VBA modules with -1: the same as the default
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -47,12 +39,14 @@ fn vba_list_newline() {
         .output()
         .expect("failed to run jetdb");
     assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let lines: Vec<&str> = stdout.lines().collect();
-    assert!(
-        lines.len() >= 3,
-        "should have at least 3 module names, got {}",
-        lines.len()
+    let default = jetdb_bin()
+        .args(["vba", "list", path.to_str().unwrap()])
+        .output()
+        .expect("failed to run jetdb");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&default.stdout),
+        "-1 should print what the default prints"
     );
 }
 
