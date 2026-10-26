@@ -56,12 +56,12 @@
 
 For 0.2.0 to 0.3.3, see the [GitHub releases](https://github.com/dominion525/jetdb/releases).
 
-## 0.1.1 — 2026-02-16
+## 0.1.1
 
 - Improve robustness of VBA extraction and data row reading.
 - Add module-level documentation to all public modules.
 - Clean up crate metadata (MSRV, exclude patterns).
 
-## 0.1.0 — 2026-02-15
+## 0.1.0
 
 Initial release.
