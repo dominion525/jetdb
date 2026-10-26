@@ -53,6 +53,42 @@ wasm-bindgen --target nodejs --out-dir "$OUT_DIR/node" "$wasm"
 # The web build is an ES module; node/ stays CommonJS.
 echo '{ "type": "module" }' >"$OUT_DIR/web/package.json"
 
+# The web build is initialized with its default export, init, or with
+# initSync. The Node.js build loads its Wasm when it is required, so it gets
+# an init and an initSync that do nothing: the two builds then have the same
+# shape, and code that calls init runs on both. __esModule tells TypeScript
+# and bundlers that the default export is exports.default. Node.js gives
+# module.exports as the default export of CommonJS to an ES module, so ES
+# modules import the Node.js build through jetdb_wasm.mjs, which gives init
+# as its default export. Its types do not use those of the browser, which a
+# project for Node.js may not have.
+cat >>"$OUT_DIR/node/jetdb_wasm.js" <<'EOF'
+
+exports.default = async function init() {};
+exports.initSync = function initSync() {};
+Object.defineProperty(exports, "__esModule", { value: true });
+EOF
+cat >"$OUT_DIR/node/jetdb_wasm.mjs" <<'EOF'
+import jetdb from "./jetdb_wasm.js";
+
+export * from "./jetdb_wasm.js";
+export default jetdb.default;
+EOF
+cat >>"$OUT_DIR/node/jetdb_wasm.d.ts" <<'EOF'
+
+/**
+ * Does nothing: the Node.js build loads its Wasm when it is imported. The web
+ * build is initialized with it, so code that calls it runs on both.
+ */
+export function initSync(module?: unknown): void;
+
+/**
+ * Does nothing: the Node.js build loads its Wasm when it is imported. The web
+ * build is initialized with it, so code that calls it runs on both.
+ */
+export default function init(module_or_path?: unknown): Promise<void>;
+EOF
+
 # The generated types declare [Symbol.dispose](), which the TypeScript
 # libraries before esnext lack. Referencing that library from the types lets
 # projects with an older target use them without changing their settings
@@ -62,6 +98,7 @@ for build in web node; do
     { echo '/// <reference lib="esnext.disposable" />'; cat "$types"; } >"$types.tmp"
     mv "$types.tmp" "$types"
 done
+cp "$OUT_DIR/node/jetdb_wasm.d.ts" "$OUT_DIR/node/jetdb_wasm.d.mts"
 
 jq --arg version "$crate_version" '.version = $version' "$CRATE_DIR/package.json" \
     >"$OUT_DIR/package.json"

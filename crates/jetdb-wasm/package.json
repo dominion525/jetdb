@@ -23,8 +23,14 @@
   "exports": {
     ".": {
       "node": {
-        "types": "./node/jetdb_wasm.d.ts",
-        "default": "./node/jetdb_wasm.js"
+        "import": {
+          "types": "./node/jetdb_wasm.d.mts",
+          "default": "./node/jetdb_wasm.mjs"
+        },
+        "default": {
+          "types": "./node/jetdb_wasm.d.ts",
+          "default": "./node/jetdb_wasm.js"
+        }
       },
       "default": {
         "types": "./web/jetdb_wasm.d.ts",

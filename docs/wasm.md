@@ -2,7 +2,7 @@
 
 [日本語版 (Japanese)](wasm.ja.md)
 
-jetdb-wasm is jetdb built as WebAssembly, for reading Microsoft Access databases (.mdb / .accdb) in the browser and Node.js. This document describes its `Database` class. The package includes TypeScript types, whose comments describe each field of the objects the methods return.
+jetdb-wasm is jetdb built as WebAssembly, for reading Microsoft Access databases (.mdb / .accdb) in the browser and Node.js. This document describes its `Database` class. The package includes TypeScript types, whose comments describe each field of the objects the methods return. The types need TypeScript 5.2 or later.
 
 ## Loading the Module
 
@@ -16,7 +16,7 @@ import init, { Database } from "jetdb-wasm";
 await init();
 ```
 
-Node.js, and a bundle built for the server, such as for server-side rendering, get the CommonJS build. It loads its Wasm file when it is imported, so `Database` is ready to use, and it has no default export to call:
+Node.js, and a bundle built for the server, such as for server-side rendering, get the CommonJS build. It loads its Wasm file when it is imported, so `Database` is ready to use without calling the default export. The default export and `initSync` are there and do nothing, so code that calls them, such as code shared with the browser, runs as well:
 
 ```js
 import { Database } from "jetdb-wasm";

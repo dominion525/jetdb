@@ -26,7 +26,7 @@ document.querySelector("input[type=file]").addEventListener("change", async (eve
 });
 ```
 
-In Node.js, and in a bundle built for the server, the module is ready when it is imported, and has no default export to call:
+In Node.js, and in a bundle built for the server, the module is ready when it is imported, so there is no need to call `init()`. It is there and does nothing, so code that calls it, such as code shared with the browser, runs as well:
 
 ```js
 import { readFileSync } from "node:fs";
@@ -54,7 +54,7 @@ db.free();
 
 Values come as JavaScript values: numbers, bigints, booleans, strings (for text and dates, and for money, decimals and other values that a number would round), `Uint8Array` for binary data, and arrays for attachments and multiple values. A method that fails throws an `Error` named `JetdbError`, whose `code` tells what went wrong, such as `PASSWORD_REQUIRED` or `TABLE_NOT_FOUND`.
 
-The package includes TypeScript types. See [the JavaScript API](https://github.com/dominion525/jetdb/blob/main/docs/wasm.md) for each method and its options.
+The package includes TypeScript types, which need TypeScript 5.2 or later. See [the JavaScript API](https://github.com/dominion525/jetdb/blob/main/docs/wasm.md) for each method and its options.
 
 ## Limitations
 

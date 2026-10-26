@@ -29,7 +29,10 @@ fi
 echo "readme ok"
 
 # tsc finds jetdb-wasm in $work/node_modules, one directory up. The node config
-# resolves the node condition of the exports, the bundler config the default.
+# resolves the node condition of the exports, for an import (check.ts) and for
+# a require (require.cts), and the bundler config the default. The node10
+# resolution, which reads the top-level "types", the web types, as the bundler
+# config does, is not in TypeScript 7.
 cp -R "$CRATE_DIR/tests/types" "$work/types"
 (cd "$work/types" && npm ci --silent --no-audit --no-fund)
 for config in tsconfig.node.json tsconfig.bundler.json; do

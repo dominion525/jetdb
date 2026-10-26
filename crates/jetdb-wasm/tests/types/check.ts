@@ -6,8 +6,9 @@
 // under @ts-expect-error must fail to type-check, and tsc reports it when it
 // does not.
 
-import {
+import init, {
   Database,
+  initSync,
   type Column,
   type ColumnType,
   type Index,
@@ -43,6 +44,13 @@ import {
 } from "jetdb-wasm";
 
 declare const bytes: Uint8Array;
+
+// Both builds have init and initSync, so code that initializes the web build
+// type-checks with the types of either.
+export async function load(): Promise<void> {
+  await init();
+  initSync({ module: bytes });
+}
 
 const db = Database.open(bytes);
 Database.open(bytes, "password");
