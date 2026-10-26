@@ -1,5 +1,5 @@
+import type { Database, Row } from "jetdb-wasm";
 import { describe, expect, it, vi } from "vitest";
-import type { Database, Row } from "/assets/wasm/jetdb_wasm.js";
 import { MESSAGES } from "../../../src/demo/messages.ts";
 import {
   databaseProperties,

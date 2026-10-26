@@ -1,6 +1,9 @@
 // サイト（このリポジトリの直下）を HTTP で配る。ページを通すテスト（Playwright）が使う
 //
-//   node scripts/serve.ts [port]
+//   node scripts/serve.ts [port] [--local-wasm]
+//
+// --local-wasm: デモの import map を、CDN でなく手元の node_modules/jetdb-wasm/web/ に向け直す。
+// ページを通すテストが、ネットワークに出ずに同じ版の jetdb-wasm で動くようにするため。
 //
 // 127.0.0.1 だけで待つ。Wasm は、ブラウザが読みながらコンパイルできるように
 // application/wasm で返す。書き換えた JS をすぐ読めるように、キャッシュさせない。
@@ -12,7 +15,13 @@ import { extname, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(fileURLToPath(new URL("../", import.meta.url)));
-const port = Number(process.argv[2] ?? 8080);
+const args = process.argv.slice(2);
+const localWasm = args.includes("--local-wasm");
+const port = Number(args.find((a) => !a.startsWith("--")) ?? 8080);
+
+// CDN の jetdb-wasm の場所（版は何でも）。--local-wasm のときに HTML の中のこれを書き換える
+const CDN_WASM = /https:\/\/cdn\.jsdelivr\.net\/npm\/jetdb-wasm@[^/"]+\/web\//g;
+const LOCAL_WASM = "/node_modules/jetdb-wasm/web/";
 
 const types: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -43,7 +52,9 @@ createServer(async (request, response) => {
   }
   try {
     if ((await stat(file)).isDirectory()) file = join(file, "index.html");
-    const body = await readFile(file);
+    let body: Buffer | string = await readFile(file);
+    if (localWasm && extname(file) === ".html")
+      body = body.toString().replace(CDN_WASM, LOCAL_WASM);
     response.writeHead(200, {
       "Content-Type": types[extname(file)] ?? "application/octet-stream",
       "Cache-Control": "no-store",

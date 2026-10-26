@@ -24,11 +24,11 @@ export function testdata(file: string): string {
   return path;
 }
 
-/** デモのテストの最初に呼ぶ。Wasm を作っていなければ、理由を付けて飛ばす */
+/** デモのテストの最初に呼ぶ。jetdb-wasm（devDependency。serve.ts --local-wasm が配る）が無ければ、理由を付けて飛ばす */
 export function needWasm(): void {
   test.skip(
-    !existsSync(join(root, "assets/wasm/jetdb_wasm_bg.wasm")),
-    "assets/wasm/ is missing: build jetdb-wasm and copy pkg/web into it",
+    !existsSync(join(root, "node_modules/jetdb-wasm/web/jetdb_wasm_bg.wasm")),
+    "node_modules/jetdb-wasm/ is missing: run npm ci",
   );
 }
 

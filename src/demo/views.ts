@@ -8,7 +8,7 @@ import type {
   FormStreamKind,
   FormType,
   Property,
-} from "/assets/wasm/jetdb_wasm.js";
+} from "jetdb-wasm";
 import {
   type Child,
   codeOf,

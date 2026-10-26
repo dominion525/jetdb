@@ -24,7 +24,7 @@ const nav = byId("demo-nav");
 const detail = byId("demo-detail");
 // 読み上げに、右の中身の見出しだけを伝える欄（画面には出ない）
 const announce = byId("demo-announce");
-// jetdb-wasm。サイトの /assets/wasm/ から、起動の中で読む。
+// jetdb-wasm。ページの import map が指す CDN（npm の jetdb-wasm、版は決め打ち）から、起動の中で読む。
 // ファイルの頭の import で読むと、読めなかったときにモジュールごと止まり、エラーの一文も出せないため
 let jetdb = null;
 // 今開いているデータベースと、パスワードを待っているファイル
@@ -265,9 +265,9 @@ passwordForm.addEventListener("submit", (event) => {
         return;
     open(pending.bytes, pending.label, pending.name, passwordInput.value);
 });
-// 起動: jetdb-wasm を読む。読めなければデモは動かない（入力欄は無効のまま）
+// 起動: jetdb-wasm を読む（.wasm はその JS が自分の URL を基準に読む）。読めなければデモは動かない（入力欄は無効のまま）
 try {
-    jetdb = await import("/assets/wasm/jetdb_wasm.js");
+    jetdb = await import("jetdb-wasm");
     await jetdb.default();
 }
 catch (e) {

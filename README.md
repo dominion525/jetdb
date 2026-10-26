@@ -16,10 +16,10 @@ jetdb の紹介ページ・全項目の比較表・ブラウザで試せるデ�
 ## 前提
 
 - Node.js 24
-- デモが読む jetdb-wasm（コミットしない）: jetdb 本体で `scripts/build-wasm-package.sh` を実行し、`crates/jetdb-wasm/pkg/web/` の `jetdb_wasm.js`・`jetdb_wasm_bg.wasm`・`jetdb_wasm.d.ts` を `assets/wasm/` に写す。`.d.ts` は型の検査に使う
+- デモが読む jetdb-wasm: ページは npm のパッケージ `jetdb-wasm` を jsDelivr（`demo/index.html`・`ja/demo/index.html` の import map。版は決め打ち）から読む。同じ版を devDependency に入れてあり、型の検査と、ページを通すテスト（`scripts/serve.ts --local-wasm` が `node_modules/jetdb-wasm/web/` を配る）に使う。版を上げるときは import map 2 か所と `package.json` をそろえる（テストが照らす）
 - ページを開くテストで使う jetdb 本体の `testdata/`: 環境変数 `JETDB_TESTDATA` で指す。指さないときは、このディレクトリの隣の `../jetdb/testdata` を読む
 
-`assets/wasm/` が無いとき、デモのページを開くテストは飛ばす。testdata のファイルが無いときも、そのファイルを使うテストは飛ばす。
+testdata のファイルが無いとき、そのファイルを使うテストは飛ばす。
 
 ## 初めの準備
 
@@ -36,7 +36,7 @@ npm run check      # 型の検査（src/ とテスト）と Biome の検査
 npm run lint       # Biome の検査だけ
 npm test           # tests/unit/ のテスト
 npm run test:e2e   # tests/e2e/ のテスト
-node scripts/serve.ts 8080   # http://localhost:8080/ でサイトを配る（キャッシュさせない）
+node scripts/serve.ts 8080   # http://localhost:8080/ でサイトを配る（キャッシュさせない。--local-wasm で jetdb-wasm を node_modules から）
 ```
 
 ## 決まり

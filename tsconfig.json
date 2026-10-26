@@ -15,11 +15,8 @@
     "isolatedModules": true,
     "skipLibCheck": true,
     "removeComments": false,
-    "newLine": "lf",
-    // ページは jetdb-wasm を /assets/wasm/ から読む。型は、作ったときの出力の .d.ts を写したものを使う
-    "paths": {
-      "/assets/wasm/jetdb_wasm.js": ["./assets/wasm/jetdb_wasm.d.ts"]
-    }
+    "newLine": "lf"
+    // ページは jetdb-wasm を CDN から読む（import map）。型は devDependency の jetdb-wasm（同じ版）から解決する
   },
   "include": ["src"]
 }

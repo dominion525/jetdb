@@ -1,4 +1,5 @@
 // デモのページ: サンプルを開き、右の中身・タブ・URL の #・狭い幅・言語の切り替えを確かめる
+import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 import { needWasm, openDemo, openFile, testdata } from "./helpers.ts";
 
@@ -399,4 +400,27 @@ test("375px: ビューアのタブの代わりに選択の欄を出し、選ぶ�
     "aria-selected",
     "true",
   );
+});
+
+// デモの HTML の import map は、devDependency と同じ版の jetdb-wasm を jsDelivr から読む。
+// 版を上げるときに 3 か所（HTML 2 つと package.json）をそろえ忘れないため
+test("import map の jetdb-wasm は devDependency と同じ版の CDN を指す", () => {
+  const version = (
+    JSON.parse(readFileSync("package.json", "utf8")) as {
+      devDependencies: Record<string, string>;
+    }
+  ).devDependencies["jetdb-wasm"];
+  expect(version).toMatch(/^\d+\.\d+\.\d+$/);
+  for (const html of ["demo/index.html", "ja/demo/index.html"]) {
+    const map = /<script type="importmap">\s*(\{[\s\S]*?\})\s*<\/script>/.exec(
+      readFileSync(html, "utf8"),
+    );
+    expect(map, html).not.toBeNull();
+    const { imports } = JSON.parse(map?.[1] ?? "") as {
+      imports: Record<string, string>;
+    };
+    expect(imports["jetdb-wasm"], html).toBe(
+      `https://cdn.jsdelivr.net/npm/jetdb-wasm@${version}/web/jetdb_wasm.js`,
+    );
+  }
 });

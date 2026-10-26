@@ -1,12 +1,7 @@
 // デモのページ: DOM を作る部品（要素、表、タブ、テキストの表示、値の出し方）。
 // 画面に出す文字は、ページの言語の文字の表（t）を引数でもらう
 
-import type {
-  Attachment,
-  ColumnVersion,
-  Scalar,
-  Value,
-} from "/assets/wasm/jetdb_wasm.js";
+import type { Attachment, ColumnVersion, Scalar, Value } from "jetdb-wasm";
 import type { Messages } from "./messages.js";
 
 /** 要素の中身にできるもの。null と undefined は無視する */

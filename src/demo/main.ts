@@ -2,7 +2,7 @@
 // 最初はサイトに置いたサンプルを開く。利用者が選んだファイルはブラウザの外に送らない。
 // 紹介ページの動きは src/main.ts にある
 
-import type { Database } from "/assets/wasm/jetdb_wasm.js";
+import type { Database } from "jetdb-wasm";
 import { codeOf, el, messageOf, reasonOf } from "./dom.js";
 import { MESSAGES } from "./messages.js";
 import { type DetailKind, detailView, hashOf, type Kind } from "./views.js";
@@ -29,9 +29,9 @@ const detail = byId("demo-detail");
 // 読み上げに、右の中身の見出しだけを伝える欄（画面には出ない）
 const announce = byId("demo-announce");
 
-// jetdb-wasm。サイトの /assets/wasm/ から、起動の中で読む。
+// jetdb-wasm。ページの import map が指す CDN（npm の jetdb-wasm、版は決め打ち）から、起動の中で読む。
 // ファイルの頭の import で読むと、読めなかったときにモジュールごと止まり、エラーの一文も出せないため
-let jetdb: typeof import("/assets/wasm/jetdb_wasm.js") | null = null;
+let jetdb: typeof import("jetdb-wasm") | null = null;
 
 // 今開いているデータベースと、パスワードを待っているファイル
 let db: Database | null = null;
@@ -313,9 +313,9 @@ passwordForm.addEventListener("submit", (event) => {
   open(pending.bytes, pending.label, pending.name, passwordInput.value);
 });
 
-// 起動: jetdb-wasm を読む。読めなければデモは動かない（入力欄は無効のまま）
+// 起動: jetdb-wasm を読む（.wasm はその JS が自分の URL を基準に読む）。読めなければデモは動かない（入力欄は無効のまま）
 try {
-  jetdb = await import("/assets/wasm/jetdb_wasm.js");
+  jetdb = await import("jetdb-wasm");
   await jetdb.default();
 } catch (e) {
   status.textContent = T.loadFailed(messageOf(e));

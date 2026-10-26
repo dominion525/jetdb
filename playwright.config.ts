@@ -10,7 +10,7 @@ export default defineConfig({
   reporter: "list",
   use: { baseURL: url },
   webServer: {
-    command: `node scripts/serve.ts ${port}`,
+    command: `node scripts/serve.ts ${port} --local-wasm`,
     url,
   },
   projects: [
