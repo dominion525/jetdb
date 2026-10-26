@@ -1,5 +1,7 @@
 //! The JavaScript interface: thin `wasm-bindgen` wrappers over [`crate::Database`].
 
+use std::sync::Once;
+
 use jetdb::format::ObjectType;
 use jetdb::{
     FormObjectType, MacroBranch, MacroSource, MacroStatement, MacroXmlElement, RowPosition,
@@ -550,10 +552,14 @@ extern "C" {
 }
 
 /// Prints a panic to the console before the Wasm traps, as JavaScript sees no
-/// more of it than `RuntimeError: unreachable`.
-#[wasm_bindgen(start)]
-fn start() {
-    std::panic::set_hook(Box::new(|info| console_error(&panic_message(info))));
+/// more of it than `RuntimeError: unreachable`. `Database.open` installs it, as
+/// every other call reads a database it opened. Not a `wasm_bindgen(start)`
+/// function, which the package would export as `start`.
+fn install_panic_hook() {
+    static INSTALL: Once = Once::new();
+    INSTALL.call_once(|| {
+        std::panic::set_hook(Box::new(|info| console_error(&panic_message(info))));
+    });
 }
 
 /// Where and why the panic happened.
@@ -576,6 +582,7 @@ impl JsDatabase {
         #[wasm_bindgen(unchecked_param_type = "Uint8Array | ArrayBuffer")] bytes: JsValue,
         password: Option<Password>,
     ) -> Result<JsDatabase, JsValue> {
+        install_panic_hook();
         let password = match password.as_deref() {
             Some(value) => Some(string_arg(value, "password")?),
             None => None,
