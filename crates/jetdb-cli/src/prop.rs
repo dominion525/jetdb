@@ -37,7 +37,8 @@ pub fn cmd_prop(args: PropArgs, password: Option<&str>) -> ExitCode {
 fn run_prop(args: &PropArgs, password: Option<&str>) -> Result<(), String> {
     let mut reader =
         PageReader::open_with_password(&args.file, password).map_err(|e| e.to_string())?;
-    let object_type = object_type_of(&mut reader, args)?;
+    let catalog = read_catalog(&mut reader).map_err(|e| e.to_string())?;
+    let object_type = object_type_of(&catalog, args)?;
     // Without a type, the object may be of a type the catalog leaves out:
     // read it by its name alone.
     let props = match object_type {
@@ -45,20 +46,37 @@ fn run_prop(args: &PropArgs, password: Option<&str>) -> Result<(), String> {
         None => read_object_properties(&mut reader, &args.object_name),
     }
     .map_err(|e| e.to_string())?;
+    // An object with properties is there even when the catalog leaves it
+    // out; one without them is there when the catalog has it.
+    if props.maps.is_empty() && !in_catalog(&catalog, &args.object_name, object_type) {
+        return Err(not_found(args));
+    }
     print_properties(&props, object_type);
     Ok(())
 }
 
 /// The type of the object of `prop`: the one `--type` names, or the only
-/// one of that name in the catalog, or `None` when there is none.
-fn object_type_of(reader: &mut PageReader, args: &PropArgs) -> Result<Option<ObjectType>, String> {
+/// one of that name in `catalog`, or `None` when there is none.
+fn object_type_of(catalog: &[CatalogEntry], args: &PropArgs) -> Result<Option<ObjectType>, String> {
     match &args.object_type {
         Some(name) => Ok(Some(object_type_named(name))),
-        None => {
-            let catalog = read_catalog(reader).map_err(|e| e.to_string())?;
-            only_type_of(&catalog, &args.object_name)
-        }
+        None => only_type_of(catalog, &args.object_name),
     }
+}
+
+/// Whether `catalog` has an object named `name`, of `object_type` when it
+/// is given.
+fn in_catalog(catalog: &[CatalogEntry], name: &str, object_type: Option<ObjectType>) -> bool {
+    catalog
+        .iter()
+        .any(|e| e.name == name && object_type.is_none_or(|t| e.object_type == t))
+}
+
+/// The error of `prop` for an object it does not find, naming the type
+/// `--type` names.
+fn not_found(args: &PropArgs) -> String {
+    let kind = args.object_type.as_deref().unwrap_or("object");
+    format!("{kind} not found: {}", args.object_name)
 }
 
 /// The object type of a name `--type` takes.
@@ -207,6 +225,24 @@ mod tests {
                     .to_string()
             )
         );
+    }
+
+    #[test]
+    fn in_catalog_of_a_type() {
+        let entry = CatalogEntry {
+            name: "Customers".to_string(),
+            object_type: ObjectType::Table,
+            table_page: 0,
+            flags: 0,
+            lv_prop: None,
+            lv_extra: None,
+        };
+        let catalog = [entry];
+        assert!(in_catalog(&catalog, "Customers", None));
+        assert!(in_catalog(&catalog, "Customers", Some(ObjectType::Table)));
+        assert!(!in_catalog(&catalog, "Customers", Some(ObjectType::Query)));
+        assert!(!in_catalog(&catalog, "CUSTOMERS", None));
+        assert!(!in_catalog(&catalog, "Orders", None));
     }
 
     #[test]
