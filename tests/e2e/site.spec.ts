@@ -226,3 +226,18 @@ for (const path of ["/", "/ja/"] as const) {
     expect(titleTop).toBeGreaterThanOrEqual(headerHeight);
   });
 }
+
+// 404 ページ: GitHub Pages はどのパスでもルートの 404.html を返す（手元の serve.ts も同じ）。
+// 日英の紹介ページへ戻れること
+test("無いパスは 404 で、日英の紹介ページへのリンクがある", async ({
+  page,
+}) => {
+  const response = await page.goto("/no-such-page/");
+  expect(response?.status()).toBe(404);
+  await expect(page.locator("h1")).toHaveText("Page not found");
+  await expect(page.locator('[lang="ja"] h2')).toHaveText(
+    "ページが見つかりません",
+  );
+  await expect(page.locator('main a[href="/"]')).toBeVisible();
+  await expect(page.locator('main a[href="/ja/"]')).toBeVisible();
+});

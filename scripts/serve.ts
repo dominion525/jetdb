@@ -50,7 +50,17 @@ createServer(async (request, response) => {
     });
     response.end(body);
   } catch {
-    response.writeHead(404).end();
+    // GitHub Pages と同じく、無いパスにはルートの 404.html を返す
+    try {
+      const body = await readFile(join(root, "404.html"));
+      response.writeHead(404, {
+        "Content-Type": types[".html"],
+        "Cache-Control": "no-store",
+      });
+      response.end(body);
+    } catch {
+      response.writeHead(404).end();
+    }
   }
 }).listen(port, "127.0.0.1", () => {
   console.log(`http://localhost:${port}/`);

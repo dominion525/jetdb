@@ -559,6 +559,15 @@ pre {
   font-weight: 800;
 }
 
+/* 404 ページの行き先の一覧 */
+.not-found-links {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+
 .compare-full {
   min-width: 960px;
   font-size: 0.875rem;
