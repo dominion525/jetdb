@@ -80,39 +80,40 @@ pub fn read_vba_project_in(
 
 /// Extract VBA modules from CFB bytes using the ovba crate.
 fn extract_modules_from_cfb(cfb_bytes: Vec<u8>) -> Result<VbaProject, FileError> {
-    let project =
-        ovba::open_project(cfb_bytes.clone()).map_err(|e| FileError::InvalidVbaProject {
-            reason: e.to_string(),
-        })?;
+    let project = ovba::open_project(cfb_bytes.clone()).map_err(|e| vba_error(e.to_string()))?;
     let classes = class_module_names(&cfb_bytes, project.information.code_page);
 
     let mut modules = Vec::new();
     for module in &project.modules {
-        let source =
-            project
-                .module_source(&module.name)
-                .map_err(|e| FileError::InvalidVbaProject {
-                    reason: e.to_string(),
-                })?;
-
-        let module_type = match module.module_type {
-            ovba::ModuleType::Procedural => VbaModuleType::Standard,
-            // ovba tells only standard modules from the others. The PROJECT
-            // stream names the class modules; the others are documents.
-            ovba::ModuleType::DocClsDesigner => match &classes {
-                Some(classes) if !classes.contains(&module.name) => VbaModuleType::Document,
-                _ => VbaModuleType::Class,
-            },
-        };
-
+        let source = project
+            .module_source(&module.name)
+            .map_err(|e| vba_error(e.to_string()))?;
         modules.push(VbaModule {
             name: module.name.clone(),
-            module_type,
+            module_type: module_type_of(module, classes.as_ref()),
             source,
         });
     }
 
     Ok(VbaProject { modules })
+}
+
+fn vba_error(reason: String) -> FileError {
+    FileError::InvalidVbaProject { reason }
+}
+
+/// The type of `module`, with `classes` the names of the class modules the
+/// PROJECT stream gives, if it can be read.
+fn module_type_of(module: &ovba::Module, classes: Option<&HashSet<String>>) -> VbaModuleType {
+    match module.module_type {
+        ovba::ModuleType::Procedural => VbaModuleType::Standard,
+        // ovba tells only standard modules from the others. The PROJECT
+        // stream names the class modules; the others are documents.
+        ovba::ModuleType::DocClsDesigner => match classes {
+            Some(classes) if !classes.contains(&module.name) => VbaModuleType::Document,
+            _ => VbaModuleType::Class,
+        },
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -141,6 +142,9 @@ fn class_module_names(cfb_bytes: &[u8], code_page: u16) -> Option<HashSet<String
     )
 }
 
+/// Where the VBA project is in the compound file of MSysAccessObjects.
+const VBA_PROJECT_PREFIX: &str = "/VBA/VBAProject";
+
 /// Extract the VBAProject subtree from a CFB and rebuild it as a root-level CFB.
 ///
 /// In MSysAccessObjects format, the VBA project lives at `/VBA/VBAProject/`
@@ -148,82 +152,103 @@ fn class_module_names(cfb_bytes: &[u8], code_page: u16) -> Option<HashSet<String
 /// (e.g., `/VBA/dir`, `/PROJECT`), so we strip the `/VBA/VBAProject` prefix.
 fn extract_vba_project_cfb(cfb_bytes: Vec<u8>) -> Result<Vec<u8>, FileError> {
     let cursor = Cursor::new(cfb_bytes);
-    let mut source = cfb::CompoundFile::open(cursor).map_err(|e| FileError::InvalidVbaProject {
-        reason: format!("failed to open CFB: {e}"),
-    })?;
+    let mut source = cfb::CompoundFile::open(cursor)
+        .map_err(|e| vba_error(format!("failed to open CFB: {e}")))?;
 
-    const PREFIX: &str = "/VBA/VBAProject";
-
-    // Collect entries under /VBA/VBAProject/
-    let entries: Vec<(String, bool)> = source
-        .walk()
-        .filter_map(|e| {
-            // Use '/' separators regardless of OS (CFB paths are internal, not filesystem)
-            let path = e.path().to_string_lossy().replace('\\', "/");
-            if path.starts_with(PREFIX) && path.len() > PREFIX.len() {
-                let relative = &path[PREFIX.len()..];
-                Some((relative.to_string(), e.is_storage()))
-            } else {
-                None
-            }
-        })
-        .collect();
-
+    let entries = vba_project_entries(&source);
     if entries.is_empty() {
         return Ok(Vec::new());
     }
 
-    // Build new CFB with entries at root level
-    let out_cursor = Cursor::new(Vec::new());
-    let mut dest =
-        cfb::CompoundFile::create(out_cursor).map_err(|e| FileError::InvalidVbaProject {
-            reason: format!("failed to create CFB: {e}"),
-        })?;
+    write_vba_project(&mut source, entries)
+}
 
-    // Create storages first (ensures parent dirs exist)
-    for (path, is_storage) in &entries {
-        if *is_storage {
-            dest.create_storage_all(path)
-                .map_err(|e| FileError::InvalidVbaProject {
-                    reason: format!("failed to create storage '{path}': {e}"),
-                })?;
-        }
+/// A compound file of the `entries` of the VBA project of `source`, at its
+/// root.
+fn write_vba_project(
+    source: &mut cfb::CompoundFile<Cursor<Vec<u8>>>,
+    entries: Vec<(String, bool)>,
+) -> Result<Vec<u8>, FileError> {
+    // The storages first (ensures parent dirs exist)
+    let (storages, streams): (Vec<_>, Vec<_>) =
+        entries.into_iter().partition(|(_, is_storage)| *is_storage);
+    let mut dest = CfbWriter::new()?;
+    for (path, _) in &storages {
+        dest.storage(path)?;
+    }
+    for (path, _) in &streams {
+        let data = read_cfb_stream(source, &format!("{VBA_PROJECT_PREFIX}{path}"))?;
+        dest.stream(path, &data)?;
+    }
+    dest.finish()
+}
+
+/// The paths of the entries under the VBA project of a compound file,
+/// relative to it, each with whether it is a storage.
+fn vba_project_entries(source: &cfb::CompoundFile<Cursor<Vec<u8>>>) -> Vec<(String, bool)> {
+    source
+        .walk()
+        .filter_map(|e| {
+            // Use '/' separators regardless of OS (CFB paths are internal, not filesystem)
+            let path = e.path().to_string_lossy().replace('\\', "/");
+            let relative = path.strip_prefix(VBA_PROJECT_PREFIX)?;
+            (!relative.is_empty()).then(|| (relative.to_string(), e.is_storage()))
+        })
+        .collect()
+}
+
+/// The data of the stream `path` of `source`.
+fn read_cfb_stream(
+    source: &mut cfb::CompoundFile<Cursor<Vec<u8>>>,
+    path: &str,
+) -> Result<Vec<u8>, FileError> {
+    let mut data = Vec::new();
+    source
+        .open_stream(path)
+        .map_err(|e| vba_error(format!("failed to open stream '{path}': {e}")))?
+        .read_to_end(&mut data)
+        .map_err(|e| vba_error(format!("failed to read stream '{path}': {e}")))?;
+    Ok(data)
+}
+
+/// A compound file written in memory, with the errors of a VBA project that
+/// cannot be built.
+struct CfbWriter {
+    cf: cfb::CompoundFile<Cursor<Vec<u8>>>,
+}
+
+impl CfbWriter {
+    fn new() -> Result<Self, FileError> {
+        let cf = cfb::CompoundFile::create(Cursor::new(Vec::new()))
+            .map_err(|e| vba_error(format!("failed to create CFB: {e}")))?;
+        Ok(Self { cf })
     }
 
-    // Then create streams with their data
-    for (path, is_storage) in &entries {
-        if !*is_storage {
-            let source_path = format!("{PREFIX}{path}");
-
-            let mut data = Vec::new();
-            source
-                .open_stream(&source_path)
-                .map_err(|e| FileError::InvalidVbaProject {
-                    reason: format!("failed to open stream '{source_path}': {e}"),
-                })?
-                .read_to_end(&mut data)
-                .map_err(|e| FileError::InvalidVbaProject {
-                    reason: format!("failed to read stream '{source_path}': {e}"),
-                })?;
-
-            let mut stream =
-                dest.create_stream(path)
-                    .map_err(|e| FileError::InvalidVbaProject {
-                        reason: format!("failed to create stream '{path}': {e}"),
-                    })?;
-            stream
-                .write_all(&data)
-                .map_err(|e| FileError::InvalidVbaProject {
-                    reason: format!("failed to write stream '{path}': {e}"),
-                })?;
-        }
+    /// Create the storage `path`, and the storages above it.
+    fn storage(&mut self, path: &str) -> Result<(), FileError> {
+        self.cf
+            .create_storage_all(path)
+            .map_err(|e| vba_error(format!("failed to create storage '{path}': {e}")))
     }
 
-    dest.flush().map_err(|e| FileError::InvalidVbaProject {
-        reason: format!("failed to flush CFB: {e}"),
-    })?;
+    /// Create the stream `path` with `data`.
+    fn stream(&mut self, path: &str, data: &[u8]) -> Result<(), FileError> {
+        let mut stream = self
+            .cf
+            .create_stream(path)
+            .map_err(|e| vba_error(format!("failed to create stream '{path}': {e}")))?;
+        stream
+            .write_all(data)
+            .map_err(|e| vba_error(format!("failed to write stream '{path}': {e}")))
+    }
 
-    Ok(dest.into_inner().into_inner())
+    /// The bytes of the compound file.
+    fn finish(mut self) -> Result<Vec<u8>, FileError> {
+        self.cf
+            .flush()
+            .map_err(|e| vba_error(format!("failed to flush CFB: {e}")))?;
+        Ok(self.cf.into_inner().into_inner())
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -262,72 +287,58 @@ fn find_vba_project_entries(entries: &[StorageEntry]) -> Option<(i32, Vec<&Stora
 
 /// Build an in-memory OLE2/CFB from MSysAccessStorage entries and extract modules.
 fn build_cfb_and_extract(entries: &[StorageEntry]) -> Result<VbaProject, FileError> {
-    let (vba_project_id, vba_entries) = match find_vba_project_entries(entries) {
-        Some(v) => v,
-        None => {
-            return Ok(VbaProject {
-                modules: Vec::new(),
-            })
-        }
-    };
-    if vba_entries.is_empty() {
+    let Some((vba_project_id, vba_entries)) =
+        find_vba_project_entries(entries).filter(|(_, vba_entries)| !vba_entries.is_empty())
+    else {
         return Ok(VbaProject {
             modules: Vec::new(),
         });
-    }
+    };
 
+    extract_modules_from_cfb(write_vba_entries(entries, vba_project_id, vba_entries)?)
+}
+
+/// A compound file of the `vba_entries` under the VBAProject entry
+/// `vba_project_id`, at its root; an entry whose path cannot be built from
+/// `entries` is left out.
+fn write_vba_entries(
+    entries: &[StorageEntry],
+    vba_project_id: i32,
+    vba_entries: Vec<&StorageEntry>,
+) -> Result<Vec<u8>, FileError> {
     // Build an ID-to-entry map for path construction
     let id_map: HashMap<i32, &StorageEntry> = entries.iter().map(|e| (e.id, e)).collect();
 
-    let cursor = Cursor::new(Vec::new());
-    let mut cf = cfb::CompoundFile::create(cursor).map_err(|e| FileError::InvalidVbaProject {
-        reason: format!("failed to create CFB: {e}"),
-    })?;
-
     // Create storages first, then streams (ensures parent dirs exist)
-    let storages: Vec<_> = vba_entries
-        .iter()
-        .filter(|e| storage::is_storage(e))
-        .collect();
-    let streams: Vec<_> = vba_entries
-        .iter()
-        .filter(|e| !storage::is_storage(e))
-        .collect();
-
-    for entry in &storages {
-        let path = match storage::build_entry_path(entry, vba_project_id, &id_map) {
-            Some(p) => p,
-            None => continue,
-        };
-        cf.create_storage_all(&path)
-            .map_err(|e| FileError::InvalidVbaProject {
-                reason: format!("failed to create storage '{path}': {e}"),
-            })?;
+    let (storages, streams): (Vec<_>, Vec<_>) = vba_entries
+        .into_iter()
+        .partition(|e| storage::is_storage(e));
+    let mut cf = CfbWriter::new()?;
+    for (path, _) in entry_paths(storages, vba_project_id, &id_map) {
+        cf.storage(&path)?;
     }
-
-    for entry in &streams {
-        let path = match storage::build_entry_path(entry, vba_project_id, &id_map) {
-            Some(p) => p,
-            None => continue,
-        };
-        let mut stream = cf
-            .create_stream(&path)
-            .map_err(|e| FileError::InvalidVbaProject {
-                reason: format!("failed to create stream '{path}': {e}"),
-            })?;
-        stream
-            .write_all(&entry.data)
-            .map_err(|e| FileError::InvalidVbaProject {
-                reason: format!("failed to write stream '{path}': {e}"),
-            })?;
+    for (path, entry) in entry_paths(streams, vba_project_id, &id_map) {
+        cf.stream(&path, &entry.data)?;
     }
+    cf.finish()
+}
 
-    cf.flush().map_err(|e| FileError::InvalidVbaProject {
-        reason: format!("failed to flush CFB: {e}"),
-    })?;
-
-    let bytes = cf.into_inner().into_inner();
-    extract_modules_from_cfb(bytes)
+/// Each of `entries` whose path under the VBAProject entry `vba_project_id`
+/// can be built, with the path.
+fn entry_paths<'a>(
+    entries: Vec<&'a StorageEntry>,
+    vba_project_id: i32,
+    id_map: &HashMap<i32, &StorageEntry>,
+) -> Vec<(String, &'a StorageEntry)> {
+    entries
+        .into_iter()
+        .filter_map(|entry| {
+            Some((
+                storage::build_entry_path(entry, vba_project_id, id_map)?,
+                entry,
+            ))
+        })
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
