@@ -124,6 +124,27 @@ fn export_attachments_to_a_directory() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+#[test]
+fn export_attachments_names_the_directory_it_cannot_create() {
+    let path = skip_if_missing!("V2007/complexDataTestV2007.accdb");
+    // A directory under a regular file cannot be created.
+    let file = std::env::temp_dir().join(format!("jetdb-export-not-a-dir-{}", std::process::id()));
+    std::fs::write(&file, "").unwrap();
+    let dir = file.join("attachments");
+    let output = jetdb_bin()
+        .args(["export", "--attachments", dir.to_str().unwrap()])
+        .args([path.to_str().unwrap(), "Table1"])
+        .output()
+        .expect("failed to run jetdb");
+    std::fs::remove_file(&file).unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(&format!("jetdb: I/O error: {}", dir.join("2").display())),
+        "stderr should name the directory, got: {stderr}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // System tables keep all columns
 // ---------------------------------------------------------------------------

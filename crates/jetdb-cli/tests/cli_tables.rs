@@ -178,7 +178,7 @@ fn tables_nonexistent_file() {
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("jetdb:"),
-        "stderr should contain 'jetdb:' prefix, got: {stderr}"
+        stderr.contains("jetdb: I/O error: /nonexistent/path/to/file.mdb: "),
+        "stderr should name the file, got: {stderr}"
     );
 }
