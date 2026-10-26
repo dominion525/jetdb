@@ -1423,6 +1423,31 @@ mod tests {
     }
 
     #[test]
+    fn data_blocks_of_other_shapes_are_unknown() {
+        // A block is a DataBlock only without attributes or text, with a
+        // Statements child and no children but Statements and Data, and with
+        // a Data of plain text elements, without attributes or text itself.
+        for block in [
+            r#"<ForEachRecord Alias="x"><Statements/></ForEachRecord>"#,
+            r#"<ForEachRecord>text<Statements/></ForEachRecord>"#,
+            r#"<ForEachRecord><Data/></ForEachRecord>"#,
+            r#"<ForEachRecord><Statements/><Other/></ForEachRecord>"#,
+            r#"<ForEachRecord><Data Alias="x"/><Statements/></ForEachRecord>"#,
+            r#"<ForEachRecord><Data>text<Reference>t</Reference></Data><Statements/></ForEachRecord>"#,
+            r#"<ForEachRecord><Data><Reference Alias="x">t</Reference></Data><Statements/></ForEachRecord>"#,
+            r#"<ForEachRecord><Data><Reference><Inner/></Reference></Data><Statements/></ForEachRecord>"#,
+        ] {
+            let xml = format!(
+                r#"<DataMacro Event="AfterUpdate"><Statements>{block}</Statements></DataMacro>"#
+            );
+            assert!(
+                matches!(statements(&xml)[..], [MacroStatement::Unknown(_)]),
+                "{block}"
+            );
+        }
+    }
+
+    #[test]
     fn extract_utf16_xml_documents_skips_the_header() {
         let mut bytes = vec![0x01, 0x02, 0x03, 0x04];
         let xml = "<?xml version=\"1.0\"?><DataMacro/>";
