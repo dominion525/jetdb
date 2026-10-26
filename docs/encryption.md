@@ -9,13 +9,14 @@ Microsoft Access databases use different encryption schemes depending on the fil
 
 ## EncryptionInfo Version Detection
 
-For .accdb files, the EncryptionInfo is stored at page 0 offset 0x299. The first 4 bytes contain `vMajor` (u16 LE) and `vMinor` (u16 LE), which determine the encryption scheme:
+For .accdb files, page 0 stores the length of the EncryptionInfo (u16 LE) at offset 0x299, and the EncryptionInfo follows it at offset 0x29B. The first 4 bytes of the EncryptionInfo contain `vMajor` (u16 LE) and `vMinor` (u16 LE), which determine the encryption scheme:
 
 | vMajor | vMinor | Scheme | Status |
 |--------|--------|--------|--------|
 | 4 | 4 | Agile Encryption | Supported |
 | 2/3/4 | 2 | RC4 CryptoAPI | Supported |
-| 2/3/4 | 2+AES | NonStandard AES | Supported |
+| 2/3/4 | 2 (AES flag) | Standard AES | Supported |
+| 2/3/4 | 2 (AES algId) | NonStandard AES | Supported |
 | 3/4 | 3 | Extensible Encryption | Not supported |
 | 1 | 1 | Office Binary Doc RC4 | Not supported |
 | - | - | Jet RC4 (.mdb) | No password needed |
@@ -30,7 +31,7 @@ For vMajor=2/3/4, vMinor=2: The flags field (offset 4 in EncryptionInfo) determi
 
 Used by Access 2010+ (default). Parameters are stored as XML in the EncryptionInfo.
 
-- **Key derivation**: PBKDF2-like iterated hash (configurable algorithm: SHA-256/384/512)
+- **Key derivation**: PBKDF2-like iterated hash (configurable algorithm: SHA-1/256/384/512)
 - **Page encryption**: AES-CBC with per-page IV derived from `hash(salt + page_key)`
 - **Spec reference**: MS-OFFCRYPTO Section 2.3.4.10
 
@@ -52,7 +53,7 @@ A variant that uses AES encryption but with non-standard parameters (0 hash iter
 - **Key derivation function**: `cryptDeriveKey` using HMAC-like XOR construction (`genXBytes`)
 - **Key sizes**: 128, 192, or 256 bits
 
-### Standard AES (vMajor=3/4, vMinor=2, AES flag)
+### Standard AES (vMajor=2/3/4, vMinor=2, AES flag)
 
 - **Key derivation**: Same as NonStandard AES but with `hash_iterations = 50000`
 - **Page encryption**: AES-ECB
@@ -66,7 +67,7 @@ use jetdb::PageReader;
 // Password-protected .accdb file
 let reader = PageReader::open_with_password("database.accdb", Some("password"))?;
 
-// Non-encrypted file (password is ignored)
+// A file that needs no password: a .mdb file, or an .accdb file without encryption
 let reader = PageReader::open("database.mdb")?;
 ```
 

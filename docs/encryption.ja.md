@@ -9,13 +9,14 @@ Microsoft Access データベースはファイル形式に応じて異なる暗
 
 ## EncryptionInfo バージョン判定
 
-.accdb ファイルでは、EncryptionInfo はページ 0 のオフセット 0x299 に格納されます。先頭 4 バイトに `vMajor` (u16 LE) と `vMinor` (u16 LE) が含まれ、暗号化方式を決定します：
+.accdb ファイルでは、ページ 0 のオフセット 0x299 に EncryptionInfo の長さ (u16 LE) が格納され、EncryptionInfo はそれに続くオフセット 0x29B から始まります。EncryptionInfo の先頭 4 バイトに `vMajor` (u16 LE) と `vMinor` (u16 LE) が含まれ、暗号化方式を決定します：
 
 | vMajor | vMinor | 方式 | 状態 |
 |--------|--------|------|------|
 | 4 | 4 | Agile Encryption | 対応済 |
 | 2/3/4 | 2 | RC4 CryptoAPI | 対応済 |
-| 2/3/4 | 2+AES | NonStandard AES | 対応済 |
+| 2/3/4 | 2 (AES flag) | Standard AES | 対応済 |
+| 2/3/4 | 2 (AES algId) | NonStandard AES | 対応済 |
 | 3/4 | 3 | Extensible Encryption | 未対応 |
 | 1 | 1 | Office Binary Doc RC4 | 未対応 |
 | - | - | Jet RC4 (.mdb) | パスワード不要 |
@@ -30,7 +31,7 @@ vMajor=2/3/4, vMinor=2 の場合、flags フィールド（EncryptionInfo のオ
 
 Access 2010+ のデフォルト。パラメータは EncryptionInfo 内の XML として格納されます。
 
-- **鍵導出**: PBKDF2 風の反復ハッシュ（SHA-256/384/512 から選択可能）
+- **鍵導出**: PBKDF2 風の反復ハッシュ（SHA-1/256/384/512 から選択可能）
 - **ページ暗号化**: AES-CBC、ページごとに `hash(salt + page_key)` から IV を導出
 - **仕様参照**: MS-OFFCRYPTO Section 2.3.4.10
 
@@ -52,7 +53,7 @@ AES 暗号化を使用しつつ、非標準パラメータ（ハッシュ反復�
 - **鍵導出関数**: HMAC 風 XOR 構成（`genXBytes`）を使用する `cryptDeriveKey`
 - **鍵サイズ**: 128、192、または 256 ビット
 
-### Standard AES (vMajor=3/4, vMinor=2, AES flag)
+### Standard AES (vMajor=2/3/4, vMinor=2, AES flag)
 
 - **鍵導出**: NonStandard AES と同一だが `hash_iterations = 50000`
 - **ページ暗号化**: AES-ECB
@@ -66,7 +67,7 @@ use jetdb::PageReader;
 // パスワード保護された .accdb ファイル
 let reader = PageReader::open_with_password("database.accdb", Some("password"))?;
 
-// 暗号化されていないファイル（パスワードは無視される）
+// パスワードの要らないファイル（.mdb ファイルや、暗号化されていない .accdb ファイル）
 let reader = PageReader::open("database.mdb")?;
 ```
 
