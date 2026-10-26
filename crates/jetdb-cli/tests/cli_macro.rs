@@ -141,6 +141,7 @@ fn macro_data() {
         stdout.contains("<DataMacro Name=\"dmLog\">"),
         "got: {stdout}"
     );
+    assert!(stdout.ends_with("</DataMacros>\r\n"), "got: {stdout}");
 }
 
 #[test]
