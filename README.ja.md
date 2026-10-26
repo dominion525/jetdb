@@ -79,19 +79,20 @@ jetdb prop database.mdb Table1
 ## ライブラリの使い方
 
 ```rust
-use jetdb::{PageReader, read_catalog, read_table_def, read_table_rows};
+use jetdb::{PageReader, find_table, read_catalog, read_table_def, read_table_rows, table_names};
 
 fn main() -> Result<(), jetdb::FileError> {
     let mut reader = PageReader::open("database.mdb")?;
 
     // テーブル一覧を取得する
-    let catalog = read_catalog(&mut reader)?;
-    for entry in &catalog {
-        println!("{}", entry.name);
+    let names = table_names(&mut reader)?;
+    for name in &names {
+        println!("{name}");
     }
 
     // テーブル定義を読み取る
-    let entry = &catalog[0];
+    let catalog = read_catalog(&mut reader)?;
+    let entry = find_table(&catalog, &names[0])?;
     let table_def = read_table_def(&mut reader, &entry.name, entry.table_page)?;
 
     // 行データを読み取る
