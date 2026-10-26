@@ -196,6 +196,30 @@ fn prop_shared_name_needs_type() {
 }
 
 // ---------------------------------------------------------------------------
+// The heading writes the type in words
+// ---------------------------------------------------------------------------
+
+#[test]
+fn prop_heading_writes_the_type_in_words() {
+    let path = skip_if_missing!("V2007/linkerTestV2007.accdb");
+    for (name, heading) in [
+        ("Table2", "  Linked Table Properties:"),
+        ("SummaryInfo", "  Database Property Properties:"),
+    ] {
+        let output = jetdb_bin()
+            .args(["prop", path.to_str().unwrap(), name])
+            .output()
+            .expect("failed to run jetdb");
+        assert!(output.status.success(), "{name}");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.lines().any(|l| l == heading),
+            "{name}, got:\n{stdout}"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Nonexistent file: error
 // ---------------------------------------------------------------------------
 
