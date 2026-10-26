@@ -22,7 +22,7 @@ use unicode_width::UnicodeWidthStr;
 
 /// Read-only tool for Microsoft Access (.mdb / .accdb) databases
 #[derive(Parser)]
-#[command(version, about)]
+#[command(name = "jetdb", bin_name = "jetdb", version, about, arg_required_else_help = true)]
 struct Cli {
     /// Database password (for password-protected .accdb files)
     #[arg(long = "password", global = true)]
@@ -509,11 +509,16 @@ fn main() -> ExitCode {
     }
 
     let Some(command) = cli.command else {
-        // No subcommand and no --help-skill: show help
+        // Options but no subcommand (e.g. only --password): fail as clap does
+        // for a missing subcommand. No arguments at all is handled by clap
+        // (`arg_required_else_help`).
         use clap::CommandFactory;
-        Cli::command().print_help().ok();
-        eprintln!();
-        return ExitCode::FAILURE;
+        Cli::command()
+            .error(
+                clap::error::ErrorKind::MissingSubcommand,
+                "'jetdb' requires a subcommand but one was not provided",
+            )
+            .exit();
     };
 
     let password = cli.password;
