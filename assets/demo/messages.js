@@ -189,7 +189,7 @@ const ja = {
     indexHeads: ["名前", "列", "備考"],
     primaryKey: "主キー",
     unique: "固有",
-    ignoreNulls: "Null を無視",
+    ignoreNulls: "Null 無視",
     required: "値要求",
     propertyHeads: ["名前", "値"],
     objectProperties: (type) => `${type}のプロパティ`,
