@@ -37,21 +37,7 @@ pub fn numeric_to_string(bytes: &[u8; 17], scale: u8) -> String {
         fixed[dst + 2] = bytes[src + 1];
         fixed[dst + 3] = bytes[src];
     }
-    let value = u128::from_be_bytes(fixed);
-
-    let digits = if scale == 0 {
-        value.to_string()
-    } else {
-        let divisor = 10u128.pow(scale as u32);
-        let integer = value / divisor;
-        let decimal = value % divisor;
-        format!("{integer}.{decimal:0>width$}", width = scale as usize)
-    };
-    if negative && value != 0 {
-        format!("-{digits}")
-    } else {
-        digits
-    }
+    decimal_string(u128::from_be_bytes(fixed), scale, negative)
 }
 
 /// Convert a 16-byte OLE Automation `DECIMAL` structure to a string.
@@ -71,12 +57,15 @@ pub fn decimal_variant_to_string(bytes: &[u8; 16]) -> String {
     let negative = bytes[3] != 0;
     let hi = u32::from_le_bytes(bytes[4..8].try_into().unwrap()) as u128;
     let lo = u64::from_le_bytes(bytes[8..16].try_into().unwrap()) as u128;
-    let value = (hi << 64) | lo;
+    decimal_string((hi << 64) | lo, scale, negative)
+}
 
+/// `value` with `scale` decimal places, negative when `negative` and not 0.
+fn decimal_string(value: u128, scale: u8, negative: bool) -> String {
     // Place the decimal point in the digits rather than divide by 10^scale,
     // which overflows a u128 for a scale above 38 that a broken file can give.
     let scale = scale as usize;
-    let s = if scale == 0 {
+    let digits = if scale == 0 {
         value.to_string()
     } else {
         let digits = format!("{value:0>width$}", width = scale + 1);
@@ -84,9 +73,9 @@ pub fn decimal_variant_to_string(bytes: &[u8; 16]) -> String {
         format!("{integer}.{decimal}")
     };
     if negative && value != 0 {
-        format!("-{s}")
+        format!("-{digits}")
     } else {
-        s
+        digits
     }
 }
 
@@ -238,6 +227,26 @@ mod tests {
         bytes[0] = 0x00;
         bytes[13] = 0x64; // 100 in LE group form
         assert_eq!(numeric_to_string(&bytes, 0), "100");
+    }
+
+    #[test]
+    fn numeric_scale_beyond_28() {
+        // A Numeric column has a scale of at most 28, but a broken table
+        // definition can give any byte. 10^scale no longer fits in a u128
+        // from 39, and wraps to 0 from 128, so the scale must not be taken
+        // through a power of ten.
+        for (scale, negative) in [(40u8, false), (128, true), (255, false)] {
+            let mut bytes = [0u8; 17];
+            bytes[0] = if negative { 0x80 } else { 0 };
+            bytes[13] = 5;
+            let zeros = "0".repeat(scale as usize - 1);
+            let sign = if negative { "-" } else { "" };
+            assert_eq!(
+                numeric_to_string(&bytes, scale),
+                format!("{sign}0.{zeros}5"),
+                "scale {scale}"
+            );
+        }
     }
 
     // -- decimal_variant_to_string ---------------------------------------------
