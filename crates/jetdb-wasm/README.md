@@ -61,6 +61,7 @@ The package includes TypeScript types, which need TypeScript 5.2 or later. See [
 - Read-only: jetdb does not write to Access files.
 - The whole file is held in memory.
 - In an Access 97 (Jet3) file, jetdb does not read the forms, reports and VBA.
+- The memory of the Wasm module is at most 4 GiB. Running out of it throws a `RuntimeError` (`unreachable` in Node.js), not a `JetdbError`; after it, the module should not be used until it is loaded again. Read large tables in parts with the `limit` and `start` options of `rows`, and free each database. See [Running Out of Memory](https://github.com/dominion525/jetdb/blob/main/docs/wasm.md#running-out-of-memory).
 
 ## License
 
