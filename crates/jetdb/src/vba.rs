@@ -79,15 +79,24 @@ pub fn read_vba_project_in(
 }
 
 /// Extract VBA modules from CFB bytes using the ovba crate.
+///
+/// ovba panics on some compressed data that is broken, so the dir stream is
+/// decompressed here before ovba reads it, and the source of each module is
+/// read here rather than by ovba.
 fn extract_modules_from_cfb(cfb_bytes: Vec<u8>) -> Result<VbaProject, FileError> {
+    let mut cfb = cfb::CompoundFile::open(Cursor::new(cfb_bytes.clone()))
+        .map_err(|e| vba_error(format!("failed to open CFB: {e}")))?;
+    // Without a dir stream to read, ovba tells what is missing.
+    if let Ok(dir) = read_cfb_stream(&mut cfb, "/VBA/dir") {
+        decompress(&dir)?;
+    }
     let project = ovba::open_project(cfb_bytes.clone()).map_err(|e| vba_error(e.to_string()))?;
-    let classes = class_module_names(&cfb_bytes, project.information.code_page);
+    let code_page = project.information.code_page;
+    let classes = class_module_names(&cfb_bytes, code_page);
 
     let mut modules = Vec::new();
     for module in &project.modules {
-        let source = project
-            .module_source(&module.name)
-            .map_err(|e| vba_error(e.to_string()))?;
+        let source = module_source(&mut cfb, module, code_page)?;
         modules.push(VbaModule {
             name: module.name.clone(),
             module_type: module_type_of(module, classes.as_ref()),
@@ -100,6 +109,116 @@ fn extract_modules_from_cfb(cfb_bytes: Vec<u8>) -> Result<VbaProject, FileError>
 
 fn vba_error(reason: String) -> FileError {
     FileError::InvalidVbaProject { reason }
+}
+
+/// The source of `module` in `cfb`: its stream from its text offset on,
+/// decompressed, in the code page of the project.
+fn module_source(
+    cfb: &mut cfb::CompoundFile<Cursor<Vec<u8>>>,
+    module: &ovba::Module,
+    code_page: u16,
+) -> Result<String, FileError> {
+    let stream = read_cfb_stream(cfb, &format!("/VBA/{}", module.stream_name))?;
+    let compressed = stream.get(module.text_offset..).ok_or_else(|| {
+        vba_error(format!(
+            "the source of module '{}' starts past the end of its stream",
+            module.name
+        ))
+    })?;
+    Ok(crate::encoding::decode_code_page(
+        &decompress(compressed)?,
+        code_page,
+    ))
+}
+
+/// Decompress a CompressedContainer of MS-OVBA (2.4.1): a signature byte and
+/// chunks of at most 4096 decompressed bytes each.
+fn decompress(container: &[u8]) -> Result<Vec<u8>, FileError> {
+    let Some((&1, mut rest)) = container.split_first() else {
+        return Err(vba_error(
+            "compressed container without its signature".into(),
+        ));
+    };
+    if rest.is_empty() {
+        return Err(vba_error("compressed container without chunks".into()));
+    }
+    let mut result = Vec::new();
+    while !rest.is_empty() {
+        let (chunk, after) = chunk_of(rest)?;
+        result.extend(chunk);
+        rest = after;
+    }
+    Ok(result)
+}
+
+/// The decompressed data of the chunk at the start of `data`, and the data
+/// after it.
+fn chunk_of(data: &[u8]) -> Result<(Vec<u8>, &[u8]), FileError> {
+    let header = u16::from_le_bytes(le_bytes(data)?);
+    // CompressedChunkHeader: 12 bits of the size minus 3, 0b011, and a flag
+    if (header >> 12) & 0b111 != 0b011 {
+        return Err(vba_error("compressed chunk with a wrong signature".into()));
+    }
+    let length = (header & 0xfff) as usize + 1;
+    let (chunk, after) = data[2..]
+        .split_at_checked(length)
+        .ok_or_else(|| vba_error("compressed chunk past the end of its container".into()))?;
+    if header & 0x8000 == 0 {
+        return Ok((chunk.to_vec(), after));
+    }
+    Ok((decompress_chunk(chunk)?, after))
+}
+
+/// The two bytes at the start of `data`.
+fn le_bytes(data: &[u8]) -> Result<[u8; 2], FileError> {
+    data.first_chunk()
+        .copied()
+        .ok_or_else(|| vba_error("compressed data cut short".into()))
+}
+
+/// The data of a compressed chunk, decompressed: each flag byte tells, for
+/// the eight tokens after it, which copy earlier bytes and which are literal.
+fn decompress_chunk(mut chunk: &[u8]) -> Result<Vec<u8>, FileError> {
+    let mut result = Vec::with_capacity(4096);
+    while let Some((&flags, mut tokens)) = chunk.split_first() {
+        for bit in 0..8 {
+            let Some((&literal, rest)) = tokens.split_first() else {
+                break;
+            };
+            if flags & (1 << bit) == 0 {
+                result.push(literal);
+                tokens = rest;
+                continue;
+            }
+            copy_token(&mut result, u16::from_le_bytes(le_bytes(tokens)?))?;
+            tokens = &tokens[2..];
+        }
+        chunk = tokens;
+    }
+    Ok(result)
+}
+
+/// Append to `result`, the data of a chunk decompressed so far, the bytes
+/// `token`, a CopyToken, copies from earlier in it.
+fn copy_token(result: &mut Vec<u8>, token: u16) -> Result<(), FileError> {
+    let decompressed = result.len();
+    if decompressed > 4096 {
+        return Err(vba_error("compressed chunk longer than 4096 bytes".into()));
+    }
+    // The offset takes the bits that the bytes decompressed so far need,
+    // at least 4; the length takes the rest.
+    let bit_count = (usize::BITS - decompressed.saturating_sub(1).leading_zeros()).max(4);
+    let length_mask = 0xffff_u16 >> bit_count;
+    let length = (token & length_mask) as usize + 3;
+    let offset = (token >> (16 - bit_count)) as usize + 1;
+    let start = decompressed.checked_sub(offset).ok_or_else(|| {
+        vba_error("compressed data copies from before the start of its chunk".into())
+    })?;
+    // The copy may overlap the bytes it appends, so it goes byte by byte.
+    for i in start..start + length {
+        result.push(result[i]);
+    }
+    Ok(())
 }
 
 /// The type of `module`, with `classes` the names of the class modules the
@@ -562,5 +681,133 @@ mod tests {
         let entry = make_entry(2, 99, "orphan");
         let id_map: HashMap<i32, &StorageEntry> = HashMap::new();
         assert_eq!(storage::build_entry_path(&entry, 1, &id_map), None);
+    }
+
+    // The examples of MS-OVBA 3.2.
+    #[test]
+    fn decompress_the_examples_of_the_specification() {
+        let no_compression = [
+            0x01, 0x19, 0xB0, 0x00, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x00, 0x69,
+            0x6A, 0x6B, 0x6C, 0x6D, 0x6E, 0x6F, 0x70, 0x00, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76,
+            0x2E,
+        ];
+        assert_eq!(
+            decompress(&no_compression).unwrap(),
+            b"abcdefghijklmnopqrstuv."
+        );
+        let normal = [
+            0x01, 0x2F, 0xB0, 0x00, 0x23, 0x61, 0x61, 0x61, 0x62, 0x63, 0x64, 0x65, 0x82, 0x66,
+            0x00, 0x70, 0x61, 0x67, 0x68, 0x69, 0x6A, 0x01, 0x38, 0x08, 0x61, 0x6B, 0x6C, 0x00,
+            0x30, 0x6D, 0x6E, 0x6F, 0x70, 0x06, 0x71, 0x02, 0x70, 0x04, 0x10, 0x72, 0x73, 0x74,
+            0x75, 0x76, 0x10, 0x77, 0x78, 0x79, 0x7A, 0x00, 0x3C,
+        ];
+        assert_eq!(
+            decompress(&normal).unwrap(),
+            b"#aaabcdefaaaaghijaaaaaklaaamnopqaaaaaaaaaaaarstuvwxyzaaa"
+        );
+    }
+
+    #[test]
+    fn decompress_a_copy_that_overlaps_what_it_appends() {
+        // "a", then a CopyToken of offset 1 and length 14.
+        let data = [0x01, 0x03, 0xB0, 0x02, 0x61, 0x0B, 0x00];
+        assert_eq!(decompress(&data).unwrap(), b"aaaaaaaaaaaaaaa");
+    }
+
+    #[test]
+    fn decompress_an_uncompressed_chunk() {
+        // The flag bit is clear: the chunk holds its bytes as they are.
+        assert_eq!(decompress(&[0x01, 0x02, 0x30, 1, 2, 3]).unwrap(), [1, 2, 3]);
+    }
+
+    #[test]
+    fn decompress_broken_data_is_an_error() {
+        for (data, reason) in [
+            (&[][..], "without its signature"),
+            (&[0x02, 0x02, 0xB0][..], "without its signature"),
+            (&[0x01][..], "without chunks"),
+            (&[0x01, 0x02][..], "cut short"),
+            (&[0x01, 0x02, 0xC0, 0x00][..], "wrong signature"),
+            // A chunk of 26 bytes, of which 1 is there.
+            (
+                &[0x01, 0x19, 0xB0, 0x61][..],
+                "past the end of its container",
+            ),
+            // A CopyToken first, with nothing before it to copy.
+            (
+                &[0x01, 0x02, 0xB0, 0x01, 0x00, 0x00][..],
+                "before the start",
+            ),
+            // A CopyToken of one byte.
+            (&[0x01, 0x01, 0xB0, 0x01, 0x00][..], "cut short"),
+        ] {
+            let error = decompress(data).unwrap_err().to_string();
+            assert!(error.contains(reason), "{data:02X?}: {error}");
+        }
+    }
+
+    #[test]
+    fn decompress_a_chunk_longer_than_4096_bytes_is_an_error() {
+        // "a", a CopyToken of offset 1 and length 4098, then another
+        // CopyToken: a chunk decompresses to 4096 bytes at most, and the
+        // offset of a token past that has no bits.
+        let data = [0x01, 0x05, 0xB0, 0x06, b'a', 0xFF, 0x0F, 0x00, 0x00];
+        let error = decompress(&data).unwrap_err().to_string();
+        assert!(error.contains("longer than 4096"), "{error}");
+    }
+
+    fn module_of_stream(text_offset: usize) -> ovba::Module {
+        ovba::Module {
+            name: "Module1".to_string(),
+            stream_name: "Module1".to_string(),
+            doc_string: String::new(),
+            text_offset,
+            help_context: 0,
+            module_type: ovba::ModuleType::Procedural,
+            read_only: false,
+            private: false,
+        }
+    }
+
+    fn cfb_of(streams: &[(&str, &[u8])]) -> cfb::CompoundFile<Cursor<Vec<u8>>> {
+        let mut writer = CfbWriter::new().unwrap();
+        writer.storage("/VBA").unwrap();
+        for (path, data) in streams {
+            writer.stream(path, data).unwrap();
+        }
+        cfb::CompoundFile::open(Cursor::new(writer.finish().unwrap())).unwrap()
+    }
+
+    #[test]
+    fn module_source_from_its_text_offset() {
+        // Two bytes of the performance cache, then "abc" in an uncompressed chunk.
+        let stream = [0xFF, 0xFF, 0x01, 0x02, 0x30, b'a', b'b', b'c'];
+        let mut cfb = cfb_of(&[("/VBA/Module1", &stream)]);
+        assert_eq!(
+            module_source(&mut cfb, &module_of_stream(2), 1252).unwrap(),
+            "abc"
+        );
+    }
+
+    #[test]
+    fn module_source_past_the_end_of_its_stream_is_an_error() {
+        let mut cfb = cfb_of(&[("/VBA/Module1", &[0x01, 0x02, 0x30, b'a', b'b', b'c'])]);
+        let error = module_source(&mut cfb, &module_of_stream(7), 1252)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("past the end of its stream"), "{error}");
+    }
+
+    #[test]
+    fn broken_dir_stream_is_an_error_before_ovba_reads_it() {
+        let mut writer = CfbWriter::new().unwrap();
+        writer.storage("/VBA").unwrap();
+        writer
+            .stream("/VBA/dir", &[0x01, 0x02, 0xB0, 0x01, 0x00, 0x00])
+            .unwrap();
+        let error = extract_modules_from_cfb(writer.finish().unwrap())
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("before the start"), "{error}");
     }
 }
