@@ -205,9 +205,38 @@ pub fn generate_ddl(
     include_indexes: bool,
     include_relations: bool,
 ) -> String {
-    let mut out = String::new();
-
     // 1. CREATE TABLE statements
+    let mut out = create_tables(dialect, tables, relationships, include_relations);
+
+    // 2. CREATE INDEX statements
+    if include_indexes {
+        for tdef in tables {
+            push_statements(&mut out, &generate_create_indexes(dialect, tdef));
+        }
+    }
+
+    // 3. ALTER TABLE FOREIGN KEY statements (non-inline dialects only)
+    if include_relations && !dialect.inline_foreign_keys() {
+        let table_names: Vec<&str> = tables.iter().map(|t| t.name.as_str()).collect();
+        let filtered_rels: Vec<&Relationship> = relationships
+            .iter()
+            .filter(|r| table_names.contains(&r.from_table.as_str()))
+            .collect();
+        push_statements(&mut out, &generate_foreign_keys(dialect, &filtered_rels));
+    }
+
+    out
+}
+
+/// The CREATE TABLE statement of each table, with its foreign keys inline in
+/// the dialects that write them so when `include_relations`.
+fn create_tables(
+    dialect: &dyn DdlDialect,
+    tables: &[TableDef],
+    relationships: &[Relationship],
+    include_relations: bool,
+) -> String {
+    let mut out = String::new();
     for (i, tdef) in tables.iter().enumerate() {
         if i > 0 {
             out.push('\n');
@@ -222,33 +251,15 @@ pub fn generate_ddl(
         };
         out.push_str(&generate_create_table(dialect, tdef, &table_rels));
     }
-
-    // 2. CREATE INDEX statements
-    if include_indexes {
-        for tdef in tables {
-            let idx_sql = generate_create_indexes(dialect, tdef);
-            if !idx_sql.is_empty() {
-                out.push('\n');
-                out.push_str(&idx_sql);
-            }
-        }
-    }
-
-    // 3. ALTER TABLE FOREIGN KEY statements (non-inline dialects only)
-    if include_relations && !dialect.inline_foreign_keys() {
-        let table_names: Vec<&str> = tables.iter().map(|t| t.name.as_str()).collect();
-        let filtered_rels: Vec<&Relationship> = relationships
-            .iter()
-            .filter(|r| table_names.contains(&r.from_table.as_str()))
-            .collect();
-        let fk_sql = generate_foreign_keys(dialect, &filtered_rels);
-        if !fk_sql.is_empty() {
-            out.push('\n');
-            out.push_str(&fk_sql);
-        }
-    }
-
     out
+}
+
+/// Add the statements `sql` after a blank line, unless there are none.
+fn push_statements(out: &mut String, sql: &str) {
+    if !sql.is_empty() {
+        out.push('\n');
+        out.push_str(sql);
+    }
 }
 
 /// The integer AutoNumber column that is the whole primary key `pk`, if any.
@@ -332,44 +343,16 @@ pub fn generate_create_table(
     // If dialect absorbs PK and there's an auto-increment PK col, suppress table-level PK
     let suppress_pk = dialect.auto_increment_absorbs_pk() && auto_pk_col.is_some();
 
-    let mut lines: Vec<String> = Vec::new();
-
     // Column definitions
-    for col in &tdef.columns {
-        let is_auto = writes_auto_number(dialect, col, auto_pk_col);
-        let type_str = dialect.map_column_type(&in_characters(tdef, col), is_auto);
-        // An AutoNumber is never NULL, even written as a plain column where
-        // Access flags it as nullable.
-        let not_null = if (col.flags & column_flags::NULLABLE) == 0 || col.is_auto_number() {
-            " NOT NULL"
-        } else {
-            ""
-        };
-
-        // For auto-increment columns, NOT NULL is embedded in the type string
-        // returned by map_column_type(), so we skip appending it here.
-        if is_auto {
-            lines.push(format!("    {} {}", dialect.quote_id(&col.name), type_str));
-        } else {
-            lines.push(format!(
-                "    {} {}{}",
-                dialect.quote_id(&col.name),
-                type_str,
-                not_null
-            ));
-        }
-    }
+    let mut lines: Vec<String> = tdef
+        .columns
+        .iter()
+        .map(|col| column_line(dialect, tdef, col, auto_pk_col))
+        .collect();
 
     // PRIMARY KEY constraint (table-level)
     if !suppress_pk {
-        if let Some(pk_idx) = pk {
-            let pk_cols: Vec<String> = pk_idx
-                .columns
-                .iter()
-                .map(|c| dialect.quote_id(resolve_col_name(tdef, c.col_num)))
-                .collect();
-            lines.push(format!("    PRIMARY KEY ({})", pk_cols.join(", ")));
-        }
+        lines.extend(pk.map(|pk_idx| primary_key_line(dialect, tdef, pk_idx)));
     }
     lines.extend(auto_increment_keys(dialect, tdef, pk, auto_pk_col));
 
@@ -379,26 +362,11 @@ pub fn generate_create_table(
         .iter()
         .copied()
         .partition(|r| r.has_referential_integrity());
-    for rel in table_rels {
-        let from_cols: Vec<String> = rel
-            .columns
-            .iter()
-            .map(|c| dialect.quote_id(&c.from_column))
-            .collect();
-        let to_cols: Vec<String> = rel
-            .columns
-            .iter()
-            .map(|c| dialect.quote_id(&c.to_column))
-            .collect();
-        let mut fk = format!(
-            "    FOREIGN KEY ({}) REFERENCES {} ({})",
-            from_cols.join(", "),
-            dialect.quote_id(&rel.to_table),
-            to_cols.join(", ")
-        );
-        append_cascade_clauses(&mut fk, rel);
-        lines.push(fk);
-    }
+    lines.extend(
+        table_rels
+            .into_iter()
+            .map(|rel| inline_foreign_key(dialect, rel)),
+    );
 
     let mut out = format!(
         "CREATE TABLE {} (\n{}\n);\n",
@@ -411,6 +379,69 @@ pub fn generate_create_table(
     out
 }
 
+/// The line of the definition of `col` in a CREATE TABLE statement.
+fn column_line(
+    dialect: &dyn DdlDialect,
+    tdef: &TableDef,
+    col: &ColumnDef,
+    auto_pk_col: Option<&ColumnDef>,
+) -> String {
+    let is_auto = writes_auto_number(dialect, col, auto_pk_col);
+    let type_str = dialect.map_column_type(&in_characters(tdef, col), is_auto);
+    // For auto-increment columns, NOT NULL is embedded in the type string
+    // returned by map_column_type(), so we skip appending it here. An
+    // AutoNumber is never NULL, even written as a plain column where Access
+    // flags it as nullable.
+    let not_null =
+        if !is_auto && ((col.flags & column_flags::NULLABLE) == 0 || col.is_auto_number()) {
+            " NOT NULL"
+        } else {
+            ""
+        };
+    format!(
+        "    {} {}{}",
+        dialect.quote_id(&col.name),
+        type_str,
+        not_null
+    )
+}
+
+/// The table-level PRIMARY KEY line of the index `pk_idx`.
+fn primary_key_line(dialect: &dyn DdlDialect, tdef: &TableDef, pk_idx: &IndexDef) -> String {
+    let pk_cols: Vec<String> = pk_idx
+        .columns
+        .iter()
+        .map(|c| dialect.quote_id(resolve_col_name(tdef, c.col_num)))
+        .collect();
+    format!("    PRIMARY KEY ({})", pk_cols.join(", "))
+}
+
+/// The FOREIGN KEY line of `rel` in a CREATE TABLE statement.
+fn inline_foreign_key(dialect: &dyn DdlDialect, rel: &Relationship) -> String {
+    let mut fk = format!(
+        "    FOREIGN KEY ({}) REFERENCES {} ({})",
+        quoted_columns(dialect, rel, |c| &c.from_column),
+        dialect.quote_id(&rel.to_table),
+        quoted_columns(dialect, rel, |c| &c.to_column)
+    );
+    append_cascade_clauses(&mut fk, rel);
+    fk
+}
+
+/// The columns of `rel` on one side, as `pick` gives them, quoted and joined
+/// by commas.
+fn quoted_columns(
+    dialect: &dyn DdlDialect,
+    rel: &Relationship,
+    pick: fn(&RelationshipColumn) -> &str,
+) -> String {
+    rel.columns
+        .iter()
+        .map(|c| dialect.quote_id(pick(c)))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// A comment for a relationship without referential integrity, which Access
 /// does not enforce and so is no constraint; nothing where the dialect has
 /// no comments.
@@ -418,70 +449,60 @@ fn no_integrity_note(dialect: &dyn DdlDialect, rel: &Relationship) -> String {
     if !dialect.supports_comments() {
         return String::new();
     }
-    let cols = |pick: fn(&RelationshipColumn) -> &str| -> String {
-        rel.columns
-            .iter()
-            .map(|c| dialect.quote_id(pick(c)))
-            .collect::<Vec<_>>()
-            .join(", ")
-    };
     format!(
         "-- Relationship {} from {} ({}) to {} ({}) does not enforce referential integrity.\n",
         dialect.quote_id(&rel.name),
         dialect.quote_id(&rel.from_table),
-        cols(|c| &c.from_column),
+        quoted_columns(dialect, rel, |c| &c.from_column),
         dialect.quote_id(&rel.to_table),
-        cols(|c| &c.to_column)
+        quoted_columns(dialect, rel, |c| &c.to_column)
     )
 }
 
 /// Generate CREATE INDEX statements for a single table.
 pub fn generate_create_indexes(dialect: &dyn DdlDialect, tdef: &TableDef) -> String {
     let pk = find_primary_key(tdef);
-    let mut out = String::new();
+    tdef.indexes
+        .iter()
+        .filter(|idx| writes_index(tdef, idx, pk))
+        .map(|idx| create_index(dialect, tdef, idx))
+        .collect()
+}
 
-    for idx in &tdef.indexes {
-        // Skip FK indexes
-        if idx.index_type == index_type::FOREIGN_KEY {
-            continue;
-        }
-        // Skip the hidden indexes on complex columns
-        if is_complex_column_index(tdef, idx) {
-            continue;
-        }
-        // Skip the primary key index (already in CREATE TABLE)
-        if let Some(pk_idx) = pk {
-            if idx.index_num == pk_idx.index_num {
-                continue;
-            }
-        }
+/// Whether `idx` gets a CREATE INDEX statement: not a foreign key index, a
+/// hidden index on complex columns, or the primary key `pk`, which CREATE
+/// TABLE has.
+fn writes_index(tdef: &TableDef, idx: &IndexDef, pk: Option<&IndexDef>) -> bool {
+    idx.index_type != index_type::FOREIGN_KEY
+        && !is_complex_column_index(tdef, idx)
+        && pk.is_none_or(|pk_idx| idx.index_num != pk_idx.index_num)
+}
 
-        let unique = if (idx.flags & index_flags::UNIQUE) != 0 {
-            "UNIQUE "
-        } else {
-            ""
-        };
-        let cols: Vec<String> = idx
-            .columns
-            .iter()
-            .map(|c| dialect.quote_id(resolve_col_name(tdef, c.col_num)))
-            .collect();
-        // Access names an index within its table, so two tables often have
-        // an index of the same name, such as "id".
-        let name = if dialect.index_names_per_table() {
-            idx.name.clone()
-        } else {
-            format!("{}_{}_idx", tdef.name, idx.name)
-        };
-        out.push_str(&format!(
-            "CREATE {unique}INDEX {} ON {} ({});\n",
-            dialect.quote_id(&name),
-            dialect.quote_id(&tdef.name),
-            cols.join(", ")
-        ));
-    }
-
-    out
+/// The CREATE INDEX statement of `idx`.
+fn create_index(dialect: &dyn DdlDialect, tdef: &TableDef, idx: &IndexDef) -> String {
+    let unique = if (idx.flags & index_flags::UNIQUE) != 0 {
+        "UNIQUE "
+    } else {
+        ""
+    };
+    let cols: Vec<String> = idx
+        .columns
+        .iter()
+        .map(|c| dialect.quote_id(resolve_col_name(tdef, c.col_num)))
+        .collect();
+    // Access names an index within its table, so two tables often have
+    // an index of the same name, such as "id".
+    let name = if dialect.index_names_per_table() {
+        idx.name.clone()
+    } else {
+        format!("{}_{}_idx", tdef.name, idx.name)
+    };
+    format!(
+        "CREATE {unique}INDEX {} ON {} ({});\n",
+        dialect.quote_id(&name),
+        dialect.quote_id(&tdef.name),
+        cols.join(", ")
+    )
 }
 
 /// Generate ALTER TABLE ADD FOREIGN KEY statements.
@@ -493,24 +514,13 @@ pub fn generate_foreign_keys(dialect: &dyn DdlDialect, relationships: &[&Relatio
             out.push_str(&no_integrity_note(dialect, rel));
             continue;
         }
-        let from_cols: Vec<String> = rel
-            .columns
-            .iter()
-            .map(|c| dialect.quote_id(&c.from_column))
-            .collect();
-        let to_cols: Vec<String> = rel
-            .columns
-            .iter()
-            .map(|c| dialect.quote_id(&c.to_column))
-            .collect();
-
         let mut stmt = format!(
             "ALTER TABLE {} ADD CONSTRAINT {}\n    FOREIGN KEY ({}) REFERENCES {} ({})",
             dialect.quote_id(&rel.from_table),
             dialect.quote_id(&rel.name),
-            from_cols.join(", "),
+            quoted_columns(dialect, rel, |c| &c.from_column),
             dialect.quote_id(&rel.to_table),
-            to_cols.join(", ")
+            quoted_columns(dialect, rel, |c| &c.to_column)
         );
         append_cascade_clauses(&mut stmt, rel);
         stmt.push_str(";\n");
