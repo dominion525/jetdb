@@ -94,7 +94,7 @@ fn print_properties(
     out: &mut impl Write,
     props: &ObjectProperties,
     object_type: Option<ObjectType>,
-) -> io::Result<()> {
+) -> Result<(), crate::CliError> {
     if props.maps.is_empty() {
         return Ok(());
     }
@@ -132,7 +132,8 @@ fn map_heading(map_type: PropMapType, name: &str, object_type: Option<ObjectType
         PropMapType::Column => format!("Column: {name}"),
         PropMapType::Additional if name.is_empty() => "Additional Properties:".to_string(),
         PropMapType::Additional => format!("Additional: {name}"),
-        _ => format!("{map_type:?}: {name}"),
+        _ if name.is_empty() => "Unknown Map Properties:".to_string(),
+        _ => format!("Unknown Map: {name}"),
     }
 }
 
@@ -154,12 +155,13 @@ fn object_type_label(t: ObjectType) -> &'static str {
         ObjectType::Database => "Database",
         ObjectType::DatabaseProperty => "Database Property",
         ObjectType::UserInfo => "User Info",
-        _ => "Object",
+        _ => "Unknown Type",
     }
 }
 
-/// Print the properties of `map`, their names aligned.
-fn print_map(out: &mut impl Write, map: &PropertyMap) -> io::Result<()> {
+/// Print the properties of `map`, their names aligned, or an error at the
+/// first value of a type this version of jetdb does not know.
+fn print_map(out: &mut impl Write, map: &PropertyMap) -> Result<(), crate::CliError> {
     // Calculate name width for alignment
     let name_width = map
         .properties
@@ -169,7 +171,12 @@ fn print_map(out: &mut impl Write, map: &PropertyMap) -> io::Result<()> {
         .unwrap_or(0);
 
     for prop in &map.properties {
-        let display_value = format_value(&prop.value);
+        let display_value = format_value(&prop.value).ok_or_else(|| {
+            format!(
+                "property {}: a value of a type unknown to this version of jetdb",
+                prop.name
+            )
+        })?;
         writeln!(
             out,
             "    {}  {display_value}",
@@ -202,9 +209,10 @@ fn only_type_of(catalog: &[CatalogEntry], name: &str) -> Result<Option<ObjectTyp
     }
 }
 
-/// Format a property value for display.
-fn format_value(value: &Value) -> String {
-    match value {
+/// Format a property value for display, `None` for a value of a type this
+/// version of jetdb does not know.
+fn format_value(value: &Value) -> Option<String> {
+    let text = match value {
         Value::Null => "null".to_string(),
         Value::Bool(b) => if *b { "yes" } else { "no" }.to_string(),
         Value::Byte(v) => v.to_string(),
@@ -220,8 +228,9 @@ fn format_value(value: &Value) -> String {
         Value::Timestamp(ts) => jetdb::timestamp::format_default(*ts),
         Value::Guid(s) => s.clone(),
         Value::DateTimeExtended(s) => s.clone(),
-        _ => format!("{value:?}"),
-    }
+        _ => return None,
+    };
+    Some(text)
 }
 
 // ---------------------------------------------------------------------------
@@ -319,110 +328,131 @@ mod tests {
 
     #[test]
     fn format_value_bool_true() {
-        assert_eq!(format_value(&Value::Bool(true)), "yes");
+        assert_eq!(format_value(&Value::Bool(true)).as_deref(), Some("yes"));
     }
 
     #[test]
     fn format_value_bool_false() {
-        assert_eq!(format_value(&Value::Bool(false)), "no");
+        assert_eq!(format_value(&Value::Bool(false)).as_deref(), Some("no"));
     }
 
     #[test]
     fn format_value_text_quoted() {
-        assert_eq!(format_value(&Value::Text("hello".to_string())), "\"hello\"");
+        assert_eq!(
+            format_value(&Value::Text("hello".to_string())).as_deref(),
+            Some("\"hello\"")
+        );
     }
 
     #[test]
     fn format_value_binary_size() {
-        assert_eq!(format_value(&Value::Binary(vec![0; 42])), "(42 bytes)");
+        assert_eq!(
+            format_value(&Value::Binary(vec![0; 42])).as_deref(),
+            Some("(42 bytes)")
+        );
     }
 
     #[test]
     fn format_value_long() {
-        assert_eq!(format_value(&Value::Long(123)), "123");
+        assert_eq!(format_value(&Value::Long(123)).as_deref(), Some("123"));
     }
 
     #[test]
     fn format_value_null() {
-        assert_eq!(format_value(&Value::Null), "null");
+        assert_eq!(format_value(&Value::Null).as_deref(), Some("null"));
     }
 
     #[test]
     fn format_value_guid() {
         let guid = "{04030201-0605-0807-090A-0B0C0D0E0F10}".to_string();
-        assert_eq!(format_value(&Value::Guid(guid.clone())), guid);
+        assert_eq!(
+            format_value(&Value::Guid(guid.clone())).as_deref(),
+            Some(guid.as_str())
+        );
     }
 
     #[test]
     fn format_value_timestamp_date_only() {
-        assert_eq!(format_value(&Value::Timestamp(37623.0)), "2003-01-02");
+        assert_eq!(
+            format_value(&Value::Timestamp(37623.0)).as_deref(),
+            Some("2003-01-02")
+        );
     }
 
     #[test]
     fn format_value_timestamp_datetime() {
         assert_eq!(
-            format_value(&Value::Timestamp(37623.5)),
-            "2003-01-02 12:00:00"
+            format_value(&Value::Timestamp(37623.5)).as_deref(),
+            Some("2003-01-02 12:00:00")
         );
     }
 
     #[test]
     fn format_value_text_with_quotes() {
         assert_eq!(
-            format_value(&Value::Text("say \"hello\"".to_string())),
-            "\"say \\\"hello\\\"\""
+            format_value(&Value::Text("say \"hello\"".to_string())).as_deref(),
+            Some("\"say \\\"hello\\\"\"")
         );
     }
 
     #[test]
     fn format_value_text_with_backslash() {
-        assert_eq!(format_value(&Value::Text("a\\b".to_string())), "\"a\\\\b\"");
+        assert_eq!(
+            format_value(&Value::Text("a\\b".to_string())).as_deref(),
+            Some("\"a\\\\b\"")
+        );
     }
 
     #[test]
     fn format_value_text_with_line_breaks() {
         assert_eq!(
-            format_value(&Value::Text("a\r\nb\tc\u{1}".to_string())),
-            "\"a\\r\\nb\\tc\\u{1}\""
+            format_value(&Value::Text("a\r\nb\tc\u{1}".to_string())).as_deref(),
+            Some("\"a\\r\\nb\\tc\\u{1}\"")
         );
     }
 
     #[test]
     fn format_value_bigint() {
-        assert_eq!(format_value(&Value::BigInt(42)), "42");
-        assert_eq!(format_value(&Value::BigInt(-1)), "-1");
+        assert_eq!(format_value(&Value::BigInt(42)).as_deref(), Some("42"));
+        assert_eq!(format_value(&Value::BigInt(-1)).as_deref(), Some("-1"));
     }
 
     #[test]
     fn format_value_float() {
-        assert_eq!(format_value(&Value::Float(1.5)), "1.5");
+        assert_eq!(format_value(&Value::Float(1.5)).as_deref(), Some("1.5"));
     }
 
     #[test]
     fn format_value_double() {
-        assert_eq!(format_value(&Value::Double(3.125)), "3.125");
+        assert_eq!(
+            format_value(&Value::Double(3.125)).as_deref(),
+            Some("3.125")
+        );
     }
 
     #[test]
     fn format_value_byte() {
-        assert_eq!(format_value(&Value::Byte(255)), "255");
+        assert_eq!(format_value(&Value::Byte(255)).as_deref(), Some("255"));
     }
 
     #[test]
     fn format_value_int() {
-        assert_eq!(format_value(&Value::Int(-42)), "-42");
+        assert_eq!(format_value(&Value::Int(-42)).as_deref(), Some("-42"));
     }
 
     #[test]
     fn format_value_money() {
-        assert_eq!(format_value(&Value::Money("1.0000".to_string())), "1.0000");
+        assert_eq!(
+            format_value(&Value::Money("1.0000".to_string())).as_deref(),
+            Some("1.0000")
+        );
     }
 
     #[test]
     fn format_value_numeric() {
         assert_eq!(
-            format_value(&Value::Numeric("123.45".to_string())),
-            "123.45"
+            format_value(&Value::Numeric("123.45".to_string())).as_deref(),
+            Some("123.45")
         );
     }
 }

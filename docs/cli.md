@@ -308,7 +308,9 @@ per-column, and additional property maps. The heading of the object-level
 properties names the type of the object in words, such as
 `Table Properties:`, `Query Properties:`, `Linked Table Properties:` or
 `Database Property Properties:`, and is `Object Properties:` for an object
-of a type jetdb does not know. The object-level properties come first, and
+of a type jetdb does not know. A type known to the jetdb library the CLI
+is built with but unknown to this version of jetdb is
+`Unknown Type Properties:`. The object-level properties come first, and
 the other maps follow in the order the database stores them. Text values
 are shown in double quotes, with `\` and `"` written as `\\` and `\"`, a
 carriage return, a line feed and a tab as `\r`, `\n` and `\t`, and other
