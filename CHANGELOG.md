@@ -15,7 +15,7 @@
 
 ### Changed
 
-- The minimum supported Rust version is 1.86.
+- The minimum supported Rust version is 1.87.
 - The text of an Access 97 file is read in the code page of the database, rather than as Latin-1.
 - Columns are listed in the order of Design View, and the size of a Text column is in characters, as Access shows it.
 - DDL: a column that Access requires a value in is `NOT NULL`, a relationship without referential integrity is not a foreign key, a GUID AutoNumber column is a GUID column, a BigInt column is `BIGINT` in Access SQL, and index names are prefixed with their table in SQLite and PostgreSQL.
