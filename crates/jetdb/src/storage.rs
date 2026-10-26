@@ -292,6 +292,65 @@ pub(crate) fn find_dir_data(entries: &[StorageEntry], folder_id: i32) -> Option<
     })
 }
 
+/// The storage `name` directly under the root (`Forms`, `Reports`,
+/// `Scripts`).
+pub(crate) fn find_top_folder<'a>(
+    entries: &'a [StorageEntry],
+    name: &str,
+) -> Option<&'a StorageEntry> {
+    find_child_storage(entries, find_root_id(entries), name)
+}
+
+/// The storage `name` directly under the entry `parent_id`.
+pub(crate) fn find_child_storage<'a>(
+    entries: &'a [StorageEntry],
+    parent_id: i32,
+    name: &str,
+) -> Option<&'a StorageEntry> {
+    entries
+        .iter()
+        .find(|e| e.parent_id == parent_id && e.name == name && is_storage(e))
+}
+
+/// The stream `name` directly under the entry `parent_id`.
+pub(crate) fn find_child_stream<'a>(
+    entries: &'a [StorageEntry],
+    parent_id: i32,
+    name: &str,
+) -> Option<&'a StorageEntry> {
+    entries
+        .iter()
+        .find(|e| e.parent_id == parent_id && e.name == name && !is_storage(e))
+}
+
+/// The names of the objects in `folder` with the names of their storages, as
+/// its DirData lists them; none when it has no DirData.
+pub(crate) fn folder_mapping(
+    entries: &[StorageEntry],
+    folder: &StorageEntry,
+) -> Result<Vec<(String, String)>, FileError> {
+    match find_dir_data(entries, folder.id) {
+        Some(dir_data) => parse_dir_data(&dir_data.data),
+        None => Ok(Vec::new()),
+    }
+}
+
+/// The stream `stream` of the object `name` in `folder`: in the storage that
+/// the DirData of the folder gives for the name.
+pub(crate) fn object_stream<'a>(
+    entries: &'a [StorageEntry],
+    folder: &StorageEntry,
+    name: &str,
+    stream: &str,
+) -> Result<Option<&'a StorageEntry>, FileError> {
+    let mapping = folder_mapping(entries, folder)?;
+    let Some((_, storage_name)) = mapping.iter().find(|(n, _)| n == name) else {
+        return Ok(None);
+    };
+    Ok(find_child_storage(entries, folder.id, storage_name)
+        .and_then(|object| find_child_stream(entries, object.id, stream)))
+}
+
 // ---------------------------------------------------------------------------
 // Internal: DirData parser
 // ---------------------------------------------------------------------------
