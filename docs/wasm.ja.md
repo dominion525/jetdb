@@ -196,3 +196,15 @@ try {
 - 読み取り専用です（Access のファイルには書き込みません）。
 - ファイル全体をメモリに持ちます。
 - Access 97（Jet3）のファイルでは、フォーム・レポートと VBA を読みません。`forms()` と `modules()` は何も返さず、名前を指定してフォームやレポートを読むと `NOT_SUPPORTED` を投げます。
+- Wasm のモジュールのメモリは最大 4 GiB で、使い切ると回復できません。[メモリ不足](#メモリ不足)を参照してください。
+
+### メモリ不足
+
+Wasm のモジュールのメモリには、開いている各 `Database` のファイルのバイト列と、メソッドが JavaScript に渡す前に作るもの（`limit` を付けない `rows` ならテーブルの全行など）が入ります。このメモリは 4 GiB を超えて増やせません。呼び出しがそれ以上を必要とすると、モジュールは処理の途中で止まります。その呼び出しは `JetdbError` ではなく、JavaScript エンジンの `RuntimeError` を投げます。ログには何も出ません。Node.js では、そのメッセージは `unreachable` です。
+
+これが `Database` のメソッドの中で起きると、その `Database` のそれ以降の呼び出しはすべて `Error: recursive use of an object detected which would lead to unsafe aliasing in rust` を投げます。`free()` も `Error: attempted to take ownership of Rust value while it was borrowed` を投げるため、その `Database` が持つメモリは解放されません。止まった呼び出しが持っていたメモリも解放されません。このエラーの後はモジュールを使い続けず、ページの再読み込みや、ワーカー・プロセスの起動し直しなどで、モジュールを読み込み直してください。
+
+避けるには、次のようにします。
+
+- 大きなテーブルは、`rows` の `limit` と `start` のオプションで区切って読む（[テーブル](#テーブル)を参照）。
+- 各 `Database` は、ガベージコレクタに任せず、使い終わったら `free()` を呼ぶか、`using` で開く。ループがイベントループに戻らずに回っている間、ガベージコレクタは `Database` を解放しません。そのため、ファイルを次々に開いて解放しないループは、メモリを使い切ることがあります。

@@ -196,3 +196,15 @@ try {
 - Read-only: jetdb does not write to Access files.
 - The whole file is held in memory.
 - In an Access 97 (Jet3) file, jetdb does not read the forms, reports and VBA: `forms()` and `modules()` give none, and reading a form or report by its name throws `NOT_SUPPORTED`.
+- The memory of the Wasm module is at most 4 GiB, and running out of it cannot be recovered from: see [Running Out of Memory](#running-out-of-memory).
+
+### Running Out of Memory
+
+The memory of the Wasm module holds the bytes of each open `Database`, and what a method builds before it gives it to JavaScript, such as all the rows of a table for `rows` without `limit`. It cannot grow past 4 GiB. When a call needs more, the module stops in the middle of its work: the call throws a `RuntimeError` of the JavaScript engine, not a `JetdbError`, and nothing is logged. In Node.js its message is `unreachable`.
+
+When this happens in a method of a `Database`, every later call of that `Database` throws `Error: recursive use of an object detected which would lead to unsafe aliasing in rust`, and its `free()` throws `Error: attempted to take ownership of Rust value while it was borrowed`, so the memory it holds is not released. Neither is what the stopped call held. Do not go on using the module after this error: load it again, such as by reloading the page or starting the worker or the process again.
+
+To avoid it:
+
+- Read a large table a part at a time, with the `limit` and `start` options of `rows` (see [Tables](#tables)).
+- Call `free()` on each `Database` when it is no longer needed, or open it with `using`, rather than leave it to the garbage collector. The garbage collector does not free a `Database` while a loop runs without returning to the event loop, so a loop that opens one file after another without freeing them can run out of memory.
