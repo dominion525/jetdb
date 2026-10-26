@@ -14,6 +14,8 @@ These options can be used with any subcommand.
 
 - `--password <PASSWORD>` — Database password (for password-protected .accdb files)
 
+`jetdb --help-skill`, given without a subcommand, prints how to install the Claude Code Skill of jetdb, which is in the agent-skills repository, and exits.
+
 ## Subcommands
 
 ### ver — Show database engine version
@@ -74,26 +76,40 @@ Output the table names in the database, one per line.
 $ jetdb tables test.mdb
 Table1
 Table2
+Table3
+Table4
 
 $ jetdb tables -s test.mdb
-MSysObjects
 MSysACEs
+MSysAccessStorage
+...
+MSysRelationships
 Table1
 Table2
+Table3
+Table4
 
 $ jetdb tables -t test.mdb
 1	Table1
 1	Table2
+1	Table3
+1	Table4
 
 $ jetdb tables -T test.mdb
 table	Table1
 table	Table2
+table	Table3
+table	Table4
 
 $ jetdb tables -s -T test.mdb
-systable	MSysObjects
 systable	MSysACEs
+systable	MSysAccessStorage
+...
+systable	MSysRelationships
 table	Table1
 table	Table2
+table	Table3
+table	Table4
 ```
 
 #### Type names
@@ -207,7 +223,7 @@ ALTER TABLE "Table1" ADD CONSTRAINT "Table3Table1"
 
 #### Required columns
 
-A column whose Required property is Yes ("Required" in the table design of Access) is `NOT NULL`, in the DDL and in the `NOT NULL` of the column list. So is an AutoNumber column.
+A column whose Required property is Yes ("Required" in the table design of Access) is `NOT NULL`, in the DDL and in the `NOT NULL` of the column list. An AutoNumber column is `NOT NULL` in the DDL; the column list marks it `AUTO`.
 
 #### GUID AutoNumber columns
 
@@ -275,9 +291,9 @@ SQL that may be missing parts: which query the rows belonged to is not known.
 
 ```
 $ jetdb queries show queryTest.mdb DeleteQuery
-DELETE [Table1].[col1], [Table1].[col2], [Table1].[col3]
-FROM [Table1]
-WHERE (([Table1].[col1]="foo"));
+DELETE Table1.col1, Table1.col2, Table1.col3
+FROM Table1
+WHERE (((Table1.col1)>"blah"));
 ```
 
 ### prop — Show object properties
@@ -415,17 +431,20 @@ If the database has no forms or reports, produces no output.
 ##### Output examples
 
 ```
-$ jetdb form list database.accdb
-F_Menu
-F_ClientList
-R_MonthlyReport
+$ jetdb form list formPropTest.accdb
+F_Buttons
+F_Table0
+F_Table1
+jp_フォーム_2
 
-$ jetdb form list --forms-only database.accdb
-F_Menu
-F_ClientList
+$ jetdb form list --forms-only formPropTest.accdb
+F_Buttons
+F_Table0
+F_Table1
+jp_フォーム_2
 
-$ jetdb form list --reports-only database.accdb
-R_MonthlyReport
+$ jetdb form list --reports-only formPropTest.accdb
+(no output — database has no reports)
 ```
 
 #### form dump — Dump a binary stream
@@ -448,11 +467,12 @@ Dump the raw binary stream from a form or report to standard output. The default
 ##### Output examples
 
 ```
-$ jetdb form dump database.accdb F_Menu > form_blob.bin
+$ jetdb form dump formPropTest.accdb F_Table1 > form_blob.bin
 $ xxd form_blob.bin | head
-00000000: 1500 1400 0000 0000 9600 1400 ...
+00000000: 1500 1400 0000 0000 9600 1400 0000 3a01  ..............:.
+...
 
-$ jetdb form dump -s typeinfo database.accdb F_Menu > typeinfo.bin
+$ jetdb form dump -s typeinfo formPropTest.accdb F_Table1 > typeinfo.bin
 ```
 
 #### form controls — List the sections and controls
@@ -470,13 +490,28 @@ List the sections and controls of the form or report from its Blob, each section
 ##### Output examples
 
 ```
-$ jetdb form controls database.accdb F_ClientList
-FormHeader      FormHeader      0
-Btn_Search      CommandButton   1
-Detail          Detail          2
-Txt_Name        TextBox         3
-Cmb_Status      ComboBox        4
-FormFooter      FormFooter      5
+$ jetdb form controls formPropTest.accdb F_Table1
+フォームヘッダー	FormHeader	0
+Auto_Logo0	Image	1
+Auto_Header0	Label	2
+詳細	Detail	3
+ID	TextBox	4
+ラベル0	Label	5
+ProductName	TextBox	6
+ラベル3	Label	7
+Price	TextBox	8
+ラベル6	Label	9
+Qty	TextBox	10
+ラベル9	Label	11
+Text_01_SubTotal	TextBox	12
+ラベル15	Label	13
+空白セル20	EmptyCell	14
+空白セル21	EmptyCell	15
+空白セル25	EmptyCell	16
+btn_msg	CommandButton	17
+空白セル34	EmptyCell	18
+空白セル39	EmptyCell	19
+フォームフッター	FormFooter	20
 ```
 
 #### form props — Show form/report and control properties
@@ -496,28 +531,43 @@ Known property IDs are displayed by name; unknown IDs are shown as `0xXXXX`. For
 ##### Output examples
 
 ```
-$ jetdb form props database.accdb F_ClientList
-Form: F_ClientList
+$ jetdb form props formPropTest.accdb F_Table1
+Form: F_Table1
 
   Form Properties:
-    RecordSource  "SELECT * FROM T_Clients ORDER BY ID;"
-    Filter        "([ID] > 0)"
-    Caption       "Client List"
-    FontName      "MS PGothic"
+    DividingLines               NotDefault
+    AllowDesignChanges          NotDefault
+    ...
+    Filter                      "[ID] > 0"
+    ...
+    PrtDevMode                  (5364 bytes)
+    ...
 
-  Control: FormHeader (FormHeader)
-    Name    "FormHeader"
+  Control: フォームヘッダー (FormHeader)
+    Height     546
+    BackColor  15783096
+    Name       "フォームヘッダー"
+    ...
 
-  Control: Txt_Name (TextBox)
-    Name           "Txt_Name"
-    ControlSource  "Name"
-    FontName       "Meiryo UI"
+  ...
 
-  Control: Cmb_Status (ComboBox)
-    Name           "Cmb_Status"
-    RowSourceType  "Table/Query"
-    RowSource      "SELECT Status FROM T_StatusList;"
-    FontName       "Meiryo UI"
+  Control: ID (TextBox)
+    ...
+    Name           "ID"
+    ControlSource  "ID"
+    GUID           {AD992C6B-598C-4EFE-ACA1-6C2EAE08A5F3}
+    ...
+
+  ...
+
+  Control: btn_msg (CommandButton)
+    ...
+    Name          "btn_msg"
+    Caption       "btn_msg"
+    OnClick       "[Event Procedure]"
+    ...
+
+  ...
 ```
 
 ### macro — Manage macros
@@ -542,12 +592,18 @@ If the database has no named macros, produces no output.
 $ jetdb macro list database.accdb
 AutoExec
 mcrConditions
+mcrLongText
 mcrSimple
+~TMPCLPMacro
 
 $ jetdb macro list nwind.mdb
 Customer Labels Dialog
+Customer Phone List
 Customers
+Employees (page break)
+Sales Totals by Amount
 Sample Autokeys
+Suppliers
 ```
 
 #### macro show — Show a named macro
@@ -681,17 +737,22 @@ A row with no values gives an empty field.
 ```
 $ jetdb export test.mdb Table1
 A,B,C,D,E,F,G,H,I
-"foo","bar",1,2,3,1.5,2003-01-02,"12.3400",1
+"abcdefg","hijklmnop",2,222,333333333,444.555,1974-09-21,3.5000,1
+"a","b",0,0,0,0,1981-12-12,0.0000,0
 
 $ jetdb export test.mdb Table1 -H
-"foo","bar",1,2,3,1.5,2003-01-02,"12.3400",1
+"abcdefg","hijklmnop",2,222,333333333,444.555,1974-09-21,3.5000,1
+"a","b",0,0,0,0,1981-12-12,0.0000,0
 
 $ jetdb export test.mdb Table1 -d $'\t'
 A	B	C	D	E	F	G	H	I
+"abcdefg"	"hijklmnop"	2	222	333333333	444.555	1974-09-21	3.5000	1
+"a"	"b"	0	0	0	0	1981-12-12	0.0000	0
 
 $ jetdb export test.mdb Table1 -B
 A,B,C,D,E,F,G,H,I
-"foo","bar",1,2,3,1.5,2003-01-02,"12.3400",TRUE
+"abcdefg","hijklmnop",2,222,333333333,444.555,1974-09-21,3.5000,TRUE
+"a","b",0,0,0,0,1981-12-12,0.0000,FALSE
 ```
 
 #### Binary output modes

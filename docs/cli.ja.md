@@ -14,6 +14,8 @@ cargo install --path crates/jetdb-cli
 
 - `--password <PASSWORD>` — データベースパスワード (パスワード保護された .accdb ファイル用)
 
+`jetdb --help-skill` は、サブコマンドを付けずに使い、agent-skills リポジトリにある jetdb の Claude Code Skill のインストール方法を表示して終了する。
+
 ## サブコマンド
 
 ### ver — データベースエンジンバージョンの表示
@@ -74,26 +76,40 @@ jetdb tables [OPTIONS] <FILE>
 $ jetdb tables test.mdb
 Table1
 Table2
+Table3
+Table4
 
 $ jetdb tables -s test.mdb
-MSysObjects
 MSysACEs
+MSysAccessStorage
+...
+MSysRelationships
 Table1
 Table2
+Table3
+Table4
 
 $ jetdb tables -t test.mdb
 1	Table1
 1	Table2
+1	Table3
+1	Table4
 
 $ jetdb tables -T test.mdb
 table	Table1
 table	Table2
+table	Table3
+table	Table4
 
 $ jetdb tables -s -T test.mdb
-systable	MSysObjects
 systable	MSysACEs
+systable	MSysAccessStorage
+...
+systable	MSysRelationships
 table	Table1
 table	Table2
+table	Table3
+table	Table4
 ```
 
 #### 種別名
@@ -207,7 +223,7 @@ ALTER TABLE "Table1" ADD CONSTRAINT "Table3Table1"
 
 #### 値要求の列
 
-プロパティ Required がはいの列（Access のテーブルのデザインの「値要求」）は、DDL でも、列の一覧の `NOT NULL` でも、`NOT NULL` にする。オートナンバー型の列も同じ。
+プロパティ Required がはいの列（Access のテーブルのデザインの「値要求」）は、DDL でも、列の一覧の `NOT NULL` でも、`NOT NULL` にする。オートナンバー型の列は、DDL では `NOT NULL` にし、列の一覧では `AUTO` の印を付ける。
 
 #### GUID のオートナンバー型の列
 
@@ -274,9 +290,9 @@ MSysQueries に読めない行があるときは、一部が欠けたかもし�
 
 ```
 $ jetdb queries show queryTest.mdb DeleteQuery
-DELETE [Table1].[col1], [Table1].[col2], [Table1].[col3]
-FROM [Table1]
-WHERE (([Table1].[col1]="foo"));
+DELETE Table1.col1, Table1.col2, Table1.col3
+FROM Table1
+WHERE (((Table1.col1)>"blah"));
 ```
 
 ### prop — オブジェクトプロパティの表示
@@ -408,17 +424,20 @@ jetdb form list [OPTIONS] <FILE>
 ##### 出力例
 
 ```
-$ jetdb form list database.accdb
-F_メニュー
-F_クライアント一覧
-R_月次レポート
+$ jetdb form list formPropTest.accdb
+F_Buttons
+F_Table0
+F_Table1
+jp_フォーム_2
 
-$ jetdb form list --forms-only database.accdb
-F_メニュー
-F_クライアント一覧
+$ jetdb form list --forms-only formPropTest.accdb
+F_Buttons
+F_Table0
+F_Table1
+jp_フォーム_2
 
-$ jetdb form list --reports-only database.accdb
-R_月次レポート
+$ jetdb form list --reports-only formPropTest.accdb
+(出力なし — データベースにレポートなし)
 ```
 
 #### form dump — バイナリストリームのダンプ
@@ -441,11 +460,12 @@ jetdb form dump [OPTIONS] <FILE> <NAME>
 ##### 出力例
 
 ```
-$ jetdb form dump database.accdb F_メニュー > form_blob.bin
+$ jetdb form dump formPropTest.accdb F_Table1 > form_blob.bin
 $ xxd form_blob.bin | head
-00000000: 1500 1400 0000 0000 9600 1400 ...
+00000000: 1500 1400 0000 0000 9600 1400 0000 3a01  ..............:.
+...
 
-$ jetdb form dump -s typeinfo database.accdb F_メニュー > typeinfo.bin
+$ jetdb form dump -s typeinfo formPropTest.accdb F_Table1 > typeinfo.bin
 ```
 
 #### form controls — セクションとコントロールの一覧を表示
@@ -463,13 +483,28 @@ jetdb form controls [OPTIONS] <FILE> <NAME>
 ##### 出力例
 
 ```
-$ jetdb form controls database.accdb F_クライアント一覧
-フォームヘッダー    FormHeader      0
-Btn_検索            CommandButton   1
-詳細                Detail          2
-Txt_名前            TextBox         3
-Cmb_ステータス      ComboBox        4
-フォームフッター    FormFooter      5
+$ jetdb form controls formPropTest.accdb F_Table1
+フォームヘッダー	FormHeader	0
+Auto_Logo0	Image	1
+Auto_Header0	Label	2
+詳細	Detail	3
+ID	TextBox	4
+ラベル0	Label	5
+ProductName	TextBox	6
+ラベル3	Label	7
+Price	TextBox	8
+ラベル6	Label	9
+Qty	TextBox	10
+ラベル9	Label	11
+Text_01_SubTotal	TextBox	12
+ラベル15	Label	13
+空白セル20	EmptyCell	14
+空白セル21	EmptyCell	15
+空白セル25	EmptyCell	16
+btn_msg	CommandButton	17
+空白セル34	EmptyCell	18
+空白セル39	EmptyCell	19
+フォームフッター	FormFooter	20
 ```
 
 #### form props — フォーム/レポートとコントロールのプロパティ表示
@@ -489,28 +524,43 @@ Blob バイナリストリームをパースして、フォーム/レポート�
 ##### 出力例
 
 ```
-$ jetdb form props database.accdb F_クライアント一覧
-Form: F_クライアント一覧
+$ jetdb form props formPropTest.accdb F_Table1
+Form: F_Table1
 
   Form Properties:
-    RecordSource  "SELECT * FROM T_クライアント ORDER BY ID;"
-    Filter        "([ID] > 0)"
-    Caption       "クライアント一覧"
-    FontName      "ＭＳ Ｐゴシック"
+    DividingLines               NotDefault
+    AllowDesignChanges          NotDefault
+    ...
+    Filter                      "[ID] > 0"
+    ...
+    PrtDevMode                  (5364 bytes)
+    ...
 
   Control: フォームヘッダー (FormHeader)
-    Name    "フォームヘッダー"
+    Height     546
+    BackColor  15783096
+    Name       "フォームヘッダー"
+    ...
 
-  Control: Txt_名前 (TextBox)
-    Name           "Txt_名前"
-    ControlSource  "名前"
-    FontName       "Meiryo UI"
+  ...
 
-  Control: Cmb_ステータス (ComboBox)
-    Name           "Cmb_ステータス"
-    RowSourceType  "Table/Query"
-    RowSource      "SELECT ステータス FROM T_ステータス一覧;"
-    FontName       "Meiryo UI"
+  Control: ID (TextBox)
+    ...
+    Name           "ID"
+    ControlSource  "ID"
+    GUID           {AD992C6B-598C-4EFE-ACA1-6C2EAE08A5F3}
+    ...
+
+  ...
+
+  Control: btn_msg (CommandButton)
+    ...
+    Name          "btn_msg"
+    Caption       "btn_msg"
+    OnClick       "[Event Procedure]"
+    ...
+
+  ...
 ```
 
 ### macro — マクロの管理
@@ -535,12 +585,18 @@ jetdb macro list [OPTIONS] <FILE>
 $ jetdb macro list database.accdb
 AutoExec
 mcrConditions
+mcrLongText
 mcrSimple
+~TMPCLPMacro
 
 $ jetdb macro list nwind.mdb
 Customer Labels Dialog
+Customer Phone List
 Customers
+Employees (page break)
+Sales Totals by Amount
 Sample Autokeys
+Suppliers
 ```
 
 #### macro show — 名前付きマクロの表示
@@ -665,7 +721,7 @@ Access 2007 以降のコンプレックスカラムは、種類ごとに次の�
 
 - 複数値: 値を `;` でつなぎ、ダブルクォートで囲む。Access の書き出しと同じ (`"value1;value4"`)。
 - 添付ファイル: ファイル名を `;` でつなぎ、ダブルクォートで囲む。`--attachments` を付けると、ファイルをそのディレクトリの下に書き出し、フィールドにはそこからのパスを出す (`"2/test_data.txt;2/test_data2.txt"`)。番号は、その行で列が持つ番号。ファイル名の `/` と `\` は `_` にする。
-- 追加のみの長いテキストの版の履歴: 隠しテーブルの中身の番号。最新のテキストは、長いテキストの列そのものが持つ。
+- 追加のみの長いテキストの版の履歴: 隠しテーブルの中身の番号で、件数ではない。最新のテキストは、長いテキストの列そのものが持つ。
 
 中身が無い行は、空のフィールドになる。
 
@@ -674,17 +730,22 @@ Access 2007 以降のコンプレックスカラムは、種類ごとに次の�
 ```
 $ jetdb export test.mdb Table1
 A,B,C,D,E,F,G,H,I
-"foo","bar",1,2,3,1.5,2003-01-02,"12.3400",1
+"abcdefg","hijklmnop",2,222,333333333,444.555,1974-09-21,3.5000,1
+"a","b",0,0,0,0,1981-12-12,0.0000,0
 
 $ jetdb export test.mdb Table1 -H
-"foo","bar",1,2,3,1.5,2003-01-02,"12.3400",1
+"abcdefg","hijklmnop",2,222,333333333,444.555,1974-09-21,3.5000,1
+"a","b",0,0,0,0,1981-12-12,0.0000,0
 
 $ jetdb export test.mdb Table1 -d $'\t'
 A	B	C	D	E	F	G	H	I
+"abcdefg"	"hijklmnop"	2	222	333333333	444.555	1974-09-21	3.5000	1
+"a"	"b"	0	0	0	0	1981-12-12	0.0000	0
 
 $ jetdb export test.mdb Table1 -B
 A,B,C,D,E,F,G,H,I
-"foo","bar",1,2,3,1.5,2003-01-02,"12.3400",TRUE
+"abcdefg","hijklmnop",2,222,333333333,444.555,1974-09-21,3.5000,TRUE
+"a","b",0,0,0,0,1981-12-12,0.0000,FALSE
 ```
 
 #### バイナリ出力モード一覧
