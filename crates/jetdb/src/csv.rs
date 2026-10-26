@@ -195,46 +195,30 @@ fn csv_escape(value: &str, delimiter: char, always_quote: bool) -> String {
 fn format_value(value: &Value, opts: &CsvOptions) -> String {
     match value {
         Value::Null => csv_escape(&opts.null, opts.delimiter, false),
-        Value::Bool(b) => bool_field(*b, opts),
-        Value::Byte(v) => v.to_string(),
-        Value::Int(v) => v.to_string(),
-        Value::Long(v) => v.to_string(),
-        Value::BigInt(v) => v.to_string(),
-        Value::Float(v) => v.to_string(),
-        Value::Double(v) => v.to_string(),
-        Value::Money(s) | Value::Numeric(s) => s.clone(),
-        Value::Text(s) | Value::Guid(s) => csv_escape(s, opts.delimiter, true),
-        Value::Binary(data) => binary_field(data, opts),
-        Value::Timestamp(ts) => timestamp_field(*ts, opts),
-        Value::DateTimeExtended(s) => csv_escape(s, opts.delimiter, true),
+        Value::Text(s) | Value::Guid(s) | Value::DateTimeExtended(s) => {
+            csv_escape(s, opts.delimiter, true)
+        }
+        // Quoted, as text is, when the delimiter, a quote or a line break is
+        // in it: a minus with `-d '-'`, a digit of hex with `-d 'a'`, a
+        // date with a comma in its format.
+        other => csv_escape(&plain_value(other, opts), opts.delimiter, false),
     }
 }
 
-/// The field of a Yes/No value: `1` or `0`, or `TRUE` or `FALSE` with
+/// The text of a Yes/No value: `1` or `0`, or `TRUE` or `FALSE` with
 /// [`CsvOptions::boolean_words`].
-fn bool_field(b: bool, opts: &CsvOptions) -> String {
-    let (yes, no) = if opts.boolean_words {
-        ("TRUE", "FALSE")
-    } else {
-        ("1", "0")
-    };
-    if b { yes } else { no }.to_string()
-}
-
-/// The field of binary data in the format of [`CsvOptions::binary`], quoted
-/// when it is raw and needs to be.
-fn binary_field(data: &[u8], opts: &CsvOptions) -> String {
-    let s = format_binary(data, opts.binary);
-    if opts.binary == BinaryFormat::Raw && !s.is_empty() {
-        csv_escape(&s, opts.delimiter, false)
-    } else {
-        s
+fn bool_text(b: bool, opts: &CsvOptions) -> &'static str {
+    match (b, opts.boolean_words) {
+        (true, true) => "TRUE",
+        (false, true) => "FALSE",
+        (true, false) => "1",
+        (false, false) => "0",
     }
 }
 
-/// The field of a Date/Time value, in the date format when it has no time of
+/// The text of a Date/Time value, in the date format when it has no time of
 /// day.
-fn timestamp_field(ts: f64, opts: &CsvOptions) -> String {
+fn timestamp_text(ts: f64, opts: &CsvOptions) -> String {
     let format = if timestamp::is_date_only(ts) {
         &opts.date_format
     } else {
@@ -243,14 +227,22 @@ fn timestamp_field(ts: f64, opts: &CsvOptions) -> String {
     timestamp::format_timestamp(ts, format)
 }
 
-/// A value as text, without the quotes of a CSV field: one of the values
-/// [`complex_field`] joins.
+/// A value as text, without the quotes of a CSV field: the text of a field,
+/// and one of the values [`complex_field`] joins.
 fn plain_value(value: &Value, opts: &CsvOptions) -> String {
     match value {
         Value::Null => String::new(),
         Value::Text(s) | Value::Guid(s) | Value::DateTimeExtended(s) => s.clone(),
+        Value::Money(s) | Value::Numeric(s) => s.clone(),
+        Value::Bool(b) => bool_text(*b, opts).to_string(),
+        Value::Byte(v) => v.to_string(),
+        Value::Int(v) => v.to_string(),
+        Value::Long(v) => v.to_string(),
+        Value::BigInt(v) => v.to_string(),
+        Value::Float(v) => v.to_string(),
+        Value::Double(v) => v.to_string(),
+        Value::Timestamp(ts) => timestamp_text(*ts, opts),
         Value::Binary(data) => format_binary(data, opts.binary),
-        other => format_value(other, opts),
     }
 }
 
@@ -449,6 +441,42 @@ mod tests {
             "\"abcdefg\"\t\"hijklmnop\"\t2\t222\t333333333\t444.555\t21/09/1974\t3.5000\tTRUE\n\
              \"a\"\t\"b\"\t0\t0\t0\t0\t12/12/1981\t0.0000\tFALSE\n"
         );
+    }
+
+    #[test]
+    fn write_csv_quotes_numbers_and_dates_with_the_delimiter() {
+        let path = skip_if_missing!("V2003/testV2003.mdb");
+        let options = CsvOptions {
+            header: false,
+            date_format: "%d,%m,%Y".to_string(),
+            ..CsvOptions::default()
+        };
+        assert_eq!(
+            csv_of(&path, "Table1", &options, None),
+            "\"abcdefg\",\"hijklmnop\",2,222,333333333,444.555,\"21,09,1974\",3.5000,1\n\
+             \"a\",\"b\",0,0,0,0,\"12,12,1981\",0.0000,0\n"
+        );
+        let options = CsvOptions {
+            header: false,
+            delimiter: '.',
+            ..CsvOptions::default()
+        };
+        assert_eq!(
+            csv_of(&path, "Table1", &options, None),
+            "\"abcdefg\".\"hijklmnop\".2.222.333333333.\"444.555\".1974-09-21.\"3.5000\".1\n\
+             \"a\".\"b\".0.0.0.0.1981-12-12.\"0.0000\".0\n"
+        );
+        let path = skip_if_missing!("V2019/extDateTestV2019.accdb");
+        let options = CsvOptions {
+            delimiter: ' ',
+            ..CsvOptions::default()
+        };
+        let csv = csv_of(&path, "Table1", &options, None);
+        assert!(csv.contains(
+            "\n3 \"row3\" \"2021-06-14 12:45:00\" \"2021-06-14 12:45:00\" \
+             \"6/14/2021 12:45:00.0000000 PM\" \"2021-06-14 12:45:00\"\n"
+        ));
+        assert!(csv.contains("\n2 \"row2\" \"2021-06-14\" 2021-06-14 "));
     }
 
     #[test]
@@ -667,6 +695,56 @@ mod tests {
     }
 
     #[test]
+    fn format_value_timestamp_with_delimiter() {
+        let mut opts = default_opts();
+        opts.delimiter = ' ';
+        assert_eq!(
+            format_value(&Value::Timestamp(37623.5), &opts),
+            "\"2003-01-02 12:00:00\""
+        );
+        assert_eq!(
+            format_value(&Value::Timestamp(37623.0), &opts),
+            "2003-01-02"
+        );
+    }
+
+    #[test]
+    fn format_value_numbers_with_delimiter() {
+        let mut opts = default_opts();
+        opts.delimiter = '.';
+        assert_eq!(format_value(&Value::Float(1.5), &opts), "\"1.5\"");
+        assert_eq!(format_value(&Value::Double(3.125), &opts), "\"3.125\"");
+        assert_eq!(
+            format_value(&Value::Money("12.3400".to_string()), &opts),
+            "\"12.3400\""
+        );
+        assert_eq!(
+            format_value(&Value::Numeric("123.45".to_string()), &opts),
+            "\"123.45\""
+        );
+        assert_eq!(format_value(&Value::Double(3.0), &opts), "3");
+    }
+
+    #[test]
+    fn format_value_integers_bools_and_binary_with_delimiter() {
+        let mut opts = default_opts();
+        opts.delimiter = '-';
+        assert_eq!(format_value(&Value::Long(-1), &opts), "\"-1\"");
+        assert_eq!(format_value(&Value::BigInt(-2), &opts), "\"-2\"");
+        assert_eq!(format_value(&Value::Int(3), &opts), "3");
+        opts.delimiter = 'a';
+        assert_eq!(
+            format_value(&Value::Binary(vec![0xde, 0xad]), &opts),
+            "\"dead\""
+        );
+        assert_eq!(format_value(&Value::Binary(vec![0x12]), &opts), "12");
+        opts.delimiter = 'R';
+        opts.boolean_words = true;
+        assert_eq!(format_value(&Value::Bool(true), &opts), "\"TRUE\"");
+        assert_eq!(format_value(&Value::Bool(false), &opts), "FALSE");
+    }
+
+    #[test]
     fn format_value_binary_hex() {
         let opts = default_opts();
         assert_eq!(
@@ -773,6 +851,19 @@ mod tests {
         assert_eq!(plain_value(&Value::Text("a\"b".into()), &opts), "a\"b");
         assert_eq!(plain_value(&Value::Long(3), &opts), "3");
         assert_eq!(plain_value(&Value::Null, &opts), "");
+    }
+
+    #[test]
+    fn plain_value_of_numbers_and_dates_has_no_quotes() {
+        let mut opts = default_opts();
+        opts.delimiter = '.';
+        assert_eq!(plain_value(&Value::Double(3.125), &opts), "3.125");
+        assert_eq!(plain_value(&Value::Money("1.50".into()), &opts), "1.50");
+        opts.delimiter = ' ';
+        assert_eq!(
+            plain_value(&Value::Timestamp(37623.5), &opts),
+            "2003-01-02 12:00:00"
+        );
     }
 
     #[test]
