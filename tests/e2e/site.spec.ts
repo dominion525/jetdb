@@ -131,3 +131,40 @@ test("比較表は、横に続きがある間だけ右端にかすむ帯を出�
   });
   await expect.poll(() => band(page)).toBe("0");
 });
+
+// 見出しの各行の文字（1 文字ずつ位置を測って行に分ける）
+const headingLines = (page: import("@playwright/test").Page) =>
+  page.locator(".hero h1").evaluate((h) => {
+    const lines = new Map<number, string>();
+    const walker = document.createTreeWalker(h, NodeFilter.SHOW_TEXT);
+    let node = walker.nextNode();
+    while (node) {
+      const text = node as Text;
+      for (let i = 0; i < text.length; i++) {
+        const range = document.createRange();
+        range.setStart(text, i);
+        range.setEnd(text, i + 1);
+        const rect = range.getBoundingClientRect();
+        if (rect.width === 0) continue;
+        const top = Math.round(rect.top);
+        lines.set(top, (lines.get(top) ?? "") + text.data[i]);
+      }
+      node = walker.nextNode();
+    }
+    return [...lines.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([, line]) => line.trim());
+  });
+
+for (const [path, lines] of [
+  ["/", ["Read .mdb / .accdb", "files without", "Microsoft Access"]],
+  ["/ja/", [".mdb / .accdb を、", "Access 無しで", "丸ごと読める"]],
+] as const) {
+  test(`${path}: 375px では見出しを語の途中で割らずに 3 行で出す`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 375, height: 800 });
+    await page.goto(path);
+    expect(await headingLines(page)).toEqual([...lines]);
+  });
+}

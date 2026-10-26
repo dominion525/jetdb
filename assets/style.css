@@ -198,6 +198,12 @@ pre {
   line-height: 1.3;
   font-weight: 800;
   letter-spacing: -0.01em;
+  /* 行の長さをそろえる（対応していないブラウザでは今までどおり） */
+  text-wrap: balance;
+}
+/* 日本語の見出しは語のまとまり（nobr）の中では折らない */
+.hero h1 .nobr {
+  white-space: nowrap;
 }
 
 .lead {
@@ -1248,6 +1254,11 @@ pre {
 }
 
 @media (max-width: 720px) {
+  /* 狭い幅では英語の見出しの改行を決め打ちにせず、幅に合わせて折り返す（日本語は読点の後ろの改行をそのまま使う） */
+  :lang(en) .hero h1 br {
+    display: none;
+  }
+
   /* 狭い幅では、全項目の比較表の 1 列目の幅を抑えて項目名を折り返し、jetdb の列が枠に収まるようにする */
   .compare-full tbody th {
     width: 9em;
