@@ -22,7 +22,7 @@ use unicode_width::UnicodeWidthStr;
 
 /// Read-only tool for Microsoft Access (.mdb / .accdb) databases
 #[derive(Parser)]
-#[command(name = "jetdb", version, about, arg_required_else_help = true)]
+#[command(name = "jetdb", bin_name = "jetdb", version, about, arg_required_else_help = true)]
 struct Cli {
     /// Database password (for password-protected .accdb files)
     #[arg(long = "password", global = true)]
