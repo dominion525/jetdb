@@ -569,6 +569,10 @@ pre {
   padding: 8px 10px;
   white-space: nowrap;
 }
+/* ライセンスの行は文が長いので折り返し、表が枠より広くならないようにする */
+.compare-full tr.wrap td {
+  white-space: normal;
+}
 
 .compare-full tr > th:first-child {
   position: sticky;
