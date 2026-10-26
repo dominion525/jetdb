@@ -161,7 +161,10 @@ fn run_data(args: &MacroDataArgs, password: Option<&str>) -> Result<(), jetdb::F
             println!("{}", def.xml);
         }
     } else {
-        print!("{}", data_macros_to_text(&macros));
+        let text = data_macros_to_text(&macros);
+        if !text.is_empty() {
+            print!("{text}\r\n");
+        }
     }
 
     Ok(())
