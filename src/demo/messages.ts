@@ -113,7 +113,7 @@ const en = {
   controlListHeads: ["Name", "Type", "Index"],
   controlProperties: "Properties of each control",
   streamsNote:
-    "The binary data in which Access keeps the design of this form or report, saved as it is (as jetdb form dump writes it).",
+    "The binary data in which Access keeps the design of this form or report. You can save it as it is (as jetdb form dump writes it).",
   streamHeads: ["Stream", "What it holds", "Size"],
   streamKinds: {
     blob: "The design: layout, controls, properties and events",
@@ -239,7 +239,7 @@ const ja: Messages = {
   controlListHeads: ["名前", "種類", "順番"],
   controlProperties: "コントロールごとのプロパティ",
   streamsNote:
-    "Access がこのフォーム/レポートの設計を持っているバイナリのデータを、そのまま保存します（jetdb form dump と同じ）。",
+    "Access がこのフォーム/レポートの設計を持っているバイナリのデータです。そのまま保存できます（jetdb form dump と同じ）。",
   streamHeads: ["ストリーム", "中身", "大きさ"],
   streamKinds: {
     blob: "設計の本体（配置・コントロール・プロパティ・イベント）",
@@ -254,7 +254,7 @@ const ja: Messages = {
   noModule: (type) =>
     `この${type === "Form" ? "フォーム" : "レポート"}にモジュールはありません。`,
   moduleLink: (link) => [
-    "このデザインの VBA は、モジュール ",
+    "この設計の VBA は、モジュール ",
     link,
     " にあります。",
   ],
