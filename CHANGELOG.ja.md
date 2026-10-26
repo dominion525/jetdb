@@ -11,6 +11,7 @@
 - 集計フィールドの値（結果の型で返す）。
 - テーブルの行を 1 行ずつ読む（`TableRows`、`read_row_at`）。`jetdb export` と jetdb-wasm でも使う。
 - ライブラリでの CSV の書き出し（`write_csv`）。
+- `ObjectType`、`QueryType`、`PropMapType`、`VbaModuleType` の `ALL`：すべての種類の一覧。
 - `jetdb prop`、`jetdb form dump`、`jetdb form controls`、`jetdb form props`、`jetdb macro embedded` の `--type`：種類の違うオブジェクトが同じ名前を持つとき、どれかを選ぶ。指定しないと、そのような名前はどれか 1 つを選ばずにエラーになる。
 
 ### 変更
