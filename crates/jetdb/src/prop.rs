@@ -90,8 +90,6 @@ pub fn read_object_properties_of_type(
     read_properties(reader, object_name, Some(object_type))
 }
 
-/// The properties of the first object named `object_name`, of `object_type`
-/// when it is given.
 fn read_properties(
     reader: &mut PageReader,
     object_name: &str,
@@ -106,26 +104,17 @@ fn read_properties(
         table::required_column(&tdef.columns, "Name", "MSysObjects missing Name column")?;
     let type_idx =
         table::required_column(&tdef.columns, "Type", "MSysObjects missing Type column")?;
-    let lvprop_idx = match table::column_index(&tdef.columns, "LvProp") {
-        Some(i) => i,
-        None => {
-            return Ok(ObjectProperties {
-                object_name: object_name.to_string(),
-                maps: Vec::new(),
-            });
-        }
-    };
+    let lvprop_idx = table::column_index(&tdef.columns, "LvProp");
 
     // The object not found, or without properties, has none.
-    let data = result
-        .rows
-        .iter()
-        .find(|row| is_object(row, (name_idx, type_idx), object_name, object_type))
-        .and_then(|row| match row.get(lvprop_idx) {
-            Some(Value::Binary(b)) => Some(b),
-            _ => None,
-        });
-    let maps = match data {
+    let maps = match lvprop_idx.and_then(|lvprop_idx| {
+        object_lvprop(
+            &result.rows,
+            (name_idx, type_idx, lvprop_idx),
+            object_name,
+            object_type,
+        )
+    }) {
         Some(data) => parse_lvprop(data, text)?,
         None => Vec::new(),
     };
@@ -133,6 +122,22 @@ fn read_properties(
         object_name: object_name.to_string(),
         maps,
     })
+}
+
+/// The LvProp of the row of MSysObjects, with its Name, Type and LvProp at
+/// the indexes `columns`, of the object named `object_name`, of
+/// `object_type` when it is given; `None` when there is no such row or it
+/// has no LvProp.
+fn object_lvprop<'a>(
+    rows: &'a [Vec<Value>],
+    (name_idx, type_idx, lvprop_idx): (usize, usize, usize),
+    object_name: &str,
+    object_type: Option<ObjectType>,
+) -> Option<&'a [u8]> {
+    rows.iter()
+        .find(|row| is_object(row, (name_idx, type_idx), object_name, object_type))?
+        .get(lvprop_idx)
+        .and_then(Value::as_binary)
 }
 
 /// Whether `row` of MSysObjects, with its Name and Type at `name_idx` and
@@ -179,6 +184,16 @@ fn validate_header(data: &[u8]) -> Result<(), FileError> {
     }
 }
 
+/// The 2-byte little-endian number at `pos` of `data`, which holds it.
+fn u16_at(data: &[u8], pos: usize) -> u16 {
+    u16::from_le_bytes([data[pos], data[pos + 1]])
+}
+
+/// The 4-byte little-endian number at `pos` of `data`, which holds it.
+fn u32_at(data: &[u8], pos: usize) -> u32 {
+    u32::from_le_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]])
+}
+
 /// Parse the entire LvProp binary blob.
 pub(crate) fn parse_lvprop(data: &[u8], text: TextEncoding) -> Result<Vec<PropertyMap>, FileError> {
     validate_header(data)?;
@@ -188,17 +203,8 @@ pub(crate) fn parse_lvprop(data: &[u8], text: TextEncoding) -> Result<Vec<Proper
     let mut maps: Vec<PropertyMap> = Vec::new();
 
     while offset + 6 <= data.len() {
-        let chunk_len = u32::from_le_bytes(data[offset..offset + 4].try_into().map_err(|_| {
-            FileError::InvalidProperty {
-                reason: "chunk_len slice mismatch",
-            }
-        })?) as usize;
-        let chunk_type =
-            u16::from_le_bytes(data[offset + 4..offset + 6].try_into().map_err(|_| {
-                FileError::InvalidProperty {
-                    reason: "chunk_type slice mismatch",
-                }
-            })?);
+        let chunk_len = u32_at(data, offset) as usize;
+        let chunk_type = u16_at(data, offset + 4);
 
         if chunk_len < 6 {
             return Err(FileError::InvalidProperty {
@@ -222,8 +228,7 @@ pub(crate) fn parse_lvprop(data: &[u8], text: TextEncoding) -> Result<Vec<Proper
                 names = parse_name_list(chunk_data, text)?;
             }
             0x0000..=0x0002 => {
-                let map = parse_value_chunk(chunk_data, chunk_type, &names, text)?;
-                maps.push(map);
+                maps.push(parse_value_chunk(chunk_data, chunk_type, &names, text));
             }
             _ => {
                 // Unknown chunk type — skip
@@ -242,11 +247,7 @@ fn parse_name_list(chunk_data: &[u8], text: TextEncoding) -> Result<Vec<String>,
     let mut pos = 0;
 
     while pos + 2 <= chunk_data.len() {
-        let name_len = u16::from_le_bytes(chunk_data[pos..pos + 2].try_into().map_err(|_| {
-            FileError::InvalidProperty {
-                reason: "name_len slice mismatch",
-            }
-        })?) as usize;
+        let name_len = u16_at(chunk_data, pos) as usize;
         pos += 2;
         if pos + name_len > chunk_data.len() {
             break;
@@ -270,7 +271,7 @@ fn parse_value_chunk(
     chunk_type: u16,
     names: &[String],
     text: TextEncoding,
-) -> Result<PropertyMap, FileError> {
+) -> PropertyMap {
     let map_type = match chunk_type {
         0x0000 => PropMapType::Default,
         0x0001 => PropMapType::Column,
@@ -280,218 +281,140 @@ fn parse_value_chunk(
 
     // Sub-header: name_block_len (4 bytes)
     if chunk_data.len() < 4 {
-        return Ok(PropertyMap {
+        return PropertyMap {
             map_type,
             name: String::new(),
             properties: Vec::new(),
-        });
+        };
     }
-
-    let name_block_len =
-        u32::from_le_bytes(
-            chunk_data[..4]
-                .try_into()
-                .map_err(|_| FileError::InvalidProperty {
-                    reason: "name_block_len slice mismatch",
-                })?,
-        ) as usize;
-
-    // Extract block name
-    let block_name = if name_block_len > 6 && chunk_data.len() >= 6 {
-        let block_name_len = u16::from_le_bytes(chunk_data[4..6].try_into().map_err(|_| {
-            FileError::InvalidProperty {
-                reason: "block_name_len slice mismatch",
-            }
-        })?) as usize;
-        let name_end = (6 + block_name_len).min(chunk_data.len());
-        let name_bytes = &chunk_data[6..name_end];
-        if let Some(code_page) = text.jet3_code_page() {
-            encoding::decode_code_page(name_bytes, code_page)
-        } else {
-            encoding::decode_utf16le(name_bytes).unwrap_or_default()
-        }
-    } else {
-        String::new()
-    };
+    let name_block_len = u32_at(chunk_data, 0) as usize;
+    let block_name = block_name(chunk_data, name_block_len, text);
 
     // Property entries start after name_block_len bytes
-    let entries_start = name_block_len.min(chunk_data.len());
     let mut properties = Vec::new();
-    let mut pos = entries_start;
-
-    while pos + 8 <= chunk_data.len() {
-        let val_len = u16::from_le_bytes(chunk_data[pos..pos + 2].try_into().map_err(|_| {
-            FileError::InvalidProperty {
-                reason: "val_len slice mismatch",
-            }
-        })?) as usize;
-        if val_len < 8 {
-            break;
-        }
-
-        let ddl_flag = chunk_data[pos + 2];
-        let data_type = chunk_data[pos + 3];
-        let name_idx =
-            u16::from_le_bytes(chunk_data[pos + 4..pos + 6].try_into().map_err(|_| {
-                FileError::InvalidProperty {
-                    reason: "name_idx slice mismatch",
-                }
-            })?) as usize;
-        let data_size =
-            u16::from_le_bytes(chunk_data[pos + 6..pos + 8].try_into().map_err(|_| {
-                FileError::InvalidProperty {
-                    reason: "data_size slice mismatch",
-                }
-            })?) as usize;
-
-        let prop_name = names.get(name_idx).cloned().unwrap_or_default();
-
-        let value_end = (pos + 8 + data_size).min(chunk_data.len());
-        let raw = &chunk_data[pos + 8..value_end];
-
-        let value = decode_prop_value(data_type, raw, &prop_name, text);
-
-        properties.push(Property {
-            name: prop_name,
-            value,
-            ddl: ddl_flag != 0,
-        });
-
+    let mut pos = name_block_len.min(chunk_data.len());
+    while let Some((property, val_len)) = property_entry(chunk_data, pos, names, text) {
+        properties.push(property);
         // Advance by val_len (entry total length)
         pos += val_len;
     }
 
-    Ok(PropertyMap {
+    PropertyMap {
         map_type,
         name: block_name,
         properties,
-    })
+    }
+}
+
+/// The name of the block of a value chunk, in its name block of
+/// `name_block_len` bytes; empty when the block holds no name.
+fn block_name(chunk_data: &[u8], name_block_len: usize, text: TextEncoding) -> String {
+    if name_block_len <= 6 || chunk_data.len() < 6 {
+        return String::new();
+    }
+    let block_name_len = u16_at(chunk_data, 4) as usize;
+    let name_end = (6 + block_name_len).min(chunk_data.len());
+    let name_bytes = &chunk_data[6..name_end];
+    if let Some(code_page) = text.jet3_code_page() {
+        encoding::decode_code_page(name_bytes, code_page)
+    } else {
+        encoding::decode_utf16le(name_bytes).unwrap_or_default()
+    }
+}
+
+/// The property of the entry at `pos` of a value chunk, named by `names`,
+/// with the length of the entry; `None` when no entry fits there.
+fn property_entry(
+    chunk_data: &[u8],
+    pos: usize,
+    names: &[String],
+    text: TextEncoding,
+) -> Option<(Property, usize)> {
+    if pos + 8 > chunk_data.len() {
+        return None;
+    }
+    let val_len = u16_at(chunk_data, pos) as usize;
+    if val_len < 8 {
+        return None;
+    }
+
+    let ddl_flag = chunk_data[pos + 2];
+    let data_type = chunk_data[pos + 3];
+    let name_idx = u16_at(chunk_data, pos + 4) as usize;
+    let data_size = u16_at(chunk_data, pos + 6) as usize;
+
+    let prop_name = names.get(name_idx).cloned().unwrap_or_default();
+
+    let value_end = (pos + 8 + data_size).min(chunk_data.len());
+    let raw = &chunk_data[pos + 8..value_end];
+
+    let value = decode_prop_value(data_type, raw, &prop_name, text);
+    let property = Property {
+        name: prop_name,
+        value,
+        ddl: ddl_flag != 0,
+    };
+    Some((property, val_len))
 }
 
 /// Decode a property value based on its data type byte.
 fn decode_prop_value(data_type: u8, raw: &[u8], prop_name: &str, text: TextEncoding) -> Value {
     match data_type {
         // Bool (0x01): 1 byte, 0 = false, non-zero = true
-        0x01 => {
-            if raw.is_empty() {
-                Value::Bool(false)
-            } else {
-                Value::Bool(raw[0] != 0)
-            }
-        }
-        // Byte (0x02)
-        0x02 => {
-            if raw.is_empty() {
-                Value::Null
-            } else {
-                Value::Byte(raw[0])
-            }
-        }
-        // Int (0x03): 2 bytes LE
-        0x03 => {
-            if raw.len() < 2 {
-                Value::Null
-            } else {
-                Value::Int(i16::from_le_bytes([raw[0], raw[1]]))
-            }
-        }
-        // Long (0x04): 4 bytes LE
-        0x04 => {
-            if raw.len() < 4 {
-                Value::Null
-            } else {
-                let Ok(bytes) = raw[..4].try_into() else {
-                    return Value::Null;
-                };
-                Value::Long(i32::from_le_bytes(bytes))
-            }
-        }
-        // Money (0x05): 8 bytes LE
-        0x05 => {
-            if raw.len() < 8 {
-                Value::Null
-            } else {
-                let Ok(bytes): Result<[u8; 8], _> = raw[..8].try_into() else {
-                    return Value::Null;
-                };
-                Value::Money(money::money_to_string(&bytes))
-            }
-        }
-        // Float (0x06): 4 bytes LE
-        0x06 => {
-            if raw.len() < 4 {
-                Value::Null
-            } else {
-                let Ok(bytes) = raw[..4].try_into() else {
-                    return Value::Null;
-                };
-                Value::Float(f32::from_le_bytes(bytes))
-            }
-        }
-        // Double (0x07): 8 bytes LE
-        0x07 => {
-            if raw.len() < 8 {
-                Value::Null
-            } else {
-                let Ok(bytes) = raw[..8].try_into() else {
-                    return Value::Null;
-                };
-                Value::Double(f64::from_le_bytes(bytes))
-            }
-        }
-        // Timestamp (0x08): 8 bytes LE f64
-        0x08 => {
-            if raw.len() < 8 {
-                Value::Null
-            } else {
-                let Ok(bytes) = raw[..8].try_into() else {
-                    return Value::Null;
-                };
-                Value::Timestamp(f64::from_le_bytes(bytes))
-            }
-        }
-        // Binary (0x09): special case for GUID
-        0x09 => {
-            if raw.len() == 16 && prop_name == "GUID" {
-                Value::Guid(format_guid(raw))
-            } else {
-                Value::Binary(raw.to_vec())
-            }
-        }
-        // Text (0x0A): non-compressed decode
-        0x0A => {
-            if let Some(code_page) = text.jet3_code_page() {
-                Value::Text(encoding::decode_code_page(raw, code_page))
-            } else {
-                match encoding::decode_utf16le(raw) {
-                    Ok(s) => Value::Text(s),
-                    Err(_) => Value::Binary(raw.to_vec()),
-                }
-            }
-        }
-        // OLE (0x0B): treat as binary
-        0x0B => Value::Binary(raw.to_vec()),
-        // Memo (0x0C): decode as text
-        0x0C => {
-            if let Some(code_page) = text.jet3_code_page() {
-                Value::Text(encoding::decode_code_page(raw, code_page))
-            } else {
-                match encoding::decode_utf16le(raw) {
-                    Ok(s) => Value::Text(s),
-                    Err(_) => Value::Binary(raw.to_vec()),
-                }
-            }
-        }
-        // Guid (0x0F): format as GUID if 16 bytes
-        0x0F => {
-            if raw.len() == 16 {
-                Value::Guid(format_guid(raw))
-            } else {
-                Value::Binary(raw.to_vec())
-            }
-        }
-        // Unknown types: preserve as binary
+        0x01 => Value::Bool(raw.first().is_some_and(|&b| b != 0)),
+        // Byte (0x02) to Timestamp (0x08): fixed-size little-endian numbers
+        0x02..=0x08 => number_value(data_type, raw).unwrap_or(Value::Null),
+        // Binary (0x09), a GUID for the GUID property, and Guid (0x0F)
+        0x09 | 0x0F => guid_or_binary(data_type, raw, prop_name),
+        // Text (0x0A) and Memo (0x0C): non-compressed decode
+        0x0A | 0x0C => text_value(raw, text),
+        // OLE (0x0B) and unknown types: preserve as binary
         _ => Value::Binary(raw.to_vec()),
+    }
+}
+
+/// A Binary (0x09) or Guid (0x0F) value: a GUID when it is 16 bytes, of the
+/// Guid type or of the GUID property, and binary otherwise.
+fn guid_or_binary(data_type: u8, raw: &[u8], prop_name: &str) -> Value {
+    if raw.len() == 16 && (data_type == 0x0F || prop_name == "GUID") {
+        Value::Guid(format_guid(raw))
+    } else {
+        Value::Binary(raw.to_vec())
+    }
+}
+
+/// The first `N` bytes of `raw`, if it has them.
+fn le_bytes<const N: usize>(raw: &[u8]) -> Option<[u8; N]> {
+    raw.get(..N)?.try_into().ok()
+}
+
+/// The number of the type `data_type` (0x02 to 0x08) at the start of `raw`,
+/// or `None` when `raw` is too short for it.
+fn number_value(data_type: u8, raw: &[u8]) -> Option<Value> {
+    match data_type {
+        0x02 => raw.first().copied().map(Value::Byte),
+        0x03 => le_bytes(raw).map(i16::from_le_bytes).map(Value::Int),
+        0x04 => le_bytes(raw).map(i32::from_le_bytes).map(Value::Long),
+        0x05 => le_bytes(raw)
+            .as_ref()
+            .map(money::money_to_string)
+            .map(Value::Money),
+        0x06 => le_bytes(raw).map(f32::from_le_bytes).map(Value::Float),
+        0x07 => le_bytes(raw).map(f64::from_le_bytes).map(Value::Double),
+        0x08 => le_bytes(raw).map(f64::from_le_bytes).map(Value::Timestamp),
+        _ => None,
+    }
+}
+
+/// A Text or Memo value: in the code page of a Jet3 file, and in UTF-16LE
+/// later, as binary when it is not UTF-16LE.
+fn text_value(raw: &[u8], text: TextEncoding) -> Value {
+    if let Some(code_page) = text.jet3_code_page() {
+        return Value::Text(encoding::decode_code_page(raw, code_page));
+    }
+    match encoding::decode_utf16le(raw) {
+        Ok(s) => Value::Text(s),
+        Err(_) => Value::Binary(raw.to_vec()),
     }
 }
 
@@ -664,7 +587,7 @@ mod tests {
         chunk.extend_from_slice(&1u16.to_le_bytes()); // data_size = 1
         chunk.push(0x01); // value = true
 
-        let map = parse_value_chunk(&chunk, 0x0001, &names, TextEncoding::Unicode).unwrap();
+        let map = parse_value_chunk(&chunk, 0x0001, &names, TextEncoding::Unicode);
         assert_eq!(map.map_type, PropMapType::Column);
         assert_eq!(map.name, "Col");
         assert_eq!(map.properties.len(), 1);
@@ -692,7 +615,7 @@ mod tests {
         chunk.extend_from_slice(&(text_bytes.len() as u16).to_le_bytes());
         chunk.extend_from_slice(&text_bytes);
 
-        let map = parse_value_chunk(&chunk, 0x0000, &names, TextEncoding::Unicode).unwrap();
+        let map = parse_value_chunk(&chunk, 0x0000, &names, TextEncoding::Unicode);
         assert_eq!(map.map_type, PropMapType::Default);
         assert_eq!(map.name, "");
         assert_eq!(map.properties.len(), 1);
@@ -1129,7 +1052,7 @@ mod tests {
         chunk.extend_from_slice(&(raw.len() as u16).to_le_bytes());
         chunk.extend_from_slice(&raw);
 
-        let map = parse_value_chunk(&chunk, 0x0002, &names, TextEncoding::Unicode).unwrap();
+        let map = parse_value_chunk(&chunk, 0x0002, &names, TextEncoding::Unicode);
         assert_eq!(map.map_type, PropMapType::Additional);
         assert_eq!(map.properties[0].value, Value::Long(99));
     }
@@ -1159,7 +1082,7 @@ mod tests {
     fn parse_value_chunk_too_short() {
         let names: Vec<String> = vec![];
         let chunk = vec![0x01, 0x02]; // chunk_data < 4 bytes
-        let map = parse_value_chunk(&chunk, 0x0000, &names, TextEncoding::Unicode).unwrap();
+        let map = parse_value_chunk(&chunk, 0x0000, &names, TextEncoding::Unicode);
         assert!(map.properties.is_empty());
     }
 }
