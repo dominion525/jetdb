@@ -431,6 +431,8 @@ fn list_tables(bytes: Vec<u8>) -> Result<Vec<String>, jetdb::FileError> {
 | ACE16 | Access 2016 | .accdb |
 | ACE17 | Access 2019 | .accdb |
 
+ACE15 は、Access 2013 にちなんだ版の値 0x04 の名前です。Access 2013 は Access 2010 と同じ形式（ACE14）で書き、0x04 のファイルは知られていません。jetdb は、そのようなファイルを ACE15 として読みます。
+
 Jet3 (Access 97) のファイルは、文字列をデータベースのコードページで持ちます。西欧の言語なら 1252、日本語なら 932 などです。jetdb は、ファイルのヘッダーにあるコードページで読みます ([`PageReader::text_encoding`])。知らないコードページのときは、Latin-1 として読みます。
 
 # 制限事項
