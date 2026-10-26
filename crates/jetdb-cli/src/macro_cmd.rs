@@ -1,3 +1,4 @@
+use std::io::{self, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -109,7 +110,7 @@ fn run_list(args: &MacroListArgs, password: Option<&str>) -> Result<(), jetdb::F
         .collect();
     names.sort_unstable();
 
-    crate::print_names(&names, args.delimiter.as_deref());
+    crate::print_names(&mut io::stdout().lock(), &names, args.delimiter.as_deref())?;
 
     Ok(())
 }
@@ -120,19 +121,19 @@ fn run_show(args: &MacroShowArgs, password: Option<&str>) -> Result<(), jetdb::F
 
     if args.xml {
         if !def.xml.is_empty() {
-            println!("{}", def.xml);
+            writeln!(io::stdout(), "{}", def.xml)?;
         }
         return Ok(());
     }
     let grid = def.grid.ok_or_else(|| jetdb::FileError::InvalidMacroData {
         reason: format!("the macro grid of {} could not be read", args.macro_name),
     })?;
-    print!("{}", grid.to_text());
+    write!(io::stdout(), "{}", grid.to_text())?;
 
     Ok(())
 }
 
-fn run_embedded(args: &MacroEmbeddedArgs, password: Option<&str>) -> Result<(), String> {
+fn run_embedded(args: &MacroEmbeddedArgs, password: Option<&str>) -> Result<(), crate::CliError> {
     let mut reader =
         PageReader::open_with_password(&args.file, password).map_err(|e| e.to_string())?;
     let macros = crate::form::read_named(
@@ -142,11 +143,12 @@ fn run_embedded(args: &MacroEmbeddedArgs, password: Option<&str>) -> Result<(), 
         read_embedded_macros_of_type,
         read_embedded_macros,
     )?;
+    let mut out = io::stdout().lock();
     for def in macros {
         if args.xml {
-            println!("{}", def.xml);
+            writeln!(out, "{}", def.xml)?;
         } else if let Some(text) = embedded_macro_to_text(&def) {
-            print!("{text}");
+            write!(out, "{text}")?;
         }
     }
 
@@ -156,14 +158,15 @@ fn run_embedded(args: &MacroEmbeddedArgs, password: Option<&str>) -> Result<(), 
 fn run_data(args: &MacroDataArgs, password: Option<&str>) -> Result<(), jetdb::FileError> {
     let mut reader = PageReader::open_with_password(&args.file, password)?;
     let macros = read_data_macros(&mut reader, &args.table)?;
+    let mut out = io::stdout().lock();
     if args.xml {
         for def in &macros {
-            println!("{}", def.xml);
+            writeln!(out, "{}", def.xml)?;
         }
     } else {
         let text = data_macros_to_text(&macros);
         if !text.is_empty() {
-            print!("{text}\r\n");
+            write!(out, "{text}\r\n")?;
         }
     }
 
