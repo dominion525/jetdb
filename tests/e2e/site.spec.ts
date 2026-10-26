@@ -201,3 +201,28 @@ for (const path of ["/", "/ja/"] as const) {
     expect(new Set(tops).size).toBe(1);
   });
 }
+
+for (const path of ["/", "/ja/"] as const) {
+  test(`${path}: 375px でもヘッダーのナビが 1 行で出て、# で飛んだ見出しがヘッダーに隠れない`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 375, height: 800 });
+    await page.goto(path);
+    const links = page.locator(".header-nav a");
+    await expect(links).toHaveCount(4);
+    const tops = await links.evaluateAll((as) =>
+      as.map((a) => Math.round(a.getBoundingClientRect().top)),
+    );
+    expect(new Set(tops).size).toBe(1);
+    const headerHeight = await page
+      .locator(".site-header")
+      .evaluate((h) => h.getBoundingClientRect().height);
+    expect(headerHeight).toBeLessThanOrEqual(72);
+    await links.nth(1).click();
+    await expect(page).toHaveURL(/#compare$/);
+    const titleTop = await page
+      .locator("#compare-title")
+      .evaluate((h) => h.getBoundingClientRect().top);
+    expect(titleTop).toBeGreaterThanOrEqual(headerHeight);
+  });
+}

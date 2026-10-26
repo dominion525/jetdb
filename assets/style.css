@@ -1405,12 +1405,31 @@ pre {
 /* レイアウトが切り替わる幅 */
 
 @media (max-width: 720px) {
+  /* 狭い幅では、ロゴと言語切り替え・GitHub の行の下に、ナビを 2 行目として出す（ヘッダーは約 71px になる） */
+  .header-inner {
+    flex-wrap: wrap;
+    row-gap: 0;
+    padding-bottom: 6px;
+  }
+
   .header-nav {
-    display: none;
+    order: 3;
+    flex-basis: 100%;
+    flex-wrap: wrap;
+    margin: 0 0 0 -8px;
+  }
+
+  .header-nav .nav-link {
+    padding: 0 8px;
   }
 
   .header-actions {
     margin-left: auto;
+  }
+
+  /* ヘッダーが高くなる分、# で飛んだ先がヘッダーに隠れないようにする */
+  html {
+    scroll-padding-top: 88px;
   }
 
   .split,
