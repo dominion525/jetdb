@@ -16,6 +16,15 @@ import init, { Database } from "jetdb-wasm";
 await init();
 ```
 
+Where the Wasm file cannot be fetched next to the module, such as in Cloudflare Workers, or where a bundler such as esbuild loads it, import the file as `jetdb-wasm/web/jetdb_wasm_bg.wasm` and pass it to `initSync`, as a `WebAssembly.Module` or as its bytes:
+
+```js
+import { initSync, Database } from "jetdb-wasm";
+import wasm from "jetdb-wasm/web/jetdb_wasm_bg.wasm";
+
+initSync({ module: wasm });
+```
+
 Node.js, and a bundle built for the server, such as for server-side rendering, get the CommonJS build. It loads its Wasm file when it is imported, so `Database` is ready to use without calling the default export. The default export and `initSync` are there and do nothing, so code that calls them, such as code shared with the browser, runs as well:
 
 ```js
