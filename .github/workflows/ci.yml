@@ -98,15 +98,8 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: lts/*
-      - name: Read the wasm-bindgen version from Cargo.lock
-        id: wasm-bindgen
-        run: |
-          version=$(cargo metadata --format-version 1 --filter-platform wasm32-unknown-unknown \
-            | jq -r '.packages[] | select(.name == "wasm-bindgen") | .version')
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: wasm-bindgen@${{ steps.wasm-bindgen.outputs.version }}
+      - name: Install wasm-bindgen
+        uses: ./.github/actions/install-wasm-bindgen
       - name: Fetch test data
         uses: ./.github/actions/fetch-testdata
       - run: cargo test --target wasm32-unknown-unknown -p jetdb --test wasm_browser
@@ -128,15 +121,8 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: lts/*
-      - name: Read the wasm-bindgen version from Cargo.lock
-        id: wasm-bindgen
-        run: |
-          version=$(cargo metadata --format-version 1 --filter-platform wasm32-unknown-unknown \
-            | jq -r '.packages[] | select(.name == "wasm-bindgen") | .version')
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: wasm-bindgen@${{ steps.wasm-bindgen.outputs.version }}
+      - name: Install wasm-bindgen
+        uses: ./.github/actions/install-wasm-bindgen
       - name: Fetch test data
         uses: ./.github/actions/fetch-testdata
       - run: scripts/build-wasm-package.sh

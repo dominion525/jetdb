@@ -1,0 +1,17 @@
+name: Install wasm-bindgen
+description: >-
+  Installs the wasm-bindgen CLI of the version of wasm-bindgen in Cargo.lock,
+  which the output of the CLI must match.
+runs:
+  using: composite
+  steps:
+    - name: Read the wasm-bindgen version from Cargo.lock
+      id: version
+      run: |
+        version=$(cargo metadata --format-version 1 --filter-platform wasm32-unknown-unknown \
+          | jq -r '.packages[] | select(.name == "wasm-bindgen") | .version')
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+      shell: bash
+    - uses: taiki-e/install-action@v2
+      with:
+        tool: wasm-bindgen@${{ steps.version.outputs.version }}
