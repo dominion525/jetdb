@@ -289,6 +289,7 @@ jetdb prop [OPTIONS] <FILE> <OBJECT_NAME>
 プロパティはオブジェクト全体、カラムごと、追加プロパティの各マップに分けて出力される。
 オブジェクト全体のプロパティの見出しは、`Table Properties:` や `Query Properties:` のように、オブジェクトの種類を示す。jetdb の知らない種類のオブジェクトでは `Object Properties:` になる。
 オブジェクト全体のプロパティを先に出し、ほかのマップはデータベースが格納している順に続ける。
+テキストの値は二重引用符で囲み、`\` と `"` を `\\` と `\"`、復帰・改行・タブを `\r`・`\n`・`\t`、そのほかの制御文字を `\u{..}` と書くので、1 つのプロパティは 1 行に収まる。
 
 テーブルとフォームがどちらも `Customers` という名前のように、種類の違うオブジェクトが同じ名前を持つことがある。
 その場合はエラーになり、種類を一覧で示すので、`--type` で 1 つを指定する。
@@ -479,7 +480,7 @@ jetdb form props [OPTIONS] <FILE> <NAME>
 
 Blob バイナリストリームをパースして、フォーム/レポート自体と各コントロールのプロパティを表示する。RecordSource、ControlSource、Filter、Caption、FontName、イベントハンドラ等が含まれる。
 
-既知のプロパティ ID は名前で表示、未知の ID は `0xXXXX` で表示。Access 2000 形式のフォームとレポートで、jetdb が Access 2002 以降の ID を付けないプロパティは、その形式の ID に `0x8000` を足した ID（`0x8036` など）で表示。Binary 値は `(N bytes)`、GUID は `{...}`、Boolean は `yes`/`no`、色を含む数値は SaveAsText と同じ符号付きの数、値を持たずに既定と違う値を表すはい/いいえのプロパティは、SaveAsText と同じく `NotDefault` で表示。
+既知のプロパティ ID は名前で表示、未知の ID は `0xXXXX` で表示。Access 2000 形式のフォームとレポートで、jetdb が Access 2002 以降の ID を付けないプロパティは、その形式の ID に `0x8000` を足した ID（`0x8036` など）で表示。Binary 値は `(N bytes)`、GUID は `{...}`、Boolean は `yes`/`no`、色を含む数値は SaveAsText と同じ符号付きの数、値を持たずに既定と違う値を表すはい/いいえのプロパティは、SaveAsText と同じく `NotDefault` で表示。テキストの値は `prop` と同じく二重引用符で囲んでエスケープするので、1 つのプロパティは 1 行に収まる。
 
 ##### オプション
 
@@ -492,24 +493,24 @@ $ jetdb form props database.accdb F_クライアント一覧
 Form: F_クライアント一覧
 
   Form Properties:
-    RecordSource  SELECT * FROM T_クライアント ORDER BY ID;
-    Filter        ([ID] > 0)
-    Caption       クライアント一覧
-    FontName      ＭＳ Ｐゴシック
+    RecordSource  "SELECT * FROM T_クライアント ORDER BY ID;"
+    Filter        "([ID] > 0)"
+    Caption       "クライアント一覧"
+    FontName      "ＭＳ Ｐゴシック"
 
   Control: フォームヘッダー (FormHeader)
-    Name    フォームヘッダー
+    Name    "フォームヘッダー"
 
   Control: Txt_名前 (TextBox)
-    Name           Txt_名前
-    ControlSource  名前
-    FontName       Meiryo UI
+    Name           "Txt_名前"
+    ControlSource  "名前"
+    FontName       "Meiryo UI"
 
   Control: Cmb_ステータス (ComboBox)
-    Name           Cmb_ステータス
-    RowSourceType  Table/Query
-    RowSource      SELECT ステータス FROM T_ステータス一覧;
-    FontName       Meiryo UI
+    Name           "Cmb_ステータス"
+    RowSourceType  "Table/Query"
+    RowSource      "SELECT ステータス FROM T_ステータス一覧;"
+    FontName       "Meiryo UI"
 ```
 
 ### macro — マクロの管理

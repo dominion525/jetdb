@@ -315,6 +315,27 @@ fn padded(s: &str, width: usize) -> String {
     format!("{s}{}", " ".repeat(width.saturating_sub(s.width())))
 }
 
+/// `s` in double quotes on one line: `\` and `"` escaped with a backslash,
+/// a carriage return, a line feed and a tab written as `\r`, `\n` and `\t`,
+/// and other control characters as `\u{..}`.
+fn quoted(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\r' => out.push_str("\\r"),
+            '\n' => out.push_str("\\n"),
+            '\t' => out.push_str("\\t"),
+            c if c.is_control() => out.push_str(&format!("\\u{{{:x}}}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
 fn print_table_schema(tdef: &TableDef, rels: &[Relationship], args: &SchemaArgs) {
     println!("Table: {}", tdef.name);
     println!();
