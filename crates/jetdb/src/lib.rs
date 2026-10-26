@@ -1,5 +1,21 @@
 #![doc = include_str!("lib_doc.md")]
 
+/// Asserts that `$type::ALL` lists the variants named, in that order. The
+/// names are also the arms of a match with no wildcard arm, so a variant
+/// added to `$type` breaks the build of the test until it is named here,
+/// and then the test fails until `ALL` has it too.
+#[cfg(test)]
+macro_rules! assert_all_variants {
+    ($type:ident: $($variant:ident),+ $(,)?) => {{
+        fn name(t: $type) -> &'static str {
+            match t {
+                $($type::$variant => stringify!($variant),)+
+            }
+        }
+        assert_eq!($type::ALL.map(name), [$(stringify!($variant)),+]);
+    }};
+}
+
 pub mod catalog;
 pub mod complex;
 pub(crate) mod crypto;

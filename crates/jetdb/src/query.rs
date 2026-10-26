@@ -60,7 +60,7 @@ pub enum QueryType {
 
 impl QueryType {
     /// Every query type, in the order of the Flag of its type row.
-    const ALL: [QueryType; 9] = [
+    pub const ALL: [QueryType; 9] = [
         Self::Select,
         Self::MakeTable,
         Self::Append,
@@ -1074,6 +1074,21 @@ mod tests {
         assert_eq!(QueryType::from_flag(9), Some(QueryType::Union));
         assert_eq!(QueryType::from_flag(0), None);
         assert_eq!(QueryType::from_flag(99), None);
+    }
+
+    #[test]
+    fn query_type_all() {
+        assert_all_variants!(
+            QueryType: Select,
+            MakeTable,
+            Append,
+            Update,
+            Delete,
+            Crosstab,
+            Ddl,
+            Passthrough,
+            Union,
+        );
     }
 
     #[test]

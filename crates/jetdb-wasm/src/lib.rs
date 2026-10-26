@@ -1082,20 +1082,24 @@ fn grouped_properties(read: jetdb::ObjectProperties) -> ObjectProperties {
                 value: p.value.into(),
             })
             .collect();
-        match map.map_type {
-            PropMapType::Default => out.object.extend(properties),
-            PropMapType::Column => out.columns.push(PropertyGroup {
-                name: map.name,
-                properties,
-            }),
-            PropMapType::Additional => out.additional.push(PropertyGroup {
-                name: map.name,
-                properties,
-            }),
-            _ => {}
-        }
+        add_properties(&mut out, map.map_type, map.name, properties);
     }
     out
+}
+
+/// Adds to `out` the `properties` of a map of `map_type` named `name`.
+fn add_properties(
+    out: &mut ObjectProperties,
+    map_type: PropMapType,
+    name: String,
+    properties: Vec<Property>,
+) {
+    match map_type {
+        PropMapType::Default => out.object.extend(properties),
+        PropMapType::Column => out.columns.push(PropertyGroup { name, properties }),
+        PropMapType::Additional => out.additional.push(PropertyGroup { name, properties }),
+        _ => {}
+    }
 }
 
 fn is_system_or_hidden_table(catalog: &[CatalogEntry], name: &str) -> bool {
@@ -1213,6 +1217,66 @@ mod tests {
                 }
             }
         };
+    }
+
+    #[test]
+    fn query_type_name_all_variants() {
+        // The names are the QueryType union declared in js.rs.
+        assert_eq!(
+            QueryType::ALL.map(query_type_name),
+            [
+                "Select",
+                "MakeTable",
+                "Append",
+                "Update",
+                "Delete",
+                "Crosstab",
+                "Ddl",
+                "Passthrough",
+                "Union",
+            ]
+        );
+    }
+
+    #[test]
+    fn module_type_name_all_variants() {
+        assert_eq!(
+            VbaModuleType::ALL.map(module_type_name),
+            ["Standard", "Class", "Document"]
+        );
+    }
+
+    #[test]
+    fn add_properties_all_variants() {
+        let property = || Property {
+            name: "Caption".to_string(),
+            value: Cell::Null,
+        };
+        let group = || PropertyGroup {
+            name: "Name".to_string(),
+            properties: vec![property()],
+        };
+        assert_eq!(
+            PropMapType::ALL.map(|t| {
+                let mut out = ObjectProperties::default();
+                add_properties(&mut out, t, "Name".to_string(), vec![property()]);
+                out
+            }),
+            [
+                ObjectProperties {
+                    object: vec![property()],
+                    ..ObjectProperties::default()
+                },
+                ObjectProperties {
+                    columns: vec![group()],
+                    ..ObjectProperties::default()
+                },
+                ObjectProperties {
+                    additional: vec![group()],
+                    ..ObjectProperties::default()
+                },
+            ]
+        );
     }
 
     #[test]

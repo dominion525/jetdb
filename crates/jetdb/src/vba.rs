@@ -22,6 +22,15 @@ pub enum VbaModuleType {
     Document,
 }
 
+impl VbaModuleType {
+    /// Every VBA module type.
+    pub const ALL: [VbaModuleType; 3] = [
+        VbaModuleType::Standard,
+        VbaModuleType::Class,
+        VbaModuleType::Document,
+    ];
+}
+
 /// A single VBA module with its source code.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
@@ -494,6 +503,11 @@ mod tests {
                 }
             }
         };
+    }
+
+    #[test]
+    fn vba_module_type_all() {
+        assert_all_variants!(VbaModuleType: Standard, Class, Document);
     }
 
     #[test]

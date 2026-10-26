@@ -883,6 +883,25 @@ mod tests {
     }
 
     #[test]
+    fn object_type_all() {
+        assert_all_variants!(
+            ObjectType: Table,
+            Query,
+            Form,
+            Report,
+            Macro,
+            Module,
+            LinkedTable,
+            LinkedOdbcTable,
+            Relationship,
+            Container,
+            Database,
+            DatabaseProperty,
+            UserInfo,
+        );
+    }
+
+    #[test]
     fn object_type_roundtrip() {
         let types: &[(i32, ObjectType)] = &[
             (-32768, ObjectType::Form),
