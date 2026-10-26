@@ -25,7 +25,7 @@ pub struct ExportArgs {
     #[arg(short = 'H', long = "no-header")]
     pub no_header: bool,
 
-    /// Column delimiter (default: ",")
+    /// Column delimiter, one character (default: ",")
     #[arg(short = 'd', long = "delimiter", default_value = ",")]
     pub delimiter: String,
 
@@ -87,24 +87,33 @@ impl From<BinMode> for BinaryFormat {
 // ---------------------------------------------------------------------------
 
 pub fn cmd_export(args: ExportArgs, password: Option<&str>) -> ExitCode {
-    crate::exit_code(run_export(&args, password))
+    let options = match csv_options(&args) {
+        Ok(options) => options,
+        Err(e) => return crate::exit_code(Err(e)),
+    };
+    crate::exit_code(run_export(&args, &options, password))
 }
 
-/// The options of `write_csv` that the arguments give.
-fn csv_options(args: &ExportArgs) -> CsvOptions {
-    if args.delimiter.chars().count() > 1 {
-        log::warn!("only the first character of delimiter is used");
-    }
+/// The options of `write_csv` that the arguments give, or an error when the
+/// delimiter is not one character.
+fn csv_options(args: &ExportArgs) -> Result<CsvOptions, String> {
+    let mut chars = args.delimiter.chars();
+    let (Some(delimiter), None) = (chars.next(), chars.next()) else {
+        return Err(format!(
+            "delimiter must be one character, got '{}'",
+            args.delimiter
+        ));
+    };
     let mut options = CsvOptions::default();
     options.header = !args.no_header;
-    options.delimiter = args.delimiter.chars().next().unwrap_or(',');
+    options.delimiter = delimiter;
     options.date_format = args.date_format.clone();
     options.datetime_format = args.datetime_format.clone();
     options.binary = args.bin_mode.into();
     options.null = args.null_string.clone();
     options.boolean_words = args.boolean_words;
     options.system_columns = args.system_columns;
-    options
+    Ok(options)
 }
 
 /// Write the file `name` of the attachment that holds `number` in a row to
@@ -116,9 +125,11 @@ fn write_attachment(dir: &Path, number: i32, name: &str, data: &[u8]) -> io::Res
     Ok(format!("{number}/{name}"))
 }
 
-fn run_export(args: &ExportArgs, password: Option<&str>) -> Result<(), jetdb::FileError> {
-    let options = csv_options(args);
-
+fn run_export(
+    args: &ExportArgs,
+    options: &CsvOptions,
+    password: Option<&str>,
+) -> Result<(), jetdb::FileError> {
     let mut reader = PageReader::open_with_password(&args.file, password)?;
     let catalog = read_catalog(&mut reader)?;
     let entry = find_table(&catalog, &args.table)?;
@@ -140,14 +151,7 @@ fn run_export(args: &ExportArgs, password: Option<&str>) -> Result<(), jetdb::Fi
 
     let stdout = io::stdout();
     let mut out = BufWriter::new(stdout.lock());
-    let skipped = write_csv(
-        &mut reader,
-        &catalog,
-        &tdef,
-        &options,
-        &mut out,
-        attachments,
-    )?;
+    let skipped = write_csv(&mut reader, &catalog, &tdef, options, &mut out, attachments)?;
     out.flush().map_err(jetdb::FileError::Io)?;
     if skipped > 0 {
         log::warn!(

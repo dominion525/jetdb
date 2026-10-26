@@ -649,7 +649,7 @@ jetdb export [OPTIONS] <FILE> <TABLE>
 #### オプション
 
 - `-H`, `--no-header` — ヘッダー行を省略
-- `-d`, `--delimiter <CHAR>` — カラム区切り文字 (デフォルト: `,`)
+- `-d`, `--delimiter <CHAR>` — カラム区切り文字、1 文字 (デフォルト: `,`)。空や 2 文字以上はエラーになる。bash や zsh では `-d $'\t'` でタブを渡せる。`-d "\t"` はバックスラッシュと `t` を渡すので、エラーになる
 - `-D`, `--date-format <FMT>` — 日付フォーマット、strftime サブセット (デフォルト: `%Y-%m-%d`)
 - `-T`, `--datetime-format <FMT>` — 日時フォーマット、strftime サブセット (デフォルト: `%Y-%m-%d %H:%M:%S`)
 - `-b`, `--bin <MODE>` — バイナリ出力モード (デフォルト: `hex`)
@@ -678,7 +678,7 @@ A,B,C,D,E,F,G,H,I
 $ jetdb export test.mdb Table1 -H
 "foo","bar",1,2,3,1.5,2003-01-02,"12.3400",1
 
-$ jetdb export test.mdb Table1 -d "\t"
+$ jetdb export test.mdb Table1 -d $'\t'
 A	B	C	D	E	F	G	H	I
 
 $ jetdb export test.mdb Table1 -B
