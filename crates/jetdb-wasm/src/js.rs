@@ -428,7 +428,12 @@ export type Row = Record<string, Value>;
 
 /** The options of `Database.rows`, to read the rows a part at a time. */
 export interface RowsOptions {
-    /** Where to start: the `next` of the call before; the first row when absent. */
+    /**
+     * Where to start: the `next` of the call before on the same table; the
+     * first row when absent. The `next` of another table is not detected:
+     * the rows are read from that position in this table, without an error.
+     * A position past the last row gives no rows, and `next` is null.
+     */
     start?: number;
     /** The most rows to give, a positive integer; all the rows when absent. */
     limit?: number;
@@ -473,7 +478,9 @@ export interface Rows {
     /**
      * Where the rows after these start, to give as the `start` option of the
      * next call of the same table, or null when there are no more rows. It is
-     * a position among the pages of the table, not a count of rows.
+     * a position among the pages of the table, not a count of rows, and
+     * belongs to the table it came from: given to another table, it is not
+     * detected, and that table is read from the same position.
      */
     next: number | null;
 }
