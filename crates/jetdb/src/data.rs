@@ -814,19 +814,8 @@ fn read_column_value(
     // says (often just a generic placeholder -- see
     // `read_calculated_value`'s doc comment).
     if col.is_calculated && !col.is_fixed {
-        if let Some(&result_type) = calculated.get(&col.name.to_ascii_lowercase()) {
-            if let Some(var_data) = extract_var_data(cracked, col) {
-                // A calculated Memo is stored as a long value like any other
-                // Memo, so resolve the inline or separate-page data first;
-                // the envelope is inside the resolved bytes.
-                if result_type == ColumnType::Memo {
-                    return match read_lval_data(var_data, Some(reader)) {
-                        Some(data) => read_calculated_value(&data, result_type, text),
-                        None => Value::Null,
-                    };
-                }
-                return read_calculated_value(var_data, result_type, text);
-            }
+        if let Some(value) = read_calculated_column(cracked, col, reader, calculated) {
+            return value;
         }
     }
 
@@ -837,138 +826,113 @@ fn read_column_value(
     }
 }
 
+/// The cached value of the calculated column `col`, of the result type that
+/// `calculated` gives it; `None` when it gives none or the row has no data
+/// for the column.
+fn read_calculated_column(
+    cracked: &CrackedRow<'_>,
+    col: &ColumnDef,
+    reader: &mut PageReader,
+    calculated: &HashMap<String, ColumnType>,
+) -> Option<Value> {
+    let text = reader.text_encoding();
+    let &result_type = calculated.get(&col.name.to_ascii_lowercase())?;
+    let var_data = extract_var_data(cracked, col)?;
+    // A calculated Memo is stored as a long value like any other Memo, so
+    // resolve the inline or separate-page data first; the envelope is inside
+    // the resolved bytes.
+    if result_type == ColumnType::Memo {
+        return Some(match read_lval_data(var_data, Some(reader)) {
+            Some(data) => read_calculated_value(&data, result_type, text),
+            None => Value::Null,
+        });
+    }
+    Some(read_calculated_value(var_data, result_type, text))
+}
+
 /// Read a fixed-length column value.
 fn read_fixed_value(cracked: &CrackedRow<'_>, col: &ColumnDef, is_jet3: bool) -> Value {
     let col_count_size = if is_jet3 { 1usize } else { 2usize };
     let offset = col_count_size + col.fixed_offset as usize;
-    let data = cracked.row_data;
+    let Some(bytes) = cracked.row_data.get(offset..) else {
+        return Value::Null;
+    };
 
     match col.col_type {
         ColumnType::Boolean => unreachable!("handled above"),
-        ColumnType::Byte => {
-            if offset < data.len() {
-                Value::Byte(data[offset])
-            } else {
-                Value::Null
-            }
-        }
-        ColumnType::Int => {
-            if offset + 2 <= data.len() {
-                Value::Int(i16::from_le_bytes([data[offset], data[offset + 1]]))
-            } else {
-                Value::Null
-            }
-        }
-        ColumnType::Long => {
-            if offset + 4 <= data.len() {
-                Value::Long(i32::from_le_bytes([
-                    data[offset],
-                    data[offset + 1],
-                    data[offset + 2],
-                    data[offset + 3],
-                ]))
-            } else {
-                Value::Null
-            }
-        }
-        ColumnType::BigInt => {
-            if offset + 8 <= data.len() {
-                let Ok(bytes) = data[offset..offset + 8].try_into() else {
-                    return Value::Null;
-                };
-                Value::BigInt(i64::from_le_bytes(bytes))
-            } else {
-                Value::Null
-            }
-        }
-        ColumnType::Float => {
-            if offset + 4 <= data.len() {
-                let Ok(bytes) = data[offset..offset + 4].try_into() else {
-                    return Value::Null;
-                };
-                Value::Float(f32::from_le_bytes(bytes))
-            } else {
-                Value::Null
-            }
-        }
-        ColumnType::Double => {
-            if offset + 8 <= data.len() {
-                let Ok(bytes) = data[offset..offset + 8].try_into() else {
-                    return Value::Null;
-                };
-                Value::Double(f64::from_le_bytes(bytes))
-            } else {
-                Value::Null
-            }
-        }
-        ColumnType::Money => {
-            if offset + 8 <= data.len() {
-                let Ok(bytes): Result<[u8; 8], _> = data[offset..offset + 8].try_into() else {
-                    return Value::Null;
-                };
-                Value::Money(money::money_to_string(&bytes))
-            } else {
-                Value::Null
-            }
-        }
-        ColumnType::Numeric => {
-            if offset + 17 <= data.len() {
-                let Ok(bytes): Result<[u8; 17], _> = data[offset..offset + 17].try_into() else {
-                    return Value::Null;
-                };
-                Value::Numeric(money::numeric_to_string(&bytes, col.scale))
-            } else {
-                Value::Null
-            }
-        }
-        ColumnType::Timestamp => {
-            if offset + 8 <= data.len() {
-                let Ok(bytes) = data[offset..offset + 8].try_into() else {
-                    return Value::Null;
-                };
-                Value::Timestamp(f64::from_le_bytes(bytes))
-            } else {
-                Value::Null
-            }
-        }
-        ColumnType::Guid => {
-            if offset + 16 <= data.len() {
-                Value::Guid(format_guid(&data[offset..offset + 16]))
-            } else {
-                Value::Null
-            }
-        }
-        ColumnType::ComplexType => {
-            if offset + 4 <= data.len() {
-                let Ok(bytes) = data[offset..offset + 4].try_into() else {
-                    return Value::Null;
-                };
-                Value::Long(i32::from_le_bytes(bytes))
-            } else {
-                Value::Null
-            }
-        }
-        ColumnType::DateTimeExtended => {
-            if offset + 42 <= data.len() {
-                match parse_ext_datetime(&data[offset..offset + 42]) {
-                    Some(s) => Value::DateTimeExtended(s),
-                    None => Value::Binary(data[offset..offset + 42].to_vec()),
-                }
-            } else {
-                Value::Null
-            }
-        }
+        ColumnType::DateTimeExtended => ext_datetime_or(bytes, &bytes[..bytes.len().min(42)]),
         // Unknown fixed-size types: read as raw binary
-        ColumnType::Unknown(_) => {
-            let size = col.col_size as usize;
-            if size > 0 && offset + size <= data.len() {
-                Value::Binary(data[offset..offset + size].to_vec())
-            } else {
-                Value::Null
-            }
+        ColumnType::Unknown(_) => match bytes.get(..col.col_size as usize) {
+            Some(raw) if !raw.is_empty() => Value::Binary(raw.to_vec()),
+            _ => Value::Null,
+        },
+        // Variable-length types should not reach here, and are Null
+        other => stored_value(other, bytes, col.scale).unwrap_or(Value::Null),
+    }
+}
+
+/// The first `N` bytes of `bytes`, if it has them.
+fn le_bytes<const N: usize>(bytes: &[u8]) -> Option<[u8; N]> {
+    bytes.get(..N)?.try_into().ok()
+}
+
+/// The value of the fixed-size type `col_type` at the start of `bytes`, as
+/// an ordinary column stores it, with `scale` that of a Numeric column;
+/// `None` when `bytes` is too short for it or `col_type` is not such a type.
+fn stored_value(col_type: ColumnType, bytes: &[u8], scale: u8) -> Option<Value> {
+    match col_type {
+        ColumnType::Byte
+        | ColumnType::Int
+        | ColumnType::Long
+        | ColumnType::BigInt
+        | ColumnType::ComplexType => integer_value(col_type, bytes),
+        ColumnType::Guid => bytes.get(..16).map(format_guid).map(Value::Guid),
+        _ => fractional_value(col_type, bytes, scale),
+    }
+}
+
+/// An integer at the start of `bytes`, or the ComplexID of a complex column,
+/// which is a Long.
+fn integer_value(col_type: ColumnType, bytes: &[u8]) -> Option<Value> {
+    match col_type {
+        ColumnType::Byte => bytes.first().copied().map(Value::Byte),
+        ColumnType::Int => le_bytes(bytes).map(i16::from_le_bytes).map(Value::Int),
+        ColumnType::Long | ColumnType::ComplexType => {
+            le_bytes(bytes).map(i32::from_le_bytes).map(Value::Long)
         }
-        // Variable-length types should not reach here, but handle gracefully
-        _ => Value::Null,
+        ColumnType::BigInt => le_bytes(bytes).map(i64::from_le_bytes).map(Value::BigInt),
+        _ => None,
+    }
+}
+
+/// A number with a fraction, or a date and time, at the start of `bytes`.
+fn fractional_value(col_type: ColumnType, bytes: &[u8], scale: u8) -> Option<Value> {
+    match col_type {
+        ColumnType::Float => le_bytes(bytes).map(f32::from_le_bytes).map(Value::Float),
+        ColumnType::Double => le_bytes(bytes).map(f64::from_le_bytes).map(Value::Double),
+        ColumnType::Timestamp => le_bytes(bytes)
+            .map(f64::from_le_bytes)
+            .map(Value::Timestamp),
+        ColumnType::Money => le_bytes(bytes)
+            .as_ref()
+            .map(money::money_to_string)
+            .map(Value::Money),
+        ColumnType::Numeric => {
+            le_bytes(bytes).map(|b| Value::Numeric(money::numeric_to_string(&b, scale)))
+        }
+        _ => None,
+    }
+}
+
+/// The DateTimeExtended at the start of `bytes`, `unreadable` as binary
+/// when its 42 bytes are not in its layout, or Null when there are not 42.
+fn ext_datetime_or(bytes: &[u8], unreadable: &[u8]) -> Value {
+    match bytes.get(..42) {
+        Some(ext) => parse_ext_datetime(ext).map_or_else(
+            || Value::Binary(unreadable.to_vec()),
+            Value::DateTimeExtended,
+        ),
+        None => Value::Null,
     }
 }
 
@@ -1002,76 +966,28 @@ fn read_variable_value(
     };
 
     match col.col_type {
-        ColumnType::Text => match encoding::decode_text(var_data, text) {
-            Ok(s) => Value::Text(s),
-            Err(_) => Value::Null,
-        },
+        ColumnType::Text => encoding::decode_text(var_data, text).map_or(Value::Null, Value::Text),
         ColumnType::Binary | ColumnType::Unknown(_) => Value::Binary(var_data.to_vec()),
-        ColumnType::Memo if var_data.is_empty() => Value::Text(String::new()),
-        ColumnType::Memo => read_memo_value(var_data, text, Some(reader)),
-        ColumnType::Ole if var_data.is_empty() => Value::Binary(Vec::new()),
-        ColumnType::Ole => read_ole_value(var_data, Some(reader)),
+        ColumnType::Memo | ColumnType::Ole => long_value(col.col_type, var_data, text, reader),
+        ColumnType::DateTimeExtended => ext_datetime_or(var_data, var_data),
         // Fixed-size types sometimes stored as variable-length (e.g. system tables)
-        ColumnType::Byte if !var_data.is_empty() => Value::Byte(var_data[0]),
-        ColumnType::Int if var_data.len() >= 2 => {
-            Value::Int(i16::from_le_bytes([var_data[0], var_data[1]]))
-        }
-        ColumnType::Long if var_data.len() >= 4 => {
-            let Ok(bytes) = var_data[..4].try_into() else {
-                return Value::Null;
-            };
-            Value::Long(i32::from_le_bytes(bytes))
-        }
-        ColumnType::BigInt if var_data.len() >= 8 => {
-            let Ok(bytes) = var_data[..8].try_into() else {
-                return Value::Null;
-            };
-            Value::BigInt(i64::from_le_bytes(bytes))
-        }
-        ColumnType::Float if var_data.len() >= 4 => {
-            let Ok(bytes) = var_data[..4].try_into() else {
-                return Value::Null;
-            };
-            Value::Float(f32::from_le_bytes(bytes))
-        }
-        ColumnType::Double if var_data.len() >= 8 => {
-            let Ok(bytes) = var_data[..8].try_into() else {
-                return Value::Null;
-            };
-            Value::Double(f64::from_le_bytes(bytes))
-        }
-        ColumnType::Money if var_data.len() >= 8 => {
-            let Ok(bytes): Result<[u8; 8], _> = var_data[..8].try_into() else {
-                return Value::Null;
-            };
-            Value::Money(money::money_to_string(&bytes))
-        }
-        ColumnType::Numeric if var_data.len() >= 17 => {
-            let Ok(bytes): Result<[u8; 17], _> = var_data[..17].try_into() else {
-                return Value::Null;
-            };
-            Value::Numeric(money::numeric_to_string(&bytes, col.scale))
-        }
-        ColumnType::Timestamp if var_data.len() >= 8 => {
-            let Ok(bytes) = var_data[..8].try_into() else {
-                return Value::Null;
-            };
-            Value::Timestamp(f64::from_le_bytes(bytes))
-        }
-        ColumnType::Guid if var_data.len() >= 16 => Value::Guid(format_guid(&var_data[..16])),
-        ColumnType::ComplexType if var_data.len() >= 4 => {
-            let Ok(bytes) = var_data[..4].try_into() else {
-                return Value::Null;
-            };
-            Value::Long(i32::from_le_bytes(bytes))
-        }
-        ColumnType::DateTimeExtended if var_data.len() >= 42 => {
-            match parse_ext_datetime(&var_data[..42]) {
-                Some(s) => Value::DateTimeExtended(s),
-                None => Value::Binary(var_data.to_vec()),
-            }
-        }
-        _ => Value::Null,
+        other => stored_value(other, var_data, col.scale).unwrap_or(Value::Null),
+    }
+}
+
+/// The value of a Memo or OLE column whose variable-length data is
+/// `var_data`, empty when it is.
+fn long_value(
+    col_type: ColumnType,
+    var_data: &[u8],
+    text: TextEncoding,
+    reader: &mut PageReader,
+) -> Value {
+    match (col_type, var_data.is_empty()) {
+        (ColumnType::Memo, true) => Value::Text(String::new()),
+        (ColumnType::Memo, false) => read_memo_value(var_data, text, Some(reader)),
+        (_, true) => Value::Binary(Vec::new()),
+        (_, false) => read_ole_value(var_data, Some(reader)),
     }
 }
 
@@ -1089,29 +1005,29 @@ fn read_variable_value(
 /// Keyed by lowercased column name for case-insensitive lookup against
 /// [`ColumnDef::name`].
 fn calculated_result_types(props: &crate::prop::ObjectProperties) -> HashMap<String, ColumnType> {
-    let mut result = HashMap::new();
-    for map in &props.maps {
-        if map.map_type != crate::prop::PropMapType::Column {
-            continue;
-        }
-        let has_expression = map.properties.iter().any(|p| p.name == "Expression");
-        if !has_expression {
-            continue;
-        }
-        let Some(result_type_prop) = map.properties.iter().find(|p| p.name == "ResultType") else {
-            continue;
-        };
-        let byte = match result_type_prop.value {
-            Value::Byte(b) => b,
-            Value::Int(i) => i as u8,
-            Value::Long(l) => l as u8,
-            _ => continue,
-        };
-        if let Ok(col_type) = ColumnType::try_from(byte) {
-            result.insert(map.name.to_ascii_lowercase(), col_type);
-        }
+    props
+        .maps
+        .iter()
+        .filter(|map| map.map_type == crate::prop::PropMapType::Column)
+        .filter_map(|map| Some((map.name.to_ascii_lowercase(), calculated_result_type(map)?)))
+        .collect()
+}
+
+/// The Result Type of the column of the column-level property map `map`
+/// when it is calculated: when the map has an `Expression` and a
+/// `ResultType`.
+fn calculated_result_type(map: &crate::prop::PropertyMap) -> Option<ColumnType> {
+    if !map.properties.iter().any(|p| p.name == "Expression") {
+        return None;
     }
-    result
+    let result_type_prop = map.properties.iter().find(|p| p.name == "ResultType")?;
+    let byte = match result_type_prop.value {
+        Value::Byte(b) => b,
+        Value::Int(i) => i as u8,
+        Value::Long(l) => l as u8,
+        _ => return None,
+    };
+    ColumnType::try_from(byte).ok()
 }
 
 /// Decodes an Access "Calculated" field's cached value, given its actual
@@ -1146,80 +1062,40 @@ fn read_calculated_value(var_data: &[u8], result_type: ColumnType, text: TextEnc
     };
 
     match result_type {
-        ColumnType::Text => match encoding::decode_text(payload, text) {
-            Ok(s) => Value::Text(s),
-            Err(_) => Value::Null,
-        },
+        ColumnType::Text => encoding::decode_text(payload, text).map_or(Value::Null, Value::Text),
         // Memo's payload is raw UTF-16LE (no FF FE compressed-text marker).
-        ColumnType::Memo => match encoding::decode_utf16le(payload) {
-            Ok(s) => Value::Text(s),
-            Err(_) => Value::Null,
-        },
-        ColumnType::Boolean if !payload.is_empty() => Value::Bool(payload[0] != 0),
-        ColumnType::Byte if !payload.is_empty() => Value::Byte(payload[0]),
-        ColumnType::Int if payload.len() >= 2 => {
-            let Ok(bytes) = payload[..2].try_into() else {
-                return Value::Null;
-            };
-            Value::Int(i16::from_le_bytes(bytes))
-        }
-        ColumnType::Long if payload.len() >= 4 => {
-            let Ok(bytes) = payload[..4].try_into() else {
-                return Value::Null;
-            };
-            Value::Long(i32::from_le_bytes(bytes))
-        }
-        ColumnType::Float if payload.len() >= 4 => {
-            let Ok(bytes) = payload[..4].try_into() else {
-                return Value::Null;
-            };
-            Value::Float(f32::from_le_bytes(bytes))
-        }
-        ColumnType::Double if payload.len() >= 8 => {
-            let Ok(bytes) = payload[..8].try_into() else {
-                return Value::Null;
-            };
-            Value::Double(f64::from_le_bytes(bytes))
-        }
-        ColumnType::Money if payload.len() >= 8 => {
-            let Ok(bytes): Result<[u8; 8], _> = payload[..8].try_into() else {
-                return Value::Null;
-            };
-            Value::Money(money::money_to_string(&bytes))
-        }
-        ColumnType::BigInt if payload.len() >= 8 => {
-            let Ok(bytes) = payload[..8].try_into() else {
-                return Value::Null;
-            };
-            Value::BigInt(i64::from_le_bytes(bytes))
-        }
-        ColumnType::Timestamp if payload.len() >= 8 => {
-            let Ok(bytes) = payload[..8].try_into() else {
-                return Value::Null;
-            };
-            Value::Timestamp(f64::from_le_bytes(bytes))
-        }
-        // Exact same 42-byte text encoding `parse_ext_datetime` already
-        // parses for the fixed-width column format.
-        ColumnType::DateTimeExtended if payload.len() == 42 => match parse_ext_datetime(payload) {
-            Some(s) => Value::DateTimeExtended(s),
-            None => Value::Null,
-        },
-        // Same raw 16-byte layout as the ordinary fixed-column format.
-        ColumnType::Guid if payload.len() >= 16 => Value::Guid(format_guid(&payload[..16])),
+        ColumnType::Memo => encoding::decode_utf16le(payload).map_or(Value::Null, Value::Text),
+        ColumnType::Boolean => payload
+            .first()
+            .map_or(Value::Null, |&b| Value::Bool(b != 0)),
+        ColumnType::DateTimeExtended => calculated_ext_datetime(payload),
         // Self-describing OLE Automation DECIMAL structure -- see
         // `money::decimal_variant_to_string`'s doc comment for why this
         // differs from the ordinary fixed-column Numeric format.
-        ColumnType::Numeric if payload.len() >= 16 => {
-            let Ok(bytes): Result<[u8; 16], _> = payload[..16].try_into() else {
-                return Value::Null;
-            };
-            Value::Numeric(money::decimal_variant_to_string(&bytes))
-        }
+        ColumnType::Numeric => decimal_variant_value(payload),
         // Anything else: not (yet) reliably decodable -- see this
         // function's doc comment.
-        _ => Value::Null,
+        ColumnType::ComplexType => Value::Null,
+        // The other types are in the same encoding as an ordinary column.
+        other => stored_value(other, payload, 0).unwrap_or(Value::Null),
     }
+}
+
+/// The value of a calculated DateTimeExtended, in exactly the same 42-byte
+/// text encoding `parse_ext_datetime` parses for the fixed-width column
+/// format; Null for a payload of another length.
+fn calculated_ext_datetime(payload: &[u8]) -> Value {
+    if payload.len() != 42 {
+        return Value::Null;
+    }
+    parse_ext_datetime(payload).map_or(Value::Null, Value::DateTimeExtended)
+}
+
+/// The Numeric value of a calculated Decimal, an OLE Automation DECIMAL.
+fn decimal_variant_value(payload: &[u8]) -> Value {
+    le_bytes(payload).map_or(Value::Null, |b| {
+        Value::Numeric(money::decimal_variant_to_string(&b))
+    })
 }
 
 /// Extracts the payload from an Access "Calculated" field's cached-value
@@ -1367,22 +1243,7 @@ fn read_ole_value(var_data: &[u8], reader: Option<&mut PageReader>) -> Value {
 ///
 /// Layout: `[days:19][':'][seconds:12][nanos100:7][':']['7'][0x00]`
 fn parse_ext_datetime(buf: &[u8]) -> Option<String> {
-    if buf.len() != 42 {
-        return None;
-    }
-    if buf[19] != b':' || buf[39] != b':' || buf[40] != b'7' || buf[41] != 0x00 {
-        return None;
-    }
-    if !buf[0..19].iter().all(u8::is_ascii_digit)
-        || !buf[20..32].iter().all(u8::is_ascii_digit)
-        || !buf[32..39].iter().all(u8::is_ascii_digit)
-    {
-        return None;
-    }
-    let days_str = std::str::from_utf8(&buf[0..19]).ok()?;
-    let secs_str = std::str::from_utf8(&buf[20..32]).ok()?;
-    let nanos_str = std::str::from_utf8(&buf[32..39]).ok()?;
-
+    let (days_str, secs_str, nanos_str) = ext_datetime_fields(buf)?;
     let days = parse_zero_padded_i64(days_str)?;
     let seconds = parse_zero_padded_i64(secs_str)?;
     let nanos100 = parse_zero_padded_i64(nanos_str)?;
@@ -1391,6 +1252,33 @@ fn parse_ext_datetime(buf: &[u8]) -> Option<String> {
     }
 
     Some(timestamp::format_ext_datetime(days, seconds, nanos100))
+}
+
+/// The digits of the days, the seconds and the hundreds of nanoseconds of
+/// 42 bytes of DateTimeExtended; `None` when `buf` is not in its layout.
+fn ext_datetime_fields(buf: &[u8]) -> Option<(&str, &str, &str)> {
+    if !is_ext_datetime_layout(buf) {
+        return None;
+    }
+    Some((
+        digits(&buf[0..19])?,
+        digits(&buf[20..32])?,
+        digits(&buf[32..39])?,
+    ))
+}
+
+/// Whether `buf` is 42 bytes with the separators of DateTimeExtended:
+/// `[days:19][':'][seconds:12][nanos100:7][':']['7'][0x00]`.
+fn is_ext_datetime_layout(buf: &[u8]) -> bool {
+    buf.len() == 42 && buf[19] == b':' && buf[39] == b':' && buf[40] == b'7' && buf[41] == 0x00
+}
+
+/// `bytes` as text, when they are all ASCII digits.
+fn digits(bytes: &[u8]) -> Option<&str> {
+    if !bytes.iter().all(u8::is_ascii_digit) {
+        return None;
+    }
+    std::str::from_utf8(bytes).ok()
 }
 
 fn parse_zero_padded_i64(s: &str) -> Option<i64> {
