@@ -38,7 +38,7 @@ use crate::form::{self, FormObjectType, StreamKind};
 use crate::format::{ObjectType, CATALOG_PAGE};
 use crate::macro_action::{macro_action, macro_argument_value_name};
 use crate::storage::{self, AccessStorage};
-use crate::table::read_table_def;
+use crate::table::{column_index, read_table_def, TableDef};
 
 /// One named macro, as listed under `MSysAccessStorage`'s `Scripts` folder.
 ///
@@ -281,15 +281,27 @@ pub fn read_macro_in(
             .find(|(n, _)| n == name)
             .ok_or_else(not_found)?;
         let grid = parse_macro_grid(&extra.unwrap_or_default(), reader.text_encoding())?;
-        return Ok(MacroDef {
-            source,
-            statements: statements_from_grid(&grid),
-            xml: String::new(),
-            grid: Some(grid),
-        });
+        return Ok(macro_of_grid(source, grid));
     }
 
     let blob = find_macro_blob(entries, name)?.ok_or_else(not_found)?;
+    macro_of_blob(source, blob)
+}
+
+/// The macro of `source` stored as a grid alone, without XML: its statements
+/// are read from the grid.
+fn macro_of_grid(source: MacroSource, grid: MacroGrid) -> MacroDef {
+    MacroDef {
+        source,
+        statements: statements_from_grid(&grid),
+        xml: String::new(),
+        grid: Some(grid),
+    }
+}
+
+/// The macro of `source` in `blob`: a grid that holds the XML of the macro as
+/// `_AXL:` comment rows, or a grid alone.
+fn macro_of_blob(source: MacroSource, blob: &[u8]) -> Result<MacroDef, FileError> {
     match extract_axl_xml(blob) {
         Some(xml) => {
             let root = parse_xml_tree(&xml)?;
@@ -300,15 +312,10 @@ pub fn read_macro_in(
                 xml,
             })
         }
-        None => {
-            let grid = parse_macro_grid(blob, TextEncoding::Unicode)?;
-            Ok(MacroDef {
-                source,
-                statements: statements_from_grid(&grid),
-                xml: String::new(),
-                grid: Some(grid),
-            })
-        }
+        None => Ok(macro_of_grid(
+            source,
+            parse_macro_grid(blob, TextEncoding::Unicode)?,
+        )),
     }
 }
 
@@ -363,6 +370,15 @@ pub fn read_embedded_macros_in(
     object_type: Option<FormObjectType>,
 ) -> Result<Vec<MacroDef>, FileError> {
     let stream = form::stream_in(storage, object_name, object_type, StreamKind::Blob)?;
+    embedded_macro_grids_of(storage, &stream)
+        .iter()
+        .map(|bytes| embedded_macro(bytes, stream.object_type, object_name))
+        .collect()
+}
+
+/// The embedded macro grids of the Blob `stream`, and then those of its
+/// BlobDelta that the Blob does not have.
+fn embedded_macro_grids_of(storage: &AccessStorage, stream: &form::FormStream) -> Vec<Vec<u8>> {
     let mut grids: Vec<Vec<u8>> = embedded_macro_grids(&stream.data)
         .into_iter()
         .map(<[u8]>::to_vec)
@@ -371,7 +387,7 @@ pub fn read_embedded_macros_in(
     // the name of a form.
     if let Ok(delta) = form::stream_in(
         storage,
-        object_name,
+        &stream.name,
         Some(stream.object_type),
         StreamKind::BlobDelta,
     ) {
@@ -382,39 +398,46 @@ pub fn read_embedded_macros_in(
         }
     }
     grids
-        .iter()
-        .map(|bytes| {
-            let grid = parse_macro_grid(bytes, TextEncoding::Unicode)?;
-            let (control, event, statements, xml) = match extract_axl_xml(bytes) {
-                Some(xml) => {
-                    let root = parse_xml_tree(&xml)?;
-                    (
-                        root.attribute("For").map(str::to_string),
-                        root.attribute("Event").unwrap_or("").to_string(),
-                        statements_of(&root),
-                        xml,
-                    )
-                }
-                None => (
-                    None,
-                    String::new(),
-                    statements_from_grid(&grid),
-                    String::new(),
-                ),
-            };
-            Ok(MacroDef {
-                source: MacroSource::Embedded {
-                    object_kind: stream.object_type,
-                    object_name: object_name.to_string(),
-                    control,
-                    event,
-                },
-                statements,
+}
+
+/// The macro of the grid `bytes`, embedded in the form or report
+/// `object_name` of `object_kind`: with the control and event its XML gives,
+/// or with no control and an empty event, and the statements of the grid,
+/// when it has no XML.
+fn embedded_macro(
+    bytes: &[u8],
+    object_kind: FormObjectType,
+    object_name: &str,
+) -> Result<MacroDef, FileError> {
+    let grid = parse_macro_grid(bytes, TextEncoding::Unicode)?;
+    let (control, event, statements, xml) = match extract_axl_xml(bytes) {
+        Some(xml) => {
+            let root = parse_xml_tree(&xml)?;
+            (
+                root.attribute("For").map(str::to_string),
+                root.attribute("Event").unwrap_or("").to_string(),
+                statements_of(&root),
                 xml,
-                grid: Some(grid),
-            })
-        })
-        .collect()
+            )
+        }
+        None => (
+            None,
+            String::new(),
+            statements_from_grid(&grid),
+            String::new(),
+        ),
+    };
+    Ok(MacroDef {
+        source: MacroSource::Embedded {
+            object_kind,
+            object_name: object_name.to_string(),
+            control,
+            event,
+        },
+        statements,
+        xml,
+        grid: Some(grid),
+    })
 }
 
 /// The type of a form property entry whose value is an embedded macro grid.
@@ -510,35 +533,46 @@ fn data_macros_from_xml(table: &str, xml: String) -> Result<Vec<MacroDef>, FileE
     };
     Ok(elements
         .into_iter()
-        .map(|element| MacroDef {
-            source: MacroSource::Data {
-                table: table.to_string(),
-                event: element.attribute("Event").map(str::to_string),
-                name: element.attribute("Name").map(str::to_string),
-                parameters: element
-                    .child("Parameters")
-                    .map(|p| {
-                        p.children
-                            .iter()
-                            .filter(|c| c.name == "Parameter")
-                            .map(|c| MacroParameter {
-                                name: c.attribute("Name").unwrap_or_default().to_string(),
-                                attributes: c
-                                    .attributes
-                                    .iter()
-                                    .filter(|(k, _)| k != "Name")
-                                    .cloned()
-                                    .collect(),
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default(),
-            },
-            statements: statements_of(element),
-            xml: xml.clone(),
-            grid: None,
-        })
+        .map(|element| data_macro(table, element, &xml))
         .collect())
+}
+
+/// The data macro of `table` that the `DataMacro` element `element` of the
+/// document `xml` is.
+fn data_macro(table: &str, element: &MacroXmlElement, xml: &str) -> MacroDef {
+    MacroDef {
+        source: MacroSource::Data {
+            table: table.to_string(),
+            event: element.attribute("Event").map(str::to_string),
+            name: element.attribute("Name").map(str::to_string),
+            parameters: data_macro_parameters(element),
+        },
+        statements: statements_of(element),
+        xml: xml.to_string(),
+        grid: None,
+    }
+}
+
+/// The `Parameter` elements of the `Parameters` of a data macro, each with
+/// its name and its other attributes.
+fn data_macro_parameters(element: &MacroXmlElement) -> Vec<MacroParameter> {
+    let Some(parameters) = element.child("Parameters") else {
+        return Vec::new();
+    };
+    parameters
+        .children
+        .iter()
+        .filter(|c| c.name == "Parameter")
+        .map(|c| MacroParameter {
+            name: c.attribute("Name").unwrap_or_default().to_string(),
+            attributes: c
+                .attributes
+                .iter()
+                .filter(|(k, _)| k != "Name")
+                .cloned()
+                .collect(),
+        })
+        .collect()
 }
 
 /// An `MSysObjects` row's name and `LvExtra`.
@@ -550,30 +584,28 @@ fn msysobjects_rows(
     object_type: i16,
 ) -> Result<Vec<NamedLvExtra>, FileError> {
     let tdef = read_table_def(reader, "MSysObjects", CATALOG_PAGE)?;
-    let column = |name: &str| {
-        tdef.columns
-            .iter()
-            .position(|c| c.name == name)
-            .ok_or_else(|| FileError::InvalidMacroData {
-                reason: format!("MSysObjects has no {name} column"),
-            })
-    };
-    let (name_idx, type_idx, extra_idx) = (column("Name")?, column("Type")?, column("LvExtra")?);
+    let name_idx = msysobjects_column(&tdef, "Name")?;
+    let type_idx = msysobjects_column(&tdef, "Type")?;
+    let extra_idx = msysobjects_column(&tdef, "LvExtra")?;
     Ok(read_table_rows(reader, &tdef)?
         .rows
         .into_iter()
         .filter(|row| row[type_idx] == Value::Int(object_type))
-        .filter_map(|row| {
-            let Value::Text(name) = &row[name_idx] else {
-                return None;
-            };
-            let extra = match &row[extra_idx] {
-                Value::Binary(b) => Some(b.clone()),
-                _ => None,
-            };
-            Some((name.clone(), extra))
-        })
+        .filter_map(|row| named_lv_extra(&row, name_idx, extra_idx))
         .collect())
+}
+
+fn msysobjects_column(tdef: &TableDef, name: &str) -> Result<usize, FileError> {
+    column_index(&tdef.columns, name).ok_or_else(|| FileError::InvalidMacroData {
+        reason: format!("MSysObjects has no {name} column"),
+    })
+}
+
+/// The name and `LvExtra` of a row of `MSysObjects`, or `None` when it has no
+/// name.
+fn named_lv_extra(row: &[Value], name_idx: usize, extra_idx: usize) -> Option<NamedLvExtra> {
+    let name = row[name_idx].as_text()?.to_string();
+    Some((name, row[extra_idx].as_binary().map(<[u8]>::to_vec)))
 }
 
 // ---------------------------------------------------------------------------
@@ -606,60 +638,102 @@ fn single_byte_string(bytes: &[u8], text: TextEncoding) -> String {
 ///   argument offsets (u16), a 2-byte length `m`, `m` bytes of NUL-terminated
 ///   strings the offsets point into (0xFFFF for none), and 2 zero bytes
 fn parse_macro_grid(bytes: &[u8], text: TextEncoding) -> Result<MacroGrid, FileError> {
-    let invalid = |what: &str| FileError::InvalidMacroData {
-        reason: format!("macro grid: {what}"),
+    let grid = GridBytes {
+        bytes,
+        text,
+        single_byte: false,
     };
-    let read_u16 = |offset: usize| {
-        bytes
-            .get(offset..offset + 2)
-            .map(|s| u16::from_le_bytes([s[0], s[1]]))
-            .ok_or_else(|| invalid("unexpected end of data"))
+    let columns_shown = grid.u32_at(0)?;
+    let header_len = grid.u16_at(0x20)? as usize;
+    let header = grid.header(header_len)?;
+    let grid = GridBytes {
+        single_byte: text.is_jet3() || header_len == 0,
+        ..grid
     };
-    let columns_shown = bytes
-        .get(0..4)
-        .map(|s| u32::from_le_bytes([s[0], s[1], s[2], s[3]]))
-        .ok_or_else(|| invalid("unexpected end of data"))?;
-    let header_len = read_u16(0x20)? as usize;
-    let header_units: Vec<u16> = bytes
-        .get(0x22..0x22 + header_len)
-        .ok_or_else(|| invalid("header string past the end of data"))?
-        .chunks_exact(2)
-        .map(|c| u16::from_le_bytes([c[0], c[1]]))
-        .collect();
-    let header = String::from_utf16_lossy(&header_units);
-    let single_byte = text.is_jet3() || header_len == 0;
-    let mut pos = 0x22 + header_len + 2;
 
     let mut rows = Vec::new();
+    let mut pos = 0x22 + header_len + 2;
     while pos < bytes.len() {
-        let action_code = read_u16(pos)?;
-        let row = read_u16(pos + 2)?;
+        let (row, next) = grid.row(pos)?;
+        rows.push(row);
+        pos = next;
+    }
+    Ok(MacroGrid {
+        columns_shown,
+        header,
+        rows,
+    })
+}
+
+fn grid_error(what: &str) -> FileError {
+    FileError::InvalidMacroData {
+        reason: format!("macro grid: {what}"),
+    }
+}
+
+/// The bytes of a macro grid, and whether its row strings are single-byte,
+/// in `text`.
+struct GridBytes<'a> {
+    bytes: &'a [u8],
+    text: TextEncoding,
+    single_byte: bool,
+}
+
+impl GridBytes<'_> {
+    fn u16_at(&self, offset: usize) -> Result<u16, FileError> {
+        self.bytes
+            .get(offset..offset + 2)
+            .map(|s| u16::from_le_bytes([s[0], s[1]]))
+            .ok_or_else(|| grid_error("unexpected end of data"))
+    }
+
+    fn u32_at(&self, offset: usize) -> Result<u32, FileError> {
+        self.bytes
+            .get(offset..offset + 4)
+            .map(|s| u32::from_le_bytes([s[0], s[1], s[2], s[3]]))
+            .ok_or_else(|| grid_error("unexpected end of data"))
+    }
+
+    /// The UTF-16LE header string of `header_len` bytes at 0x22.
+    fn header(&self, header_len: usize) -> Result<String, FileError> {
+        let units: Vec<u16> = self
+            .bytes
+            .get(0x22..0x22 + header_len)
+            .ok_or_else(|| grid_error("header string past the end of data"))?
+            .chunks_exact(2)
+            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .collect();
+        Ok(String::from_utf16_lossy(&units))
+    }
+
+    /// The row at `pos`, and the position of the next row.
+    fn row(&self, pos: usize) -> Result<(MacroGridRow, usize), FileError> {
+        let action_code = self.u16_at(pos)?;
+        let row = self.u16_at(pos + 2)?;
         let offsets = (0..14)
-            .map(|k| read_u16(pos + 4 + 2 * k))
+            .map(|k| self.u16_at(pos + 4 + 2 * k))
             .collect::<Result<Vec<u16>, FileError>>()?;
-        let len = read_u16(pos + 32)? as usize;
-        let block = bytes
+        let len = self.u16_at(pos + 32)? as usize;
+        let block = self
+            .bytes
             .get(pos + 34..pos + 34 + len)
-            .ok_or_else(|| invalid("row strings past the end of data"))?;
-        let string = |offset: u16| -> Result<Option<String>, FileError> {
-            if offset == 0xFFFF {
-                return Ok(None);
-            }
-            let rest = block
-                .get(offset as usize..)
-                .ok_or_else(|| invalid("string offset past the row"))?;
-            Ok(Some(if single_byte {
-                single_byte_string(rest, text)
-            } else {
-                let units: Vec<u16> = rest
-                    .chunks_exact(2)
-                    .map(|c| u16::from_le_bytes([c[0], c[1]]))
-                    .take_while(|&u| u != 0)
-                    .collect();
-                String::from_utf16_lossy(&units)
-            }))
-        };
-        rows.push(MacroGridRow {
+            .ok_or_else(|| grid_error("row strings past the end of data"))?;
+        let grid_row = self.row_of_strings(block, row, action_code, &offsets)?;
+        Ok((grid_row, pos + 34 + len + 2))
+    }
+
+    /// The row `row` of the action `action_code`, with the strings in
+    /// `block` at `offsets`: not interpreted, comment, condition, macro name,
+    /// then the arguments.
+    fn row_of_strings(
+        &self,
+        block: &[u8],
+        row: u16,
+        action_code: u16,
+        offsets: &[u16],
+    ) -> Result<MacroGridRow, FileError> {
+        let string = |offset: u16| self.string(block, offset);
+        Ok(MacroGridRow {
             row,
             comment: string(offsets[1])?,
             condition: string(offsets[2])?,
@@ -669,14 +743,28 @@ fn parse_macro_grid(bytes: &[u8], text: TextEncoding) -> Result<MacroGrid, FileE
                 .iter()
                 .map(|&o| string(o))
                 .collect::<Result<Vec<_>, FileError>>()?,
-        });
-        pos += 34 + len + 2;
+        })
     }
-    Ok(MacroGrid {
-        columns_shown,
-        header,
-        rows,
-    })
+
+    /// The string at `offset` of the strings `block` of a row, or `None` for
+    /// 0xFFFF.
+    fn string(&self, block: &[u8], offset: u16) -> Result<Option<String>, FileError> {
+        if offset == 0xFFFF {
+            return Ok(None);
+        }
+        let rest = block
+            .get(offset as usize..)
+            .ok_or_else(|| grid_error("string offset past the row"))?;
+        if self.single_byte {
+            return Ok(Some(single_byte_string(rest, self.text)));
+        }
+        let units: Vec<u16> = rest
+            .chunks_exact(2)
+            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .take_while(|&u| u != 0)
+            .collect();
+        Ok(Some(String::from_utf16_lossy(&units)))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -688,29 +776,34 @@ const CONTINUED_CONDITION: &str = "...";
 
 /// The statements of a macro stored without XML, read from its grid rows.
 fn statements_from_grid(grid: &MacroGrid) -> Vec<MacroStatement> {
-    let mut top = Vec::new();
-    // The submacro being read, and the open condition within it.
-    let mut submacro: Option<(String, Vec<MacroStatement>)> = None;
-    let mut branch: Option<MacroBranch> = None;
-
+    let mut statements = GridStatements {
+        top: Vec::new(),
+        submacro: None,
+        branch: None,
+    };
     for row in &grid.rows {
+        statements.read_row(row);
+    }
+    statements.finish_submacro();
+    statements.top
+}
+
+/// The statements read from the rows of a grid so far.
+struct GridStatements {
+    top: Vec<MacroStatement>,
+    /// The submacro being read, and the open condition within it.
+    submacro: Option<(String, Vec<MacroStatement>)>,
+    branch: Option<MacroBranch>,
+}
+
+impl GridStatements {
+    fn read_row(&mut self, row: &MacroGridRow) {
         if let Some(name) = &row.macro_name {
-            finish_submacro(&mut top, &mut submacro, &mut branch);
-            submacro = Some((name.clone(), Vec::new()));
+            self.finish_submacro();
+            self.submacro = Some((name.clone(), Vec::new()));
         }
-        let continues = row.condition.as_deref() == Some(CONTINUED_CONDITION) && branch.is_some();
-        if !continues {
-            let enclosing = submacro.as_mut().map_or(&mut top, |(_, s)| s);
-            close_branch(enclosing, &mut branch);
-            branch = row.condition.as_ref().map(|condition| MacroBranch {
-                condition: Some(condition.clone()),
-                statements: Vec::new(),
-            });
-        }
-        let statements = match &mut branch {
-            Some(b) => &mut b.statements,
-            None => submacro.as_mut().map_or(&mut top, |(_, s)| s),
-        };
+        self.open_branch(row.condition.as_deref());
+        let statements = self.statements();
         if let Some(comment) = &row.comment {
             statements.push(MacroStatement::Comment(comment.clone()));
         }
@@ -718,8 +811,33 @@ fn statements_from_grid(grid: &MacroGrid) -> Vec<MacroStatement> {
             statements.push(grid_action(row));
         }
     }
-    finish_submacro(&mut top, &mut submacro, &mut branch);
-    top
+
+    /// Close the open condition and open one for `condition`, unless it
+    /// continues the open one.
+    fn open_branch(&mut self, condition: Option<&str>) {
+        if condition == Some(CONTINUED_CONDITION) && self.branch.is_some() {
+            return;
+        }
+        let enclosing = self.submacro.as_mut().map_or(&mut self.top, |(_, s)| s);
+        close_branch(enclosing, &mut self.branch);
+        self.branch = condition.map(|condition| MacroBranch {
+            condition: Some(condition.to_string()),
+            statements: Vec::new(),
+        });
+    }
+
+    /// The statements a row goes in: those of the open condition, or of the
+    /// submacro or the macro.
+    fn statements(&mut self) -> &mut Vec<MacroStatement> {
+        match &mut self.branch {
+            Some(b) => &mut b.statements,
+            None => self.submacro.as_mut().map_or(&mut self.top, |(_, s)| s),
+        }
+    }
+
+    fn finish_submacro(&mut self) {
+        finish_submacro(&mut self.top, &mut self.submacro, &mut self.branch);
+    }
 }
 
 fn close_branch(statements: &mut Vec<MacroStatement>, branch: &mut Option<MacroBranch>) {
@@ -767,10 +885,7 @@ fn grid_action(row: &MacroGridRow) -> MacroStatement {
 }
 
 fn scripts_dir_mapping(entries: &[storage::StorageEntry]) -> Option<Vec<(String, String)>> {
-    let root_id = storage::find_root_id(entries);
-    let scripts_folder = entries
-        .iter()
-        .find(|e| e.parent_id == root_id && e.name == "Scripts" && storage::is_storage(e))?;
+    let scripts_folder = storage::find_top_folder(entries, "Scripts")?;
     let dir_data = storage::find_dir_data(entries, scripts_folder.id)?;
     storage::parse_dir_data(&dir_data.data).ok()
 }
@@ -779,29 +894,10 @@ fn find_macro_blob<'a>(
     entries: &'a [storage::StorageEntry],
     name: &str,
 ) -> Result<Option<&'a [u8]>, FileError> {
-    let root_id = storage::find_root_id(entries);
-    let Some(scripts_folder) = entries
-        .iter()
-        .find(|e| e.parent_id == root_id && e.name == "Scripts" && storage::is_storage(e))
-    else {
+    let Some(scripts_folder) = storage::find_top_folder(entries, "Scripts") else {
         return Ok(None);
     };
-    let Some(dir_data) = storage::find_dir_data(entries, scripts_folder.id) else {
-        return Ok(None);
-    };
-    let mapping = storage::parse_dir_data(&dir_data.data)?;
-    let Some((_, storage_num)) = mapping.iter().find(|(n, _)| n == name) else {
-        return Ok(None);
-    };
-    let Some(macro_folder) = entries.iter().find(|e| {
-        e.parent_id == scripts_folder.id && &e.name == storage_num && storage::is_storage(e)
-    }) else {
-        return Ok(None);
-    };
-    Ok(entries
-        .iter()
-        .find(|e| e.parent_id == macro_folder.id && e.name == "Blob" && !storage::is_storage(e))
-        .map(|e| e.data.as_slice()))
+    Ok(storage::object_stream(entries, scripts_folder, name, "Blob")?.map(|e| e.data.as_slice()))
 }
 
 // ---------------------------------------------------------------------------
@@ -917,56 +1013,33 @@ fn parse_xml_tree(xml: &str) -> Result<MacroXmlElement, FileError> {
     use quick_xml::Reader;
 
     let mut reader = Reader::from_str(xml);
-    let mut root = MacroXmlElement {
-        name: String::new(),
-        attributes: Vec::new(),
-        text: String::new(),
-        children: Vec::new(),
-    };
+    let mut root = new_element(String::new(), Vec::new());
     let mut stack: Vec<MacroXmlElement> = Vec::new();
 
     loop {
         match reader.read_event() {
             Ok(Event::Start(e)) => open_element(&mut stack, &e)?,
             Ok(Event::Empty(e)) => {
-                let element = MacroXmlElement {
-                    name: e.name().as_ref().to_string(),
-                    attributes: read_attrs(&e)?,
-                    text: String::new(),
-                    children: Vec::new(),
-                };
+                let element = element_of(&e)?;
                 stack.last_mut().unwrap_or(&mut root).children.push(element);
             }
             Ok(Event::Text(t)) => {
-                let text = t.xml_content(quick_xml::XmlVersion::Explicit1_0);
-                if let Some(top) = stack.last_mut() {
-                    top.text.push_str(&text);
-                }
+                push_text(
+                    &mut stack,
+                    &t.xml_content(quick_xml::XmlVersion::Explicit1_0),
+                );
             }
             // A CDATA section is text as it is, without references to resolve.
             Ok(Event::CData(t)) => {
-                let text = t.xml_content(quick_xml::XmlVersion::Explicit1_0);
-                if let Some(top) = stack.last_mut() {
-                    top.text.push_str(&text);
-                }
+                push_text(
+                    &mut stack,
+                    &t.xml_content(quick_xml::XmlVersion::Explicit1_0),
+                );
             }
             // Entity and character references (`&lt;`, `&#60;`) arrive as
             // separate events rather than inside the surrounding text.
-            Ok(Event::GeneralRef(r)) => {
-                let resolved = resolve_reference(&r)?;
-                if let Some(top) = stack.last_mut() {
-                    top.text.push_str(&resolved);
-                }
-            }
-            Ok(Event::End(_)) => {
-                if let Some(mut element) = stack.pop() {
-                    // Indentation between child elements is not content.
-                    if !element.children.is_empty() && element.text.trim().is_empty() {
-                        element.text.clear();
-                    }
-                    stack.last_mut().unwrap_or(&mut root).children.push(element);
-                }
-            }
+            Ok(Event::GeneralRef(r)) => push_text(&mut stack, &resolve_reference(&r)?),
+            Ok(Event::End(_)) => close_element(&mut stack, &mut root),
             Ok(Event::Eof) => break,
             Ok(_) => {}
             Err(e) => {
@@ -984,6 +1057,25 @@ fn parse_xml_tree(xml: &str) -> Result<MacroXmlElement, FileError> {
         })
 }
 
+/// Adds `text` to the text of the element being read, if any.
+fn push_text(stack: &mut [MacroXmlElement], text: &str) {
+    if let Some(top) = stack.last_mut() {
+        top.text.push_str(text);
+    }
+}
+
+/// Closes the element being read, and adds it to the children of the one
+/// around it, or of `root`.
+fn close_element(stack: &mut Vec<MacroXmlElement>, root: &mut MacroXmlElement) {
+    if let Some(mut element) = stack.pop() {
+        // Indentation between child elements is not content.
+        if !element.children.is_empty() && element.text.trim().is_empty() {
+            element.text.clear();
+        }
+        stack.last_mut().unwrap_or(root).children.push(element);
+    }
+}
+
 /// Opens the element `e` on `stack`, the elements being read; an error when
 /// that would nest them deeper than [`MAX_XML_DEPTH`].
 fn open_element(
@@ -995,13 +1087,23 @@ fn open_element(
             reason: format!("macro XML nested deeper than {MAX_XML_DEPTH} elements"),
         });
     }
-    stack.push(MacroXmlElement {
-        name: e.name().as_ref().to_string(),
-        attributes: read_attrs(e)?,
+    stack.push(element_of(e)?);
+    Ok(())
+}
+
+/// The element of the tag `e`, with its name and attributes.
+fn element_of(e: &quick_xml::events::BytesStart<'_>) -> Result<MacroXmlElement, FileError> {
+    Ok(new_element(e.name().as_ref().to_string(), read_attrs(e)?))
+}
+
+/// An element without text or children yet.
+fn new_element(name: String, attributes: Vec<(String, String)>) -> MacroXmlElement {
+    MacroXmlElement {
+        name,
+        attributes,
         text: String::new(),
         children: Vec::new(),
-    });
-    Ok(())
+    }
 }
 
 /// The text of the entity or character reference `r`, such as `&lt;` or
@@ -1069,26 +1171,11 @@ fn to_statement(element: &MacroXmlElement) -> MacroStatement {
 /// and optionally a `Data` element whose own children are plain text
 /// elements; anything else is left to [`MacroStatement::Unknown`].
 fn to_data_block(element: &MacroXmlElement) -> Option<MacroStatement> {
-    if !element.attributes.is_empty()
-        || !element.text.is_empty()
-        || element.child("Statements").is_none()
-        || element
-            .children
-            .iter()
-            .any(|c| c.name != "Statements" && c.name != "Data")
-    {
+    if !is_data_block_shape(element) {
         return None;
     }
     let data = match element.child("Data") {
-        Some(d) if !d.attributes.is_empty() || !d.text.is_empty() => return None,
-        Some(d) => d
-            .children
-            .iter()
-            .map(|c| {
-                (c.attributes.is_empty() && c.children.is_empty())
-                    .then(|| (c.name.clone(), c.text.clone()))
-            })
-            .collect::<Option<Vec<_>>>()?,
+        Some(d) => data_of_block(d)?,
         None => Vec::new(),
     };
     Some(MacroStatement::DataBlock {
@@ -1096,6 +1183,33 @@ fn to_data_block(element: &MacroXmlElement) -> Option<MacroStatement> {
         data,
         statements: statements_of(element),
     })
+}
+
+/// Whether `element` has no attributes or text, and a `Statements` child and
+/// no children but `Statements` and `Data`.
+fn is_data_block_shape(element: &MacroXmlElement) -> bool {
+    element.attributes.is_empty()
+        && element.text.is_empty()
+        && element.child("Statements").is_some()
+        && element
+            .children
+            .iter()
+            .all(|c| c.name == "Statements" || c.name == "Data")
+}
+
+/// The names and texts of the children of the `Data` element `data`, when it
+/// has no attributes or text and each child is a plain text element.
+fn data_of_block(data: &MacroXmlElement) -> Option<Vec<(String, String)>> {
+    if !data.attributes.is_empty() || !data.text.is_empty() {
+        return None;
+    }
+    data.children
+        .iter()
+        .map(|c| {
+            (c.attributes.is_empty() && c.children.is_empty())
+                .then(|| (c.name.clone(), c.text.clone()))
+        })
+        .collect()
 }
 
 /// An `Action` whose children are all `Argument`s; anything else is left to
@@ -1420,6 +1534,31 @@ mod tests {
                 }],
             }]
         );
+    }
+
+    #[test]
+    fn data_blocks_of_other_shapes_are_unknown() {
+        // A block is a DataBlock only without attributes or text, with a
+        // Statements child and no children but Statements and Data, and with
+        // a Data of plain text elements, without attributes or text itself.
+        for block in [
+            r#"<ForEachRecord Alias="x"><Statements/></ForEachRecord>"#,
+            r#"<ForEachRecord>text<Statements/></ForEachRecord>"#,
+            r#"<ForEachRecord><Data/></ForEachRecord>"#,
+            r#"<ForEachRecord><Statements/><Other/></ForEachRecord>"#,
+            r#"<ForEachRecord><Data Alias="x"/><Statements/></ForEachRecord>"#,
+            r#"<ForEachRecord><Data>text<Reference>t</Reference></Data><Statements/></ForEachRecord>"#,
+            r#"<ForEachRecord><Data><Reference Alias="x">t</Reference></Data><Statements/></ForEachRecord>"#,
+            r#"<ForEachRecord><Data><Reference><Inner/></Reference></Data><Statements/></ForEachRecord>"#,
+        ] {
+            let xml = format!(
+                r#"<DataMacro Event="AfterUpdate"><Statements>{block}</Statements></DataMacro>"#
+            );
+            assert!(
+                matches!(statements(&xml)[..], [MacroStatement::Unknown(_)]),
+                "{block}"
+            );
+        }
     }
 
     #[test]
@@ -1964,6 +2103,28 @@ mod tests {
                 ]
             )]
         );
+    }
+
+    #[test]
+    fn embedded_macro_without_xml_reads_the_grid() {
+        // A grid without _AXL: rows has no control and an empty event, and
+        // its statements are those of its rows.
+        let bytes = grid_bytes("33", &[0x78, 0x00, 0x00, 0x00]);
+        let def = embedded_macro(&bytes, FormObjectType::Report, "rptOld").unwrap();
+        let grid = parse_macro_grid(&bytes, TextEncoding::Unicode).unwrap();
+        assert_eq!(
+            def.source,
+            MacroSource::Embedded {
+                object_kind: FormObjectType::Report,
+                object_name: "rptOld".to_string(),
+                control: None,
+                event: String::new(),
+            }
+        );
+        assert_eq!(def.xml, "");
+        assert!(!def.statements.is_empty());
+        assert_eq!(def.statements, statements_from_grid(&grid));
+        assert_eq!(def.grid, Some(grid));
     }
 
     /// A grid with the header string `header` (UTF-16LE) and one row: action
