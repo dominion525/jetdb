@@ -295,7 +295,10 @@ per-column, and additional property maps. The heading of the object-level
 properties names the type of the object, such as `Table Properties:` or
 `Query Properties:`, and is `Object Properties:` for an object of a type
 jetdb does not know. The object-level properties come first, and the other
-maps follow in the order the database stores them.
+maps follow in the order the database stores them. Text values are shown
+in double quotes, with `\` and `"` written as `\\` and `\"`, a carriage
+return, a line feed and a tab as `\r`, `\n` and `\t`, and other control
+characters as `\u{..}`, so that each property takes one line.
 
 Objects of different types can share a name, such as a table and a form
 both named `Customers`. The command then fails and lists the types; name
@@ -486,7 +489,7 @@ jetdb form props [OPTIONS] <FILE> <NAME>
 
 Parse the Blob binary stream and display properties for the form/report itself and each control. Properties include RecordSource, ControlSource, Filter, Caption, FontName, event handlers, and more.
 
-Known property IDs are displayed by name; unknown IDs are shown as `0xXXXX`. For a form or report of the Access 2000 format, a property jetdb gives no ID of Access 2002 and later is shown as the ID of that format plus `0x8000`, such as `0x8036`. Binary values are shown as `(N bytes)`, GUIDs as `{...}`, booleans as `yes`/`no`, numbers, colors among them, as the signed number SaveAsText writes, and a Yes/No property stored without a value, set to the value that is not its default, as `NotDefault`, as SaveAsText writes it.
+Known property IDs are displayed by name; unknown IDs are shown as `0xXXXX`. For a form or report of the Access 2000 format, a property jetdb gives no ID of Access 2002 and later is shown as the ID of that format plus `0x8000`, such as `0x8036`. Binary values are shown as `(N bytes)`, GUIDs as `{...}`, booleans as `yes`/`no`, numbers, colors among them, as the signed number SaveAsText writes, and a Yes/No property stored without a value, set to the value that is not its default, as `NotDefault`, as SaveAsText writes it. Text values are shown in double quotes, escaped as `prop` shows them, so that each property takes one line.
 
 ##### Options
 
@@ -499,24 +502,24 @@ $ jetdb form props database.accdb F_ClientList
 Form: F_ClientList
 
   Form Properties:
-    RecordSource  SELECT * FROM T_Clients ORDER BY ID;
-    Filter        ([ID] > 0)
-    Caption       Client List
-    FontName      MS PGothic
+    RecordSource  "SELECT * FROM T_Clients ORDER BY ID;"
+    Filter        "([ID] > 0)"
+    Caption       "Client List"
+    FontName      "MS PGothic"
 
   Control: FormHeader (FormHeader)
-    Name    FormHeader
+    Name    "FormHeader"
 
   Control: Txt_Name (TextBox)
-    Name           Txt_Name
-    ControlSource  Name
-    FontName       Meiryo UI
+    Name           "Txt_Name"
+    ControlSource  "Name"
+    FontName       "Meiryo UI"
 
   Control: Cmb_Status (ComboBox)
-    Name           Cmb_Status
-    RowSourceType  Table/Query
-    RowSource      SELECT Status FROM T_StatusList;
-    FontName       Meiryo UI
+    Name           "Cmb_Status"
+    RowSourceType  "Table/Query"
+    RowSource      "SELECT Status FROM T_StatusList;"
+    FontName       "Meiryo UI"
 ```
 
 ### macro — Manage macros

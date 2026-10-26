@@ -210,6 +210,27 @@ fn form_props_japanese_form() {
     );
 }
 
+#[test]
+fn form_props_text_with_line_breaks_on_one_line() {
+    let path = skip_if_missing!("saveastext/SportsAdmin/Sports.accdb");
+    let output = jetdb_bin()
+        .args(["form", "props", path.to_str().unwrap(), "About"])
+        .output()
+        .expect("failed to run jetdb");
+    assert!(
+        output.status.success(),
+        "should succeed, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!stdout.contains('\r'), "should escape carriage returns");
+    assert!(
+        stdout.lines().any(|l| l.trim_start()
+            == r#"Caption       "For support or to report \"bugs\" please visit.\r\nhttps://github.com/ruddj/SportsAdmin""#),
+        "should quote the caption and escape its line break, got: {stdout}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // List flags: --forms-only, --reports-only, -d
 // ---------------------------------------------------------------------------

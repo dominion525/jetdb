@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Args, Subcommand, ValueEnum};
-use jetdb::{FormObjectType, PageReader, StreamKind};
+use jetdb::{BlobValue, FormObjectType, PageReader, StreamKind};
 
 // ---------------------------------------------------------------------------
 // CLI definition
@@ -307,6 +307,15 @@ fn print_properties(props: &[jetdb::BlobProperty]) {
 
     for prop in props {
         let label = prop.display_name();
-        println!("    {label:<max_width$}  {}", prop.value);
+        println!("    {label:<max_width$}  {}", format_value(&prop.value));
+    }
+}
+
+/// Format a property value for display: text quoted on one line, the others
+/// as they are.
+fn format_value(value: &BlobValue) -> String {
+    match value {
+        BlobValue::Text(s) => crate::quoted(s),
+        _ => value.to_string(),
     }
 }

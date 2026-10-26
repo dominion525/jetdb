@@ -160,7 +160,7 @@ fn format_value(value: &Value) -> String {
         Value::BigInt(v) => v.to_string(),
         Value::Float(v) => v.to_string(),
         Value::Double(v) => v.to_string(),
-        Value::Text(s) => format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\"")),
+        Value::Text(s) => crate::quoted(s),
         Value::Binary(b) => format!("({} bytes)", b.len()),
         Value::Money(s) => s.clone(),
         Value::Numeric(s) => s.clone(),
@@ -269,6 +269,14 @@ mod tests {
     #[test]
     fn format_value_text_with_backslash() {
         assert_eq!(format_value(&Value::Text("a\\b".to_string())), "\"a\\\\b\"");
+    }
+
+    #[test]
+    fn format_value_text_with_line_breaks() {
+        assert_eq!(
+            format_value(&Value::Text("a\r\nb\tc\u{1}".to_string())),
+            "\"a\\r\\nb\\tc\\u{1}\""
+        );
     }
 
     #[test]
