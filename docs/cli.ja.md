@@ -303,7 +303,7 @@ jetdb prop [OPTIONS] <FILE> <OBJECT_NAME>
 
 テーブルやクエリなどのデータベースオブジェクトの LvProp (軽量プロパティ) 値を表示する。
 プロパティはオブジェクト全体、カラムごと、追加プロパティの各マップに分けて出力される。
-オブジェクト全体のプロパティの見出しは、`Table Properties:` や `Query Properties:` のように、オブジェクトの種類を示す。jetdb の知らない種類のオブジェクトでは `Object Properties:` になる。
+オブジェクト全体のプロパティの見出しは、`Table Properties:`、`Query Properties:`、`Linked Table Properties:`、`Database Property Properties:` のように、オブジェクトの種類を英語の語で示す。jetdb の知らない種類のオブジェクトでは `Object Properties:` になる。
 オブジェクト全体のプロパティを先に出し、ほかのマップはデータベースが格納している順に続ける。
 テキストの値は二重引用符で囲み、`\` と `"` を `\\` と `\"`、復帰・改行・タブを `\r`・`\n`・`\t`、そのほかの制御文字を `\u{..}` と書くので、1 つのプロパティは 1 行に収まる。
 

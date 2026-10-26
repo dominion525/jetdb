@@ -305,13 +305,14 @@ jetdb prop [OPTIONS] <FILE> <OBJECT_NAME>
 Display the LvProp (Lightweight Property) values for a database object
 such as a table or query. Properties are grouped into object-level,
 per-column, and additional property maps. The heading of the object-level
-properties names the type of the object, such as `Table Properties:` or
-`Query Properties:`, and is `Object Properties:` for an object of a type
-jetdb does not know. The object-level properties come first, and the other
-maps follow in the order the database stores them. Text values are shown
-in double quotes, with `\` and `"` written as `\\` and `\"`, a carriage
-return, a line feed and a tab as `\r`, `\n` and `\t`, and other control
-characters as `\u{..}`, so that each property takes one line.
+properties names the type of the object in words, such as
+`Table Properties:`, `Query Properties:`, `Linked Table Properties:` or
+`Database Property Properties:`, and is `Object Properties:` for an object
+of a type jetdb does not know. The object-level properties come first, and
+the other maps follow in the order the database stores them. Text values
+are shown in double quotes, with `\` and `"` written as `\\` and `\"`, a
+carriage return, a line feed and a tab as `\r`, `\n` and `\t`, and other
+control characters as `\u{..}`, so that each property takes one line.
 
 Objects of different types can share a name, such as a table and a form
 both named `Customers`. The command then fails and lists the types; name

@@ -115,13 +115,35 @@ fn print_properties(props: &ObjectProperties, object_type: Option<ObjectType>) {
 fn map_heading(map: &PropertyMap, object_type: Option<ObjectType>) -> String {
     match map.map_type {
         PropMapType::Default => match object_type {
-            Some(t) => format!("{t} Properties:"),
+            Some(t) => format!("{} Properties:", object_type_label(t)),
             None => "Object Properties:".to_string(),
         },
         PropMapType::Column => format!("Column: {}", map.name),
         PropMapType::Additional if map.name.is_empty() => "Additional Properties:".to_string(),
         PropMapType::Additional => format!("Additional: {}", map.name),
         _ => format!("{:?}: {}", map.map_type, map.name),
+    }
+}
+
+/// The type of an object as the heading of its properties writes it: the
+/// words of the type, in the CLI's own spelling rather than the Rust name
+/// the library's `Display` gives.
+fn object_type_label(t: ObjectType) -> &'static str {
+    match t {
+        ObjectType::Table => "Table",
+        ObjectType::Query => "Query",
+        ObjectType::Form => "Form",
+        ObjectType::Report => "Report",
+        ObjectType::Macro => "Macro",
+        ObjectType::Module => "Module",
+        ObjectType::LinkedTable => "Linked Table",
+        ObjectType::LinkedOdbcTable => "Linked ODBC Table",
+        ObjectType::Relationship => "Relationship",
+        ObjectType::Container => "Container",
+        ObjectType::Database => "Database",
+        ObjectType::DatabaseProperty => "Database Property",
+        ObjectType::UserInfo => "User Info",
+        _ => "Object",
     }
 }
 
@@ -243,6 +265,28 @@ mod tests {
         assert!(!in_catalog(&catalog, "Customers", Some(ObjectType::Query)));
         assert!(!in_catalog(&catalog, "CUSTOMERS", None));
         assert!(!in_catalog(&catalog, "Orders", None));
+    }
+
+    #[test]
+    fn object_type_label_all_variants() {
+        assert_eq!(
+            ObjectType::ALL.map(object_type_label),
+            [
+                "Table",
+                "Query",
+                "Form",
+                "Report",
+                "Macro",
+                "Module",
+                "Linked Table",
+                "Linked ODBC Table",
+                "Relationship",
+                "Container",
+                "Database",
+                "Database Property",
+                "User Info",
+            ]
+        );
     }
 
     #[test]
