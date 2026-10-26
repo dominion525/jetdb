@@ -21,14 +21,10 @@
 
 use crate::data::format_guid;
 use crate::encoding;
-use crate::form::{BlobProperty, BlobValue, ControlProperties, MAX_TREE_DEPTH};
+use crate::form::{BlobProperty, BlobValue, ControlProperties, MAX_TREE_DEPTH, UNMAPPED};
 
 /// The first byte of the Blob of a form or report in the Access 2000 format.
 pub(crate) const VERSION: u8 = 0x13;
-
-/// Added to the ID of this format for a property jetdb gives no ID of Access
-/// 2002 and later, so that the IDs stay apart: `0x80DD` is the ID `0xDD`.
-pub const UNMAPPED: u16 = 0x8000;
 
 /// The types of sections: the detail section, and the headers and footers
 /// of the form or report, of its pages and of its groups.
