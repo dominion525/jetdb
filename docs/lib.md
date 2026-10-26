@@ -103,9 +103,11 @@ The [`Value`] enum maps to Access data types:
 | `Numeric(String)` | Decimal | Variable-scale string |
 | `Timestamp(f64)` | Date/Time | Days since 1899-12-30 |
 | `Guid(String)` | Replication ID | `{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}` format |
+| `DateTimeExtended(String)` | Date/Time Extended | `YYYY-MM-DD hh:mm:ss.fffffff` string |
 
-`Money` and `Numeric` are returned as strings to preserve precision.
+`Money`, `Numeric` and `DateTimeExtended` are returned as strings to preserve precision.
 `Timestamp` is the raw OLE Date value (a floating-point day count from 1899-12-30).
+`DateTimeExtended` is `YYYY-MM-DD hh:mm:ss.fffffff`, with the fraction of a second in units of 100 nanoseconds; it is `YYYY-MM-DD hh:mm:ss` when the fraction is zero, and `YYYY-MM-DD` when the time is zero as well.
 
 # Other Features
 
@@ -333,7 +335,7 @@ fn main() -> Result<(), jetdb::FileError> {
 
 ## Object Properties
 
-Use [`read_object_properties`] to read the properties of an object, such as the description or the format of a table and its columns. They come in groups ([`PropertyMap`]): one for the object itself, and one for each column.
+Use [`read_object_properties`] to read the properties of an object, such as the description or the format of a table and its columns. They come in groups ([`PropertyMap`]): one for the object itself, one for each column, and groups of additional properties ([`PropMapType::Additional`]).
 
 ```rust,no_run
 use jetdb::{PageReader, read_object_properties};
@@ -417,9 +419,16 @@ The source must satisfy [`file::DataSource`] (`Read + Seek + Send + Sync + Unwin
 
 # Error Handling
 
-All public functions return `Result<T,` [`FileError`]`>`.
+Functions that can fail return `Result<T,` [`FileError`]`>`.
 [`FileError`] is an enum with variants for I/O errors, format errors, and missing objects,
 and can be propagated with the `?` operator.
+
+The other functions return other types:
+
+- Functions that work on values already read return the result itself, such as [`query_to_sql`], [`ddl::generate_ddl`], [`data_macros_to_text`], [`control_type_label`] and [`timestamp::format_timestamp`]. [`embedded_macro_to_text`] returns an `Option`, `None` for a macro that is not embedded, has no grid, or has no event name.
+- Functions that look up a number return an `Option`, `None` for a number jetdb does not know, such as [`control_type_name`] and [`macro_action()`].
+- [`calculated_column_types`] and [`calculated_column_types_in`] return a map without an error: the map is empty when the properties of the table cannot be read.
+- [`encoding::decode_text`], [`encoding::decode_utf16le`] and [`JetVersion::from_byte`] return `Result<T,` [`FormatError`]`>`, which `?` converts into [`FileError`].
 
 # Supported Versions
 

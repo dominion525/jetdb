@@ -103,9 +103,11 @@ fn main() -> Result<(), jetdb::FileError> {
 | `Numeric(String)` | Decimal | スケール可変の文字列 |
 | `Timestamp(f64)` | Date/Time | 1899-12-30 からの経過日数 |
 | `Guid(String)` | Replication ID | `{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}` 形式 |
+| `DateTimeExtended(String)` | Date/Time Extended | `YYYY-MM-DD hh:mm:ss.fffffff` 形式の文字列 |
 
-`Money` と `Numeric` は精度を保つために文字列で返します。
+`Money`、`Numeric`、`DateTimeExtended` は精度を保つために文字列で返します。
 `Timestamp` は Access 内部の OLE Date 形式（1899-12-30 を基準とした浮動小数点の日数）をそのまま返します。
+`DateTimeExtended` は `YYYY-MM-DD hh:mm:ss.fffffff` の形で、秒の端数は 100 ナノ秒単位です。端数が 0 のときは `YYYY-MM-DD hh:mm:ss`、時刻も 0 のときは `YYYY-MM-DD` になります。
 
 # その他の機能
 
@@ -333,7 +335,7 @@ fn main() -> Result<(), jetdb::FileError> {
 
 ## オブジェクトのプロパティ
 
-[`read_object_properties`] で、テーブルとその列の説明や書式など、オブジェクトのプロパティを読みます。プロパティは、オブジェクト自身のものと列ごとのもので、まとまり（[`PropertyMap`]）に分かれています。
+[`read_object_properties`] で、テーブルとその列の説明や書式など、オブジェクトのプロパティを読みます。プロパティは、オブジェクト自身のもの、列ごとのもの、追加のプロパティ（[`PropMapType::Additional`]）で、まとまり（[`PropertyMap`]）に分かれています。
 
 ```rust,no_run
 use jetdb::{PageReader, read_object_properties};
@@ -417,8 +419,15 @@ fn list_tables(bytes: Vec<u8>) -> Result<Vec<String>, jetdb::FileError> {
 
 # エラーハンドリング
 
-すべての公開関数は `Result<T,` [`FileError`]`>` を返します。
+失敗しうる関数は `Result<T,` [`FileError`]`>` を返します。
 [`FileError`] は I/O エラー、フォーマット不正、オブジェクト未検出などのバリアントを持つ enum で、`?` 演算子でそのまま伝播できます。
+
+それ以外の関数は、別の型を返します。
+
+- 読み取り済みの値を扱う関数は、結果をそのまま返します。[`query_to_sql`]、[`ddl::generate_ddl`]、[`data_macros_to_text`]、[`control_type_label`]、[`timestamp::format_timestamp`] などです。[`embedded_macro_to_text`] は `Option` を返し、埋め込みマクロでないとき、マクロの表（grid）がないとき、イベント名がないときは `None` です。
+- 番号から引く関数は `Option` を返し、jetdb が知らない番号では `None` です。[`control_type_name`]、[`macro_action()`] などです。
+- [`calculated_column_types`] と [`calculated_column_types_in`] はエラーを返さずにマップを返します。テーブルのプロパティを読めないときは空のマップです。
+- [`encoding::decode_text`]、[`encoding::decode_utf16le`]、[`JetVersion::from_byte`] は `Result<T,` [`FormatError`]`>` を返します。これは `?` で [`FileError`] に変換されます。
 
 # 対応バージョン
 
