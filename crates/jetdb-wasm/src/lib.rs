@@ -206,17 +206,29 @@ pub struct Macro {
     pub text: Option<String>,
 }
 
-/// Why `Database::properties` gave no properties.
+/// Why a method of `Database` that reads more than the library gives, such as
+/// `Database::properties` or `Database::rows`, failed.
 #[derive(Debug)]
-pub enum PropertiesError {
+pub enum ReadError {
     File(FileError),
     /// No object of that name, or of that name and type.
     NotFound,
     /// Objects of these types share the name, and no type was given.
     SeveralTypes(Vec<ObjectType>),
+    /// The database holds a kind of column type, value, query or module that
+    /// the library knows and this build of jetdb-wasm does not; the message
+    /// says which.
+    NotSupported(String),
 }
 
-impl From<FileError> for PropertiesError {
+/// The error of `value`, a `what` of a kind this build does not know.
+pub(crate) fn not_supported(what: &str, value: &impl std::fmt::Debug) -> ReadError {
+    ReadError::NotSupported(format!(
+        "{what} of a kind jetdb-wasm does not read: {value:?}"
+    ))
+}
+
+impl From<FileError> for ReadError {
     fn from(error: FileError) -> Self {
         Self::File(error)
     }
@@ -296,12 +308,14 @@ pub enum Cell {
     Record(Vec<(&'static str, Cell)>),
 }
 
-impl From<BlobValue> for Cell {
+impl TryFrom<BlobValue> for Cell {
+    type Error = ReadError;
+
     /// A GUID becomes its string, and a number a JavaScript number: a 32-bit
     /// value of type 0x04, often a color, is the signed number Access writes
     /// in SaveAsText (see `BlobValue::Long`).
-    fn from(value: BlobValue) -> Self {
-        match value {
+    fn try_from(value: BlobValue) -> Result<Self, ReadError> {
+        Ok(match value {
             BlobValue::Bool(v) => Cell::Bool(v),
             BlobValue::NotDefault => Cell::String("NotDefault".to_string()),
             BlobValue::Short(v) => Cell::Number(v.into()),
@@ -309,17 +323,19 @@ impl From<BlobValue> for Cell {
             BlobValue::Double(v) => Cell::Number(v),
             BlobValue::Guid(s) | BlobValue::Text(s) => Cell::String(s),
             BlobValue::Binary(bytes) => Cell::Bytes(bytes),
-            _ => Cell::Null,
-        }
+            unknown => return Err(not_supported("property value", &unknown)),
+        })
     }
 }
 
-impl From<Value> for Cell {
+impl TryFrom<Value> for Cell {
+    type Error = ReadError;
+
     /// Money, Numeric and DateTimeExtended stay strings so that no digits are
     /// lost, and Timestamp becomes the string `jetdb export` writes by
     /// default.
-    fn from(value: Value) -> Self {
-        match value {
+    fn try_from(value: Value) -> Result<Self, ReadError> {
+        Ok(match value {
             Value::Null => Cell::Null,
             Value::Bool(v) => Cell::Bool(v),
             number @ (Value::Byte(_)
@@ -335,8 +351,8 @@ impl From<Value> for Cell {
             | Value::Guid(s)
             | Value::DateTimeExtended(s) => Cell::String(s),
             Value::Binary(bytes) => Cell::Bytes(bytes),
-            _ => Cell::Null,
-        }
+            unknown => return Err(not_supported("value", &unknown)),
+        })
     }
 }
 
@@ -347,7 +363,7 @@ fn row_cells(
     mut values: Vec<Value>,
     shown: &[usize],
     columns: &[Option<&ComplexColumn>],
-) -> Result<Vec<Cell>, FileError> {
+) -> Result<Vec<Cell>, ReadError> {
     shown
         .iter()
         .zip(columns)
@@ -364,50 +380,53 @@ fn cell(
     reader: &mut PageReader,
     value: Value,
     column: Option<&ComplexColumn>,
-) -> Result<Cell, FileError> {
+) -> Result<Cell, ReadError> {
     match (column, value) {
         (Some(column), Value::Long(n)) => {
-            Ok(complex_cell(column.values(reader, n)?).unwrap_or(Cell::Number(n.into())))
+            Ok(complex_cell(column.values(reader, n)?)?.unwrap_or(Cell::Number(n.into())))
         }
-        (_, value) => Ok(value.into()),
+        (_, value) => value.try_into(),
     }
 }
 
 /// The cell of the values of a complex column in a row; `None` for a kind
 /// jetdb does not know.
-fn complex_cell(values: ComplexValues) -> Option<Cell> {
+fn complex_cell(values: ComplexValues) -> Result<Option<Cell>, ReadError> {
     let cells = match values {
-        ComplexValues::MultiValue(values) => values.into_iter().map(Cell::from).collect(),
+        ComplexValues::MultiValue(values) => values
+            .into_iter()
+            .map(Cell::try_from)
+            .collect::<Result<_, _>>()?,
         ComplexValues::Attachment(files) => files
             .into_iter()
             .map(|f| {
-                Cell::Record(vec![
-                    ("name", f.name.into()),
-                    ("type", f.file_type.into()),
-                    ("data", f.data.into()),
-                    ("url", f.url.into()),
-                    ("timestamp", f.timestamp.into()),
-                    ("flags", f.flags.into()),
-                ])
+                Ok(Cell::Record(vec![
+                    ("name", f.name.try_into()?),
+                    ("type", f.file_type.try_into()?),
+                    ("data", f.data.try_into()?),
+                    ("url", f.url.try_into()?),
+                    ("timestamp", f.timestamp.try_into()?),
+                    ("flags", f.flags.try_into()?),
+                ]))
             })
-            .collect(),
+            .collect::<Result<_, ReadError>>()?,
         ComplexValues::VersionHistory(versions) => versions
             .into_iter()
             .map(|v| {
-                Cell::Record(vec![
-                    ("value", v.value.into()),
-                    ("modified", v.modified.into()),
-                ])
+                Ok(Cell::Record(vec![
+                    ("value", v.value.try_into()?),
+                    ("modified", v.modified.try_into()?),
+                ]))
             })
-            .collect(),
-        ComplexValues::Unknown => return None,
-        _ => return None,
+            .collect::<Result<_, ReadError>>()?,
+        ComplexValues::Unknown => return Ok(None),
+        unknown => return Err(not_supported("complex column", &unknown)),
     };
-    Some(Cell::List(cells))
+    Ok(Some(Cell::List(cells)))
 }
 
 /// The number of a Byte, Int, Long, Float or Double value, which is all that
-/// `Cell::from` passes here.
+/// `Cell::try_from` passes here.
 fn number_value(value: &Value) -> f64 {
     match *value {
         Value::Byte(v) => v.into(),
@@ -459,30 +478,29 @@ impl Database {
 
     /// The columns of `table` in the order Access shows them, without the
     /// columns Access maintains and hides, as `jetdb export` leaves them out.
-    pub fn columns(&mut self, table: &str) -> Result<Vec<Column>, FileError> {
+    pub fn columns(&mut self, table: &str) -> Result<Vec<Column>, ReadError> {
         let (tdef, system_table) = self.table_def(table)?;
         // The declared type of a calculated column is a placeholder; its
         // values have the type of its result, as rows reads them, and no
         // fixed precision or scale, as in the DDL.
         let calculated = calculated_column_types_in(self.catalog()?, &tdef);
         let tdef = with_calculated_column_types(&tdef, &calculated);
-        Ok(tdef
-            .columns
+        tdef.columns
             .iter()
             .filter(|c| c.is_shown(system_table))
             .map(|c| {
                 let numeric = c.col_type == ColumnType::Numeric;
-                Column {
+                Ok(Column {
                     name: c.name.clone(),
-                    type_name: type_name(&c.col_type),
+                    type_name: type_name(&c.col_type)?.to_string(),
                     size: tdef.shown_size(c),
                     precision: if numeric { c.precision } else { 0 },
                     scale: if numeric { c.scale } else { 0 },
                     auto_number: c.is_auto_number(),
                     calculated: c.is_calculated,
-                }
+                })
             })
-            .collect())
+            .collect()
     }
 
     /// The indexes of `table`, as `jetdb schema` lists them: without the
@@ -520,7 +538,7 @@ impl Database {
 
     /// The rows of `table`, with the columns that [`Database::columns`]
     /// returns, as `jetdb export` reads them.
-    pub fn rows(&mut self, table: &str) -> Result<Rows, FileError> {
+    pub fn rows(&mut self, table: &str) -> Result<Rows, ReadError> {
         self.rows_from(table, RowPosition::default(), None)
     }
 
@@ -532,7 +550,7 @@ impl Database {
         table: &str,
         start: RowPosition,
         limit: Option<usize>,
-    ) -> Result<Rows, FileError> {
+    ) -> Result<Rows, ReadError> {
         let (tdef, system_table) = self.table_def(table)?;
         let shown = shown_columns(&tdef, system_table);
         self.read_complex_columns(&tdef, &shown)?;
@@ -625,7 +643,7 @@ impl Database {
     /// The saved queries, sorted by name: without the system and hidden
     /// ones, such as those Access makes for forms and reports, as `tables`
     /// leaves them out, and with `include_system` all of them.
-    pub fn queries(&mut self, include_system: bool) -> Result<Vec<Query>, FileError> {
+    pub fn queries(&mut self, include_system: bool) -> Result<Vec<Query>, ReadError> {
         self.query_defs()?;
         let catalog = self
             .catalog
@@ -635,11 +653,13 @@ impl Database {
         let mut out: Vec<Query> = queries
             .iter()
             .filter(|q| include_system || !is_system_or_hidden_query(catalog, &q.name))
-            .map(|q| Query {
-                type_name: query_type_name(q.query_type),
-                name: q.name.clone(),
+            .map(|q| {
+                Ok(Query {
+                    type_name: query_type_name(q.query_type)?,
+                    name: q.name.clone(),
+                })
             })
-            .collect();
+            .collect::<Result<_, ReadError>>()?;
         out.sort_unstable_by(|a, b| a.name.cmp(&b.name));
         Ok(out)
     }
@@ -664,15 +684,17 @@ impl Database {
 
     /// The VBA modules, sorted by name, as `jetdb vba list` lists them, and
     /// none when the database has no VBA.
-    pub fn modules(&mut self) -> Result<Vec<Module>, FileError> {
+    pub fn modules(&mut self) -> Result<Vec<Module>, ReadError> {
         let mut out: Vec<Module> = self
             .vba_modules()?
             .iter()
-            .map(|m| Module {
-                name: m.name.clone(),
-                type_name: module_type_name(m.module_type),
+            .map(|m| {
+                Ok(Module {
+                    name: m.name.clone(),
+                    type_name: module_type_name(m.module_type)?,
+                })
             })
-            .collect();
+            .collect::<Result<_, ReadError>>()?;
         out.sort_unstable_by(|a, b| a.name.cmp(&b.name));
         Ok(out)
     }
@@ -709,7 +731,7 @@ impl Database {
         &mut self,
         name: &str,
         form_type: Option<FormObjectType>,
-    ) -> Result<Vec<ControlEntry>, PropertiesError> {
+    ) -> Result<Vec<ControlEntry>, ReadError> {
         let form_type = self.form_type(name, form_type)?;
         let design = read_form_properties_in(self.storage()?, name, form_type)?;
         Ok(controls_of(design))
@@ -722,7 +744,7 @@ impl Database {
         name: &str,
         kind: StreamKind,
         form_type: Option<FormObjectType>,
-    ) -> Result<Vec<u8>, PropertiesError> {
+    ) -> Result<Vec<u8>, ReadError> {
         let form_type = self.form_type(name, form_type)?;
         Ok(read_form_stream_in(self.storage()?, name, form_type, kind)?.data)
     }
@@ -734,33 +756,37 @@ impl Database {
         &mut self,
         name: &str,
         form_type: Option<FormObjectType>,
-    ) -> Result<FormDesign, PropertiesError> {
+    ) -> Result<FormDesign, ReadError> {
         let form_type = self.form_type(name, form_type)?;
         let read = read_form_properties_in(self.storage()?, name, form_type)?;
         let properties = |properties: Vec<BlobProperty>| {
             properties
                 .into_iter()
-                .map(|p| FormProperty {
-                    id: p.prop_id,
-                    name: p.display_name(),
-                    value: p.value.into(),
+                .map(|p| {
+                    Ok(FormProperty {
+                        id: p.prop_id,
+                        name: p.display_name(),
+                        value: p.value.try_into()?,
+                    })
                 })
-                .collect()
+                .collect::<Result<_, ReadError>>()
         };
         Ok(FormDesign {
             name: read.form_name,
             type_name: form_type_name(read.object_type),
-            properties: properties(read.properties),
+            properties: properties(read.properties)?,
             controls: read
                 .controls
                 .into_iter()
-                .map(|c| Control {
-                    name: c.name,
-                    type_name: control_type_label(c.type_code),
-                    type_code: c.type_code,
-                    properties: properties(c.properties),
+                .map(|c| {
+                    Ok(Control {
+                        name: c.name,
+                        type_name: control_type_label(c.type_code),
+                        type_code: c.type_code,
+                        properties: properties(c.properties)?,
+                    })
                 })
-                .collect(),
+                .collect::<Result<_, ReadError>>()?,
         })
     }
 
@@ -794,7 +820,7 @@ impl Database {
         &mut self,
         form: &str,
         form_type: Option<FormObjectType>,
-    ) -> Result<Vec<Macro>, PropertiesError> {
+    ) -> Result<Vec<Macro>, ReadError> {
         let form_type = self.form_type(form, form_type)?;
         let macros = read_embedded_macros_in(self.storage()?, form, form_type)?;
         Ok(macros
@@ -831,7 +857,7 @@ impl Database {
         &mut self,
         name: &str,
         object_type: Option<ObjectType>,
-    ) -> Result<ObjectProperties, PropertiesError> {
+    ) -> Result<ObjectProperties, ReadError> {
         let text = self.reader.text_encoding();
         let entry = only_entry_named(self.catalog()?, name, object_type)?;
         let read = match entry {
@@ -840,20 +866,17 @@ impl Database {
             // without a type, read MSysObjects again by the name alone, as
             // `jetdb prop` does.
             None if object_type.is_none() => self.properties_by_name(name)?,
-            None => return Err(PropertiesError::NotFound),
+            None => return Err(ReadError::NotFound),
         };
-        Ok(grouped_properties(read))
+        grouped_properties(read)
     }
 
     /// The properties of the object `name` read from MSysObjects by the name
     /// alone; not found when it has none.
-    fn properties_by_name(
-        &mut self,
-        name: &str,
-    ) -> Result<jetdb::ObjectProperties, PropertiesError> {
+    fn properties_by_name(&mut self, name: &str) -> Result<jetdb::ObjectProperties, ReadError> {
         let read = read_object_properties(&mut self.reader, name)?;
         if read.maps.is_empty() {
-            return Err(PropertiesError::NotFound);
+            return Err(ReadError::NotFound);
         }
         Ok(read)
     }
@@ -928,7 +951,7 @@ impl Database {
         &mut self,
         name: &str,
         given: Option<FormObjectType>,
-    ) -> Result<Option<FormObjectType>, PropertiesError> {
+    ) -> Result<Option<FormObjectType>, ReadError> {
         if given.is_some() {
             return Ok(given);
         }
@@ -939,7 +962,7 @@ impl Database {
             }
         }
         match types.as_slice() {
-            [_, _, ..] => Err(PropertiesError::SeveralTypes(vec![
+            [_, _, ..] => Err(ReadError::SeveralTypes(vec![
                 ObjectType::Form,
                 ObjectType::Report,
             ])),
@@ -979,12 +1002,30 @@ impl Database {
 
 /// The name of a column type, as `jetdb schema` prints it but without the
 /// size, and `Unknown` for a type jetdb does not know, which `jetdb schema`
-/// prints with its code.
-fn type_name(column_type: &ColumnType) -> String {
-    match column_type {
-        ColumnType::Unknown(_) => "Unknown".to_string(),
-        known => known.to_string(),
-    }
+/// prints with its code. A type the library has and this build does not know
+/// is an error, as its name would not be one of the TypeScript `ColumnType`.
+fn type_name(column_type: &ColumnType) -> Result<&'static str, ReadError> {
+    Ok(match column_type {
+        ColumnType::Boolean => "Boolean",
+        ColumnType::Byte => "Byte",
+        ColumnType::Int => "Int",
+        ColumnType::Long => "Long",
+        ColumnType::Money => "Money",
+        ColumnType::Float => "Float",
+        ColumnType::Double => "Double",
+        ColumnType::Timestamp => "Timestamp",
+        ColumnType::Binary => "Binary",
+        ColumnType::Text => "Text",
+        ColumnType::Ole => "Ole",
+        ColumnType::Memo => "Memo",
+        ColumnType::Guid => "Guid",
+        ColumnType::Numeric => "Numeric",
+        ColumnType::ComplexType => "ComplexType",
+        ColumnType::BigInt => "BigInt",
+        ColumnType::DateTimeExtended => "DateTimeExtended",
+        ColumnType::Unknown(_) => "Unknown",
+        unknown => return Err(not_supported("column type", unknown)),
+    })
 }
 
 /// `true` when `name` is a table, linked or not, that Access keeps from users,
@@ -1032,7 +1073,7 @@ fn read_cells(
     limit: Option<usize>,
     shown: &[usize],
     columns: &[Option<&ComplexColumn>],
-) -> Result<Vec<Vec<Cell>>, FileError> {
+) -> Result<Vec<Vec<Cell>>, ReadError> {
     let mut rows = Vec::new();
     while limit.is_none_or(|limit| rows.len() < limit) {
         let Some(row) = table_rows.next_row(reader)? else {
@@ -1051,7 +1092,7 @@ fn only_entry_named<'a>(
     catalog: &'a [CatalogEntry],
     name: &str,
     object_type: Option<ObjectType>,
-) -> Result<Option<&'a CatalogEntry>, PropertiesError> {
+) -> Result<Option<&'a CatalogEntry>, ReadError> {
     let entries: Vec<&CatalogEntry> = catalog
         .iter()
         .filter(|e| e.name == name && object_type.is_none_or(|t| e.object_type == t))
@@ -1065,26 +1106,28 @@ fn only_entry_named<'a>(
     match (types.len(), entries.first()) {
         (_, None) => Ok(None),
         (1, Some(first)) => Ok(Some(*first)),
-        _ => Err(PropertiesError::SeveralTypes(types)),
+        _ => Err(ReadError::SeveralTypes(types)),
     }
 }
 
 /// The properties of `read` as `Database::properties` gives them: those of
 /// the object itself, of each column, and the additional groups.
-fn grouped_properties(read: jetdb::ObjectProperties) -> ObjectProperties {
+fn grouped_properties(read: jetdb::ObjectProperties) -> Result<ObjectProperties, ReadError> {
     let mut out = ObjectProperties::default();
     for map in read.maps {
         let properties: Vec<Property> = map
             .properties
             .into_iter()
-            .map(|p| Property {
-                name: p.name,
-                value: p.value.into(),
+            .map(|p| {
+                Ok(Property {
+                    name: p.name,
+                    value: p.value.try_into()?,
+                })
             })
-            .collect();
-        add_properties(&mut out, map.map_type, map.name, properties);
+            .collect::<Result<_, ReadError>>()?;
+        add_properties(&mut out, map.map_type, map.name, properties)?;
     }
-    out
+    Ok(out)
 }
 
 /// Adds to `out` the `properties` of a map of `map_type` named `name`.
@@ -1093,13 +1136,14 @@ fn add_properties(
     map_type: PropMapType,
     name: String,
     properties: Vec<Property>,
-) {
+) -> Result<(), ReadError> {
     match map_type {
         PropMapType::Default => out.object.extend(properties),
         PropMapType::Column => out.columns.push(PropertyGroup { name, properties }),
         PropMapType::Additional => out.additional.push(PropertyGroup { name, properties }),
-        _ => {}
+        unknown => return Err(not_supported("property map", &unknown)),
     }
+    Ok(())
 }
 
 fn is_system_or_hidden_table(catalog: &[CatalogEntry], name: &str) -> bool {
@@ -1113,8 +1157,8 @@ fn is_system_or_hidden_table(catalog: &[CatalogEntry], name: &str) -> bool {
 }
 
 /// The name of a query type, as JavaScript gets it.
-fn query_type_name(query_type: QueryType) -> &'static str {
-    match query_type {
+fn query_type_name(query_type: QueryType) -> Result<&'static str, ReadError> {
+    Ok(match query_type {
         QueryType::Select => "Select",
         QueryType::MakeTable => "MakeTable",
         QueryType::Append => "Append",
@@ -1124,8 +1168,8 @@ fn query_type_name(query_type: QueryType) -> &'static str {
         QueryType::Ddl => "Ddl",
         QueryType::Passthrough => "Passthrough",
         QueryType::Union => "Union",
-        _ => "Unknown",
-    }
+        unknown => return Err(not_supported("query", &unknown)),
+    })
 }
 
 /// The name of a form type, as JavaScript gets it.
@@ -1137,19 +1181,21 @@ pub(crate) fn form_type_name(form_type: FormObjectType) -> &'static str {
 }
 
 /// The name of a VBA module type, as JavaScript gets it.
-fn module_type_name(module_type: VbaModuleType) -> &'static str {
-    match module_type {
+fn module_type_name(module_type: VbaModuleType) -> Result<&'static str, ReadError> {
+    Ok(match module_type {
         VbaModuleType::Standard => "Standard",
         VbaModuleType::Class => "Class",
         VbaModuleType::Document => "Document",
-        _ => "Unknown",
-    }
+        unknown => return Err(not_supported("VBA module", &unknown)),
+    })
 }
 
 /// The stable code of an error, which JavaScript gets as the `code` of the
 /// error it catches: one code for each thing a caller may do about it, so the
 /// ways a file can be broken all share `INVALID_FILE`, their message telling
-/// them apart.
+/// them apart. An error of a kind the library has and this build does not
+/// know is `UNKNOWN_ERROR`, as there is no telling what a caller may do about
+/// it.
 pub fn error_code(error: &FileError) -> &'static str {
     match error {
         FileError::PasswordRequired => "PASSWORD_REQUIRED",
@@ -1173,7 +1219,7 @@ pub fn error_code(error: &FileError) -> &'static str {
         | FileError::IncompleteQuery { .. } => "INVALID_FILE",
         FileError::Jet3FormsNotRead => "NOT_SUPPORTED",
         FileError::Io(_) => "IO",
-        _ => "INVALID_FILE",
+        _ => "UNKNOWN_ERROR",
     }
 }
 
@@ -1223,7 +1269,7 @@ mod tests {
     fn query_type_name_all_variants() {
         // The names are the QueryType union declared in js.rs.
         assert_eq!(
-            QueryType::ALL.map(query_type_name),
+            QueryType::ALL.map(|t| query_type_name(t).unwrap()),
             [
                 "Select",
                 "MakeTable",
@@ -1241,7 +1287,7 @@ mod tests {
     #[test]
     fn module_type_name_all_variants() {
         assert_eq!(
-            VbaModuleType::ALL.map(module_type_name),
+            VbaModuleType::ALL.map(|t| module_type_name(t).unwrap()),
             ["Standard", "Class", "Document"]
         );
     }
@@ -1259,7 +1305,7 @@ mod tests {
         assert_eq!(
             PropMapType::ALL.map(|t| {
                 let mut out = ObjectProperties::default();
-                add_properties(&mut out, t, "Name".to_string(), vec![property()]);
+                add_properties(&mut out, t, "Name".to_string(), vec![property()]).unwrap();
                 out
             }),
             [
@@ -1332,7 +1378,7 @@ mod tests {
         assert!(!db.columns("Table1").unwrap().is_empty());
         assert!(matches!(
             db.columns(&other),
-            Err(FileError::TableNotFound { .. })
+            Err(ReadError::File(FileError::TableNotFound { .. }))
         ));
     }
 
@@ -1351,7 +1397,9 @@ mod tests {
             let error = db.tables(false).unwrap_err();
             assert_eq!(error_code(&error), "INVALID_FILE", "{error}");
         }
-        let error = db.columns("Table1").unwrap_err();
+        let ReadError::File(error) = db.columns("Table1").unwrap_err() else {
+            panic!("expected a file error");
+        };
         assert_eq!(error_code(&error), "INVALID_FILE", "{error}");
         assert!(db.catalog.is_none());
     }
@@ -1422,7 +1470,7 @@ mod tests {
             ColumnType::DateTimeExtended,
             ColumnType::Unknown(0x99),
         ];
-        let names: Vec<String> = types.iter().map(type_name).collect();
+        let names: Vec<&str> = types.iter().map(|t| type_name(t).unwrap()).collect();
         assert_eq!(
             names,
             [
@@ -1515,7 +1563,7 @@ mod tests {
         let mut db = Database::open(bytes, None).unwrap();
         assert!(matches!(
             db.columns("NoSuchTable"),
-            Err(FileError::TableNotFound { name }) if name == "NoSuchTable"
+            Err(ReadError::File(FileError::TableNotFound { name })) if name == "NoSuchTable"
         ));
     }
 
@@ -1896,7 +1944,7 @@ mod tests {
         ));
         assert!(matches!(
             db.embedded_macros("NoSuchForm", None),
-            Err(PropertiesError::File(FileError::FormNotFound { .. }))
+            Err(ReadError::File(FileError::FormNotFound { .. }))
         ));
         assert!(matches!(
             db.data_macros("NoSuchTable"),
@@ -1956,11 +2004,11 @@ mod tests {
         // Without a type there is no telling which one is meant.
         assert!(matches!(
             db.form_properties("Shared", None),
-            Err(PropertiesError::SeveralTypes(_))
+            Err(ReadError::SeveralTypes(_))
         ));
         assert!(matches!(
             db.embedded_macros("Shared", None),
-            Err(PropertiesError::SeveralTypes(_))
+            Err(ReadError::SeveralTypes(_))
         ));
         for (form_type, type_name, caption, event) in [
             (FormObjectType::Form, "Form", "Shared form", "OnLoad"),
@@ -2005,7 +2053,7 @@ mod tests {
         let got = db
             .form_stream(&entry.name, kind, Some(entry.object_type))
             .map_err(|e| match e {
-                PropertiesError::File(e) => e.to_string(),
+                ReadError::File(e) => e.to_string(),
                 other => panic!("{other:?}"),
             });
         (got, expected)
@@ -2062,7 +2110,7 @@ mod tests {
         let got = db
             .form_controls(&entry.name, Some(entry.object_type))
             .map_err(|e| match e {
-                PropertiesError::File(e) => e.to_string(),
+                ReadError::File(e) => e.to_string(),
                 other => panic!("{other:?}"),
             });
         (got, expected)
@@ -2110,7 +2158,7 @@ mod tests {
         let mut db = Database::open(bytes.clone(), None).unwrap();
         assert!(matches!(
             db.form_controls("Shared", None),
-            Err(PropertiesError::SeveralTypes(_))
+            Err(ReadError::SeveralTypes(_))
         ));
         let mut reader = PageReader::open_reader(Cursor::new(bytes)).unwrap();
         for object_type in [FormObjectType::Form, FormObjectType::Report] {
@@ -2123,7 +2171,7 @@ mod tests {
         }
         assert!(matches!(
             db.form_controls("NoSuchForm", None),
-            Err(PropertiesError::File(FileError::FormNotFound { .. }))
+            Err(ReadError::File(FileError::FormNotFound { .. }))
         ));
     }
 
@@ -2133,7 +2181,7 @@ mod tests {
         let mut db = Database::open(bytes.clone(), None).unwrap();
         assert!(matches!(
             db.form_stream("Shared", StreamKind::Blob, None),
-            Err(PropertiesError::SeveralTypes(_))
+            Err(ReadError::SeveralTypes(_))
         ));
         let mut reader = PageReader::open_reader(Cursor::new(bytes)).unwrap();
         for object_type in [FormObjectType::Form, FormObjectType::Report] {
@@ -2149,7 +2197,7 @@ mod tests {
         }
         assert!(matches!(
             db.form_stream("NoSuchForm", StreamKind::Blob, None),
-            Err(PropertiesError::File(FileError::FormNotFound { .. }))
+            Err(ReadError::File(FileError::FormNotFound { .. }))
         ));
     }
 
@@ -2242,7 +2290,7 @@ mod tests {
         assert_eq!(*value("0x0250"), Cell::Bool(true));
         assert!(matches!(
             db.form_properties("NoSuchForm", None),
-            Err(PropertiesError::File(FileError::FormNotFound { .. }))
+            Err(ReadError::File(FileError::FormNotFound { .. }))
         ));
     }
 
@@ -2514,8 +2562,7 @@ mod tests {
         // nwind.mdb has a form, a macro and a table all named Customers.
         let bytes = skip_if_missing!("V1997/nwind.mdb");
         let mut db = Database::open(bytes, None).unwrap();
-        let PropertiesError::SeveralTypes(mut types) =
-            db.properties("Customers", None).unwrap_err()
+        let ReadError::SeveralTypes(mut types) = db.properties("Customers", None).unwrap_err()
         else {
             panic!("expected several types");
         };
@@ -2535,7 +2582,7 @@ mod tests {
         ));
         assert!(matches!(
             db.properties("Customers", Some(ObjectType::Query)),
-            Err(PropertiesError::NotFound)
+            Err(ReadError::NotFound)
         ));
     }
 
@@ -2554,8 +2601,7 @@ mod tests {
 
         let table = db.properties("Customers", Some(ObjectType::Table)).unwrap();
         assert!(table.columns.iter().any(|c| c.name == "CustomerID"));
-        let PropertiesError::SeveralTypes(mut types) =
-            db.properties("Customers", None).unwrap_err()
+        let ReadError::SeveralTypes(mut types) = db.properties("Customers", None).unwrap_err()
         else {
             panic!("expected several types");
         };
@@ -2572,7 +2618,7 @@ mod tests {
         let mut db = Database::open(bytes, None).unwrap();
         assert!(matches!(
             db.properties("NoSuchObject", None),
-            Err(PropertiesError::NotFound)
+            Err(ReadError::NotFound)
         ));
     }
 
@@ -2590,7 +2636,7 @@ mod tests {
         // With a type, only the catalog is searched.
         assert!(matches!(
             db.properties("Table1", Some(ObjectType::Table)),
-            Err(PropertiesError::NotFound)
+            Err(ReadError::NotFound)
         ));
     }
 
@@ -2992,7 +3038,7 @@ mod tests {
         let mut db = Database::open(bytes, None).unwrap();
         assert!(matches!(
             db.rows("NoSuchTable"),
-            Err(FileError::TableNotFound { name }) if name == "NoSuchTable"
+            Err(ReadError::File(FileError::TableNotFound { name })) if name == "NoSuchTable"
         ));
     }
 
@@ -3000,11 +3046,19 @@ mod tests {
     fn cells_of_values_without_test_data() {
         // Values no test database holds: the largest BigInt, and a Float
         // that is not finite.
-        assert_eq!(Cell::from(Value::BigInt(i64::MAX)), Cell::BigInt(i64::MAX));
-        assert_eq!(Cell::from(Value::Float(1.1)), Cell::Number(1.1));
-        assert!(matches!(Cell::from(Value::Float(f32::NAN)), Cell::Number(v) if v.is_nan()));
         assert_eq!(
-            Cell::from(Value::Float(f32::INFINITY)),
+            Cell::try_from(Value::BigInt(i64::MAX)).unwrap(),
+            Cell::BigInt(i64::MAX)
+        );
+        assert_eq!(
+            Cell::try_from(Value::Float(1.1)).unwrap(),
+            Cell::Number(1.1)
+        );
+        assert!(
+            matches!(Cell::try_from(Value::Float(f32::NAN)).unwrap(), Cell::Number(v) if v.is_nan())
+        );
+        assert_eq!(
+            Cell::try_from(Value::Float(f32::INFINITY)).unwrap(),
             Cell::Number(f64::INFINITY)
         );
     }
@@ -3059,9 +3113,9 @@ mod tests {
         assert_eq!(code(Database::open(vec![0; 10], None)), "INVALID_FILE");
         let bytes = skip_if_missing!("V2003/testV2003.mdb");
         let mut db = Database::open(bytes, None).unwrap();
-        assert_eq!(
-            error_code(&db.columns("NoSuchTable").unwrap_err()),
-            "TABLE_NOT_FOUND"
-        );
+        let ReadError::File(error) = db.columns("NoSuchTable").unwrap_err() else {
+            panic!("expected a file error");
+        };
+        assert_eq!(error_code(&error), "TABLE_NOT_FOUND");
     }
 }
