@@ -63,7 +63,7 @@ fn prop_table1() {
 }
 
 // ---------------------------------------------------------------------------
-// Nonexistent table: empty output
+// Nonexistent object: error
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -74,14 +74,74 @@ fn prop_nonexistent_table() {
         .output()
         .expect("failed to run jetdb");
     assert!(
+        !output.status.success(),
+        "should fail for nonexistent object"
+    );
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("jetdb: object not found: NoSuchTable_XYZ"),
+        "got: {stderr}"
+    );
+}
+
+#[test]
+fn prop_name_of_another_case_is_not_found() {
+    let path = skip_if_missing!("V2010/macroGeneratedTestV2010.accdb");
+    let output = jetdb_bin()
+        .args(["prop", path.to_str().unwrap(), "TBLITEMS"])
+        .output()
+        .expect("failed to run jetdb");
+    assert!(!output.status.success(), "should fail for TBLITEMS");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("jetdb: object not found: TBLITEMS"),
+        "got: {stderr}"
+    );
+}
+
+#[test]
+fn prop_object_of_another_type_is_not_found() {
+    // frmEmbedded is a form, not a query.
+    let path = skip_if_missing!("V2010/macroGeneratedTestV2010.accdb");
+    let output = jetdb_bin()
+        .args([
+            "prop",
+            "--type",
+            "query",
+            path.to_str().unwrap(),
+            "frmEmbedded",
+        ])
+        .output()
+        .expect("failed to run jetdb");
+    assert!(!output.status.success(), "should fail for a query");
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("jetdb: query not found: frmEmbedded"),
+        "got: {stderr}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Object without properties: empty output
+// ---------------------------------------------------------------------------
+
+#[test]
+fn prop_object_without_properties() {
+    // MSysObjects has no properties.
+    let path = skip_if_missing!("V2003/testV2003.mdb");
+    let output = jetdb_bin()
+        .args(["prop", path.to_str().unwrap(), "MSysObjects"])
+        .output()
+        .expect("failed to run jetdb");
+    assert!(
         output.status.success(),
-        "should succeed with empty output for nonexistent object"
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.trim().is_empty(),
-        "should produce empty output for nonexistent object, got:\n{stdout}"
-    );
+    assert!(stdout.is_empty(), "got:\n{stdout}");
 }
 
 // ---------------------------------------------------------------------------
