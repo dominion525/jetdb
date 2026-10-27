@@ -102,6 +102,9 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             archive: tar.gz
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            archive: tar.gz
           - os: macos-latest
             target: aarch64-apple-darwin
             archive: tar.gz
@@ -276,3 +279,57 @@ jobs:
           else
             npm publish
           fi
+
+  homebrew:
+    name: Homebrew
+    # After the GitHub release of a tag that is not a prerelease, so that brew
+    # installs only the version the release marks as the latest.
+    needs: release
+    if: ${{ !contains(github.ref_name, '-') && !contains(github.ref_name, 'alpha') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'rc') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      # The token is a fine-grained PAT that can write to the tap alone.
+      - name: Check out the Homebrew tap
+        uses: actions/checkout@v5
+        with:
+          repository: dominion525/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+
+      - name: Update the Homebrew formula
+        env:
+          FORMULA: tap/Formula/jetdb.rb
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+
+          # Only the lines that change per release are touched: the version in
+          # the url of each archive, and the sha256 on the line after it. The
+          # rest of the formula stays owned by the tap.
+          for target in aarch64-apple-darwin x86_64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu; do
+            archive="jetdb-${target}.tar.gz"
+            url="https://github.com/dominion525/jetdb/releases/download/v${version}/${archive}"
+            sha="$(sha256sum "artifacts/$archive" | cut -d' ' -f1)"
+            sed -i "s|\"https://github.com/dominion525/jetdb/releases/download/v[^/]*/${archive}\"\$|\"${url}\"|" "$FORMULA"
+            sed -i "\\|\"${url}\"\$|{n;s|sha256 \".*\"|sha256 \"${sha}\"|}" "$FORMULA"
+            # A sed that matched nothing would leave the formula stale
+            # without failing, so check each.
+            grep -A1 -F "\"${url}\"" "$FORMULA" | grep -q "sha256 \"${sha}\"" \
+              || { echo "::error::$archive was not updated in $FORMULA"; exit 1; }
+          done
+          ruby -c "$FORMULA"
+
+          cd tap
+          if git diff --quiet; then
+            echo "The formula already points at ${version}."
+            exit 0
+          fi
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -am "jetdb ${version}"
+          git push
