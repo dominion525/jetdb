@@ -6,7 +6,7 @@ or any platform Rust supports. Covers Access 97 (Jet3) through Access 2019 (ACE1
 
 ```toml
 [dependencies]
-jetdb = "0.3"
+jetdb = "0.4"
 ```
 
 ```rust,no_run
