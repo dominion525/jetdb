@@ -6,7 +6,7 @@ Access データベースを直接読み取れます。Access 97 (Jet3) から A
 
 ```toml
 [dependencies]
-jetdb = "0.3"
+jetdb = "0.4"
 ```
 
 ```rust,no_run

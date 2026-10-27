@@ -24,7 +24,15 @@ cargo install jetdb-cli
 
 ```toml
 [dependencies]
-jetdb = "0.3"
+jetdb = "0.4"
+```
+
+### npm パッケージ
+
+ブラウザと Node.js で使えます。TypeScript の型定義つきです。[docs/wasm.ja.md](docs/wasm.ja.md) を参照してください。
+
+```bash
+npm install jetdb-wasm
 ```
 
 ## CLI の使い方

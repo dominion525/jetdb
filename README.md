@@ -24,7 +24,15 @@ cargo install jetdb-cli
 
 ```toml
 [dependencies]
-jetdb = "0.3"
+jetdb = "0.4"
+```
+
+### npm Package
+
+For the browser and Node.js, with TypeScript types. See [docs/wasm.md](https://github.com/dominion525/jetdb/blob/main/docs/wasm.md).
+
+```bash
+npm install jetdb-wasm
 ```
 
 ## CLI Usage
