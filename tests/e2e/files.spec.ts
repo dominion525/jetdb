@@ -153,8 +153,8 @@ const SAMPLE = resolve(
 
 /**
  * サンプルのバイトを決まった種で書き換えて壊したファイルを、一時の場所に作る。
- * モジュールの一覧を読む所で jetdb-wasm がパニックする（jetdb 本体が VBA を読む ovba の中）。
- * 本体がこれをエラーとして返すようになると、このテストは落ちるので、そのときに見直す
+ * VBA の圧縮されたデータが壊れていて、jetdb-wasm 0.3 系まではモジュールの一覧を読む所でパニックした。
+ * 0.4.0 からは、パニックせずに jetdb のエラー（invalid VBA project）を返す
  */
 function corruptedSample(): string {
   const src = readFileSync(SAMPLE);
@@ -178,19 +178,26 @@ function corruptedSample(): string {
   return path;
 }
 
-test("jetdb-wasm が途中で止まる壊れたファイル: 止まった知らせを出し、次のファイルは開ける", async ({
+test("VBA の壊れたファイル: モジュールの一覧だけ読めなかった一文を出し、ほかは読めて、次のファイルも開ける", async ({
   page,
 }) => {
   const file = corruptedSample();
   await openDemo(page, "/demo/");
   await openFile(page, file);
   await expect(page.locator("#demo-current")).toHaveText("broken.accdb");
-  // モジュールの一覧で止まり、そのあとは何を読んでも止まった知らせになる
+  // モジュールの一覧は読めず、jetdb のエラーの文をそのまま出す（止まった知らせではない）
   await expect(page.locator("#demo-counts li").nth(5)).toHaveText("— modules");
-  await expect(page.locator(".viewer-group .viewer-error").first()).toHaveText(
-    /^Could not read: jetdb stopped partway through this file\. Open another file or reload the page \(.+\)\.$/,
+  const modules = page.locator(".viewer-group", {
+    has: page.locator("summary", { hasText: "Modules" }),
+  });
+  await expect(modules.locator(".viewer-error")).toHaveText(
+    /^Could not read: invalid VBA project: .+$/,
   );
-  // 止まった Database を抱えたまま、別のファイルを開ける
+  // ほかの種類は読める
+  await expect(page.locator("#demo-counts li").nth(0)).toHaveText(
+    /^\d+ tables?$/,
+  );
+  // 続けて別のファイルを開ける
   await openFile(page, SAMPLE);
   await expect(page.locator("#demo-current")).toHaveText("jetdb-sample.accdb");
   await expect(page.locator("#demo-counts li").nth(5)).toHaveText("2 modules");
