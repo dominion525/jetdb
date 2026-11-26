@@ -1,5 +1,11 @@
 # 変更履歴
 
+## 未リリース
+
+### 追加
+
+- レポートの並べ替えとグループ化（`FormProperties::break_levels`）：各グループレベルのプロパティ。SaveAsText の `Begin BreakLevel` のブロックにあたる。`SortOrder`、`GroupHeader`、`GroupFooter` には名前がつく。
+
 ## 0.4.0
 
 ### 追加

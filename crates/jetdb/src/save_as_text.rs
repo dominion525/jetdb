@@ -22,11 +22,20 @@ pub(crate) type Block = HashMap<String, Vec<Saved>>;
 /// form or report itself. Blocks without a name, such as those of the
 /// default controls, are left out.
 pub(crate) fn read(text: &str) -> HashMap<String, Block> {
+    read_all(text).found
+}
+
+/// The blocks `Begin BreakLevel` of a SaveAsText file of a report, in order.
+pub(crate) fn break_levels(text: &str) -> Vec<Block> {
+    read_all(text).break_levels
+}
+
+fn read_all(text: &str) -> Reader {
     let mut reader = Reader::default();
     for line in text.trim_start_matches('\u{feff}').lines() {
         reader.line(line.trim());
     }
-    reader.found
+    reader
 }
 
 #[derive(Default)]
@@ -38,6 +47,10 @@ struct Reader {
     binary: Option<String>,
     /// The key of the quoted value a continuation line adds to.
     last: Option<String>,
+    /// The blocks `Begin BreakLevel`, in order, which have no name.
+    break_levels: Vec<Block>,
+    /// Whether each block being read is a `Begin BreakLevel`.
+    is_break_level: Vec<bool>,
 }
 
 impl Reader {
@@ -54,6 +67,7 @@ impl Reader {
             self.binary = Some(key.to_string());
         } else if line == "Begin" || line.starts_with("Begin ") {
             self.blocks.push((None, Block::new()));
+            self.is_break_level.push(line == "Begin BreakLevel");
         } else if line == "End" {
             self.close();
         } else {
@@ -91,6 +105,10 @@ impl Reader {
         let Some((name, block)) = self.blocks.pop() else {
             return;
         };
+        if self.is_break_level.pop() == Some(true) {
+            self.break_levels.push(block);
+            return;
+        }
         let name = if self.blocks.is_empty() {
             Some(String::new())
         } else {
@@ -306,9 +324,27 @@ impl Checked {
     pub(crate) fn object(
         &mut self,
         saved: &HashMap<String, Block>,
+        saved_break_levels: &[Block],
         read: &FormProperties,
         skipped: &[&str],
     ) {
+        if read.break_levels.len() != saved_break_levels.len() {
+            self.problems.push(format!(
+                "{}: {} break levels, {} in SaveAsText",
+                read.form_name,
+                read.break_levels.len(),
+                saved_break_levels.len()
+            ));
+        }
+        for (i, (properties, block)) in read
+            .break_levels
+            .iter()
+            .zip(saved_break_levels)
+            .enumerate()
+        {
+            let at = format!("{}/BreakLevel {i}", read.form_name);
+            self.group(&at, Some(block), properties, 0x9F);
+        }
         let mut names = HashSet::new();
         for control in &read.controls {
             if !names.insert(control.name.as_str()) {

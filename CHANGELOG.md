@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- The Sorting and Grouping of a report (`FormProperties::break_levels`): the properties of each group level, the blocks `Begin BreakLevel` of SaveAsText. `SortOrder`, `GroupHeader` and `GroupFooter` are named.
+
 ## 0.4.0
 
 ### Added

@@ -286,6 +286,7 @@ fn main() -> Result<(), jetdb::FileError> {
 
 Use [`list_forms`] to list the forms and reports, and [`read_form_properties_of_type`] to read the design of one: the properties of the form or report itself, and those of each section and control.
 A property is named by [`BlobProperty::display_name`], which gives `0xXXXX` for a property whose name is not known, and its value ([`BlobValue`]) prints as text.
+The Sorting and Grouping of a report is in [`FormProperties::break_levels`]: the properties of each group level in order, such as `ControlSource`, `SortOrder`, `GroupHeader` and `GroupFooter`.
 
 ```rust,no_run
 use jetdb::{PageReader, control_type_label, list_forms, read_form_properties_of_type};
