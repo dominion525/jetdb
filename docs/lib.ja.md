@@ -313,6 +313,7 @@ fn main() -> Result<(), jetdb::FileError> {
 
 3 種類のマクロを、どれも [`MacroDef`] として読みます。名前付きマクロは [`list_macros`] と [`read_macro`] で、フォームやレポートのイベントに埋め込まれたマクロは [`read_embedded_macros`] で、テーブルのデータマクロは [`read_data_macros`] で読みます。
 [`MacroDef`] は、マクロの文の並び（[`MacroStatement`]）、読み取り元の XML、名前付きマクロと埋め込みマクロのマクロの表（grid）を持ちます。
+埋め込みマクロは、それを持つプロパティの ID（[`MacroDef::property_id`]）も持ちます。これはそのイベントのプロパティの ID です。XML がコントロールを示さないときは、そのプロパティのコントロールのものになります。
 
 ```rust,no_run
 use jetdb::{MacroStatement, PageReader, list_macros, read_macro};

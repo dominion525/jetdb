@@ -5,6 +5,11 @@
 ### 追加
 
 - レポートの並べ替えとグループ化（`FormProperties::break_levels`）：各グループレベルのプロパティ。SaveAsText の `Begin BreakLevel` のブロックにあたる。`SortOrder`、`GroupHeader`、`GroupFooter` には名前がつく。
+- 埋め込みマクロを持つプロパティの ID（`MacroDef::property_id`）。そのイベントのプロパティの ID。
+
+### 変更
+
+- XML がコントロールを示さない、または XML のない埋め込みマクロは、それを持つプロパティのコントロールのものになる。
 
 ## 0.4.0
 

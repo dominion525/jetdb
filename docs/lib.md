@@ -313,6 +313,7 @@ fn main() -> Result<(), jetdb::FileError> {
 
 Macros of three kinds are read as [`MacroDef`]: named macros with [`list_macros`] and [`read_macro`], the macros embedded in the events of a form or report with [`read_embedded_macros`], and the data macros of a table with [`read_data_macros`].
 A [`MacroDef`] holds the statements of the macro ([`MacroStatement`]), the XML it was read from, and the macro grid of a named or embedded macro.
+An embedded macro also gives the ID of the property that holds it ([`MacroDef::property_id`]), which is that of its event, and its control is that of the property when its XML does not name one.
 
 ```rust,no_run
 use jetdb::{MacroStatement, PageReader, list_macros, read_macro};

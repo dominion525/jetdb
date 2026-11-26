@@ -1056,6 +1056,43 @@ fn parse_blob_tree(data: &[u8]) -> Result<BlobTree, FileError> {
     Ok((all_props, controls, Vec::new()))
 }
 
+/// A property of a Blob whose value is bytes, such as an embedded macro: the
+/// section or control that has it (`None` for the form or report itself),
+/// its ID and its bytes.
+pub(crate) struct BinaryProperty {
+    pub(crate) control: Option<String>,
+    pub(crate) prop_id: u16,
+    pub(crate) bytes: Vec<u8>,
+}
+
+/// The properties of the Blob `data` whose value is bytes, in its order:
+/// those of the form or report, then those of each section and control. None
+/// for a Blob of the Access 2000 format or one that cannot be read.
+pub(crate) fn binary_properties(data: &[u8]) -> Vec<BinaryProperty> {
+    if data.first() == Some(&crate::form2000::VERSION) {
+        return Vec::new();
+    }
+    let Ok((properties, controls, _)) = parse_blob_tree(data) else {
+        return Vec::new();
+    };
+    let owned = |control: Option<String>, props: Vec<BlobProperty>| {
+        props.into_iter().filter_map(move |p| match p.value {
+            BlobValue::Binary(bytes) => Some(BinaryProperty {
+                control: control.clone(),
+                prop_id: p.prop_id,
+                bytes,
+            }),
+            _ => None,
+        })
+    };
+    let mut out: Vec<BinaryProperty> = owned(None, properties).collect();
+    for (_, props) in controls {
+        let name = name_in_blob(&props);
+        out.extend(owned(name, props));
+    }
+    out
+}
+
 /// What [`parse_blob_tree`] reads: the properties of the form or report, its
 /// sections and controls, and its break levels.
 type BlobTree = (Vec<BlobProperty>, Vec<BlobControl>, Vec<Vec<BlobProperty>>);
