@@ -189,7 +189,8 @@ type values of text:
 
 ### Nodes
 
-- The nodes at the top of the tree are the default controls of the form or report and its sections; the nodes in a section are its controls, and the nodes in a tab control its pages. jetdb gives the sections and controls, each section followed by its controls, and not the default controls.
+- The nodes at the top of the tree are the default controls of the form or report, the group levels of a report, and its sections; the nodes in a section are its controls, and the nodes in a tab control its pages. jetdb gives the sections and controls, each section followed by its controls, and not the default controls.
+- A group level of a report (Sorting and Grouping) is a node of type 159 without nodes in it, before the sections, one for each block `Begin BreakLevel` of SaveAsText, in the same order. jetdb gives their properties as `FormProperties::break_levels`.
 - The type of a node is the `acControlType` of Access, the low byte of the type codes of TypeInfo. In the test data, the type of each node agrees with that of TypeInfo for the control of the same name, except for the entries TypeInfo has after an ActiveX control, which jetdb does not read in step.
 - A control keeps its properties before and after its Name (0x14), such as `Left`, `Top`, `Width` and `Height` before it.
 
@@ -400,6 +401,9 @@ Names of number and Yes/No values:
 | 0x00A6 | ColumnWidth | Use the ColumnWidth property to specify the width of a column in Datasheet view. |
 | 0x00A7 | ColumnHidden | Use the ColumnHidden property to show or hide a specified column in Datasheet view. |
 | 0x00A8 | RowHeight | Use the RowHeight property to specify the height of all rows in Datasheet view. |
+| 0x00AE | SortOrder | Use the SortOrder property to specify the sort order for fields and expressions in a report. |
+| 0x00AF | GroupHeader | Use the GroupHeader property to create a group header for a selected field or expression in a report. |
+| 0x00B0 | GroupFooter | Use the GroupFooter property to create a group footer for a selected field or expression in a report. |
 | 0x00C2 | TabularCharSet | Not in Microsoft's VBA reference; a key of SaveAsText. |
 | 0x00CC | ForeColor | Use the ForeColor property to specify the color for text in a control. |
 | 0x00DB | HelpContextId | The HelpContextID property specifies the context ID of a topic in the custom Help file specified by the HelpFile property setting. |

@@ -286,6 +286,7 @@ fn main() -> Result<(), jetdb::FileError> {
 
 Use [`list_forms`] to list the forms and reports, and [`read_form_properties_of_type`] to read the design of one: the properties of the form or report itself, and those of each section and control.
 A property is named by [`BlobProperty::display_name`], which gives `0xXXXX` for a property whose name is not known, and its value ([`BlobValue`]) prints as text.
+The Sorting and Grouping of a report is in [`FormProperties::break_levels`]: the properties of each group level in order, such as `ControlSource`, `SortOrder`, `GroupHeader` and `GroupFooter`.
 
 ```rust,no_run
 use jetdb::{PageReader, control_type_label, list_forms, read_form_properties_of_type};
@@ -312,6 +313,7 @@ fn main() -> Result<(), jetdb::FileError> {
 
 Macros of three kinds are read as [`MacroDef`]: named macros with [`list_macros`] and [`read_macro`], the macros embedded in the events of a form or report with [`read_embedded_macros`], and the data macros of a table with [`read_data_macros`].
 A [`MacroDef`] holds the statements of the macro ([`MacroStatement`]), the XML it was read from, and the macro grid of a named or embedded macro.
+An embedded macro also gives the ID of the property that holds it ([`MacroDef::property_id`]), which is that of its event, and its control is that of the property when its XML does not name one.
 
 ```rust,no_run
 use jetdb::{MacroStatement, PageReader, list_macros, read_macro};

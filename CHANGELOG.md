@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- The Sorting and Grouping of a report (`FormProperties::break_levels`): the properties of each group level, the blocks `Begin BreakLevel` of SaveAsText. `SortOrder`, `GroupHeader` and `GroupFooter` are named.
+- The ID of the property that holds an embedded macro (`MacroDef::property_id`), which is that of its event.
+
+### Changed
+
+- An embedded macro whose XML does not name its control, or that has no XML, is given the control of the property that holds it.
+
 ## 0.4.0
 
 ### Added

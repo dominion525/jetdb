@@ -137,6 +137,12 @@ pub struct FormProperties {
     pub properties: Vec<BlobProperty>,
     /// Per-control properties.
     pub controls: Vec<ControlProperties>,
+    /// The group levels of a report, in the order of its Sorting and Grouping:
+    /// the properties of each, such as ControlSource, GroupHeader and
+    /// GroupFooter, the blocks `Begin BreakLevel` of its SaveAsText output.
+    /// Empty for a form, for a report in the Access 2000 format, and when the
+    /// Blob does not read as a tree.
+    pub break_levels: Vec<Vec<BlobProperty>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -477,6 +483,9 @@ const NUMBER_NAMES: &[(u16, &str)] = &[
     (0x00A6, "ColumnWidth"),
     (0x00A7, "ColumnHidden"),
     (0x00A8, "RowHeight"),
+    (0x00AE, "SortOrder"),
+    (0x00AF, "GroupHeader"),
+    (0x00B0, "GroupFooter"),
     (0x00C2, "TabularCharSet"),
     (0x00CC, "ForeColor"),
     (0x00DB, "HelpContextId"),
@@ -720,10 +729,11 @@ pub fn read_form_properties_in(
             object_type,
             properties,
             controls,
+            break_levels: Vec::new(),
         });
     }
 
-    let (form_props, control_prop_groups) = parse_blob(&blob_data)?;
+    let (form_props, control_prop_groups, break_levels) = parse_blob_tree(&blob_data)?;
     let names: Vec<String> = control_prop_groups
         .iter()
         .filter_map(|(_, props)| name_in_blob(props))
@@ -735,6 +745,7 @@ pub fn read_form_properties_in(
         object_type,
         properties: form_props,
         controls: merge_controls(control_prop_groups, &type_info_controls),
+        break_levels,
     })
 }
 
@@ -1020,22 +1031,76 @@ type BlobControl = (u16, Vec<BlobProperty>);
 /// bytes do not read to the end as such a tree, each control is found by its
 /// Name entry instead, and only its properties from the name on are read.
 fn parse_blob(data: &[u8]) -> Result<(Vec<BlobProperty>, Vec<BlobControl>), FileError> {
+    parse_blob_tree(data).map(|(props, controls, _)| (props, controls))
+}
+
+/// The properties of the form or report, of its sections and controls (see
+/// [`parse_blob`]), and of its break levels, which are read only when the
+/// Blob reads as a tree.
+fn parse_blob_tree(data: &[u8]) -> Result<BlobTree, FileError> {
     if data.len() < 14 {
-        return Ok((Vec::new(), Vec::new()));
+        return Ok((Vec::new(), Vec::new(), Vec::new()));
     }
 
     // Skip 8-byte blob header + 6-byte section preamble.
     let (all_props, pos, end) = parse_group(data, 14, data.len());
 
-    if let Some(controls) = end.and_then(|end| controls_of_tree(data, pos, end)) {
-        return Ok((all_props, controls));
+    if let Some((controls, break_levels)) = end.and_then(|end| controls_of_tree(data, pos, end))
+    {
+        return Ok((all_props, controls, break_levels));
     }
     let controls = scan_control_sections(data, pos)
         .into_iter()
         .map(|props| (0, props))
         .collect();
-    Ok((all_props, controls))
+    Ok((all_props, controls, Vec::new()))
 }
+
+/// A property of a Blob whose value is bytes, such as an embedded macro: the
+/// section or control that has it (`None` for the form or report itself),
+/// its ID and its bytes.
+pub(crate) struct BinaryProperty {
+    pub(crate) control: Option<String>,
+    pub(crate) prop_id: u16,
+    pub(crate) bytes: Vec<u8>,
+}
+
+/// The properties of the Blob `data` whose value is bytes, in its order:
+/// those of the form or report, then those of each section and control. None
+/// for a Blob of the Access 2000 format or one that cannot be read.
+pub(crate) fn binary_properties(data: &[u8]) -> Vec<BinaryProperty> {
+    if data.first() == Some(&crate::form2000::VERSION) {
+        return Vec::new();
+    }
+    let Ok((properties, controls, _)) = parse_blob_tree(data) else {
+        return Vec::new();
+    };
+    let owned = |control: Option<String>, props: Vec<BlobProperty>| {
+        props.into_iter().filter_map(move |p| match p.value {
+            BlobValue::Binary(bytes) => Some(BinaryProperty {
+                control: control.clone(),
+                prop_id: p.prop_id,
+                bytes,
+            }),
+            _ => None,
+        })
+    };
+    let mut out: Vec<BinaryProperty> = owned(None, properties).collect();
+    for (_, props) in controls {
+        let name = name_in_blob(&props);
+        out.extend(owned(name, props));
+    }
+    out
+}
+
+/// What [`parse_blob_tree`] reads: the properties of the form or report, its
+/// sections and controls, and its break levels.
+type BlobTree = (Vec<BlobProperty>, Vec<BlobControl>, Vec<Vec<BlobProperty>>);
+
+/// The type of the node of a break level of a report, the block `Begin
+/// BreakLevel` of SaveAsText. Its nodes come before the sections, after the
+/// default controls.
+const BREAK_LEVEL: u16 = 0x9F;
 
 /// The types of sections: the detail section, and the headers and footers
 /// of the form or report, of its pages and of its groups.
@@ -1058,21 +1123,29 @@ struct BlobNode {
 
 /// The sections and controls of the tree from `pos`, which follows a group
 /// that ended with `end`, in the order of the Blob: each section followed by
-/// its controls. `None` when the bytes do not read to the end as a tree.
-fn controls_of_tree(data: &[u8], mut pos: usize, end: u32) -> Option<Vec<BlobControl>> {
+/// its controls; and the properties of the break levels, in order. `None`
+/// when the bytes do not read to the end as a tree.
+fn controls_of_tree(
+    data: &[u8],
+    mut pos: usize,
+    end: u32,
+) -> Option<(Vec<BlobControl>, Vec<Vec<BlobProperty>>)> {
     let nodes = parse_nodes(data, &mut pos, end, 0)?;
     if pos != data.len() {
         return None;
     }
     let mut controls = Vec::new();
-    // The nodes at the top are the default controls and the sections.
-    for section in nodes
-        .into_iter()
-        .filter(|n| SECTIONS.contains(&n.type_code) || !n.children.is_empty())
-    {
-        push_with_children(section, &mut controls);
+    let mut break_levels = Vec::new();
+    // The nodes at the top are the default controls, the break levels of a
+    // report, and the sections.
+    for node in nodes {
+        if node.type_code == BREAK_LEVEL && node.children.is_empty() {
+            break_levels.push(node.properties);
+        } else if SECTIONS.contains(&node.type_code) || !node.children.is_empty() {
+            push_with_children(node, &mut controls);
+        }
     }
-    Some(controls)
+    Some((controls, break_levels))
 }
 
 /// Adds `node`, and the nodes in it, to `out`.
@@ -1719,7 +1792,9 @@ pub(crate) mod tests {
         };
         for entry in list_forms(reader).unwrap() {
             let report = entry.object_type == FormObjectType::Report;
-            let saved = save_as_text::read(&texts[&(report, entry.name.clone())]);
+            let text = &texts[&(report, entry.name.clone())];
+            let saved = save_as_text::read(text);
+            let saved_break_levels = save_as_text::break_levels(text);
             let mut skipped = Vec::new();
             for (_, combo, next) in broken.iter().filter(|(o, ..)| *o == entry.name) {
                 assert!(!saved.contains_key(*next), "{next}");
@@ -1728,9 +1803,42 @@ pub(crate) mod tests {
             }
             let read =
                 read_form_properties_of_type(reader, &entry.name, entry.object_type).unwrap();
-            checked.object(&saved, &read, &skipped);
+            checked.object(&saved, &saved_break_levels, &read, &skipped);
         }
         checked
+    }
+
+    #[test]
+    fn reports_give_their_break_levels_in_order() {
+        // The 41 reports of Sports.accdb with Sorting and Grouping have 182
+        // break levels, each checked against its SaveAsText block by
+        // every_value_is_one_save_as_text_writes; here, what they give.
+        let path = skip_if_missing!("saveastext/SportsAdmin/Sports.accdb");
+        let mut reader = PageReader::open(&path).unwrap();
+        let mut total = 0;
+        for entry in list_forms(&mut reader).unwrap() {
+            let read =
+                read_form_properties_of_type(&mut reader, &entry.name, entry.object_type).unwrap();
+            if entry.object_type == FormObjectType::Form {
+                assert!(read.break_levels.is_empty(), "{}", entry.name);
+            }
+            total += read.break_levels.len();
+        }
+        assert_eq!(total, 182);
+
+        let read =
+            read_form_properties_of_type(&mut reader, "Field (High Jump)", FormObjectType::Report)
+                .unwrap();
+        let level = |i: usize| -> Vec<String> {
+            read.break_levels[i]
+                .iter()
+                .map(|p| format!("{} = {}", p.display_name(), p.value))
+                .collect()
+        };
+        assert_eq!(read.break_levels.len(), 7);
+        assert_eq!(level(0), ["ControlSource = E_Number"]);
+        assert_eq!(level(5), ["GroupHeader = NotDefault", "ControlSource = Heat"]);
+        assert_eq!(level(6), ["ControlSource = FullName"]);
     }
 
     #[test]

@@ -286,6 +286,7 @@ fn main() -> Result<(), jetdb::FileError> {
 
 [`list_forms`] でフォームとレポートの一覧を取り、[`read_form_properties_of_type`] でそのデザインを読みます。フォームやレポート自身のプロパティと、セクションやコントロールごとのプロパティが取れます。
 プロパティの名前は [`BlobProperty::display_name`] で取れます。名前のわからないプロパティは `0xXXXX` になります。値（[`BlobValue`]）は、そのまま文字列として出力できます。
+レポートの並べ替えとグループ化は [`FormProperties::break_levels`] にあります。グループレベルごとに、`ControlSource`、`SortOrder`、`GroupHeader`、`GroupFooter` などのプロパティが順に並びます。
 
 ```rust,no_run
 use jetdb::{PageReader, control_type_label, list_forms, read_form_properties_of_type};
@@ -312,6 +313,7 @@ fn main() -> Result<(), jetdb::FileError> {
 
 3 種類のマクロを、どれも [`MacroDef`] として読みます。名前付きマクロは [`list_macros`] と [`read_macro`] で、フォームやレポートのイベントに埋め込まれたマクロは [`read_embedded_macros`] で、テーブルのデータマクロは [`read_data_macros`] で読みます。
 [`MacroDef`] は、マクロの文の並び（[`MacroStatement`]）、読み取り元の XML、名前付きマクロと埋め込みマクロのマクロの表（grid）を持ちます。
+埋め込みマクロは、それを持つプロパティの ID（[`MacroDef::property_id`]）も持ちます。これはそのイベントのプロパティの ID です。XML がコントロールを示さないときは、そのプロパティのコントロールのものになります。
 
 ```rust,no_run
 use jetdb::{MacroStatement, PageReader, list_macros, read_macro};

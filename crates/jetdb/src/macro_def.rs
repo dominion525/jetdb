@@ -78,6 +78,15 @@ pub struct MacroDef {
     /// The macro grid of a named or embedded macro (see [`MacroGrid`]), or
     /// `None` for data macros.
     pub grid: Option<MacroGrid>,
+    /// The ID of the property of the form, report or control that holds an
+    /// embedded macro, as [`crate::BlobProperty::prop_id`]; `None` for other
+    /// macros, and for an embedded macro of `BlobDelta` or of a Blob that
+    /// does not read as a tree. The property is that of the macro's event,
+    /// so the ID tells the event where the XML has no `Event`; but above
+    /// 0x01C4 the IDs of Access for Microsoft 365 are one higher than those
+    /// of older Access: the `OnClick` macro of a button is 0x01EB in
+    /// macroGeneratedTestV2010.accdb.
+    pub property_id: Option<u16>,
 }
 
 /// The rows of a named or embedded macro as stored in its binary grid.
@@ -298,6 +307,7 @@ pub fn read_macro_in(
 /// are read from the grid.
 fn macro_of_grid(source: MacroSource, grid: MacroGrid) -> MacroDef {
     MacroDef {
+        property_id: None,
         source,
         statements: statements_from_grid(&grid),
         xml: String::new(),
@@ -312,6 +322,7 @@ fn macro_of_blob(source: MacroSource, blob: &[u8]) -> Result<MacroDef, FileError
         Some(xml) => {
             let root = parse_xml_tree(&xml)?;
             Ok(MacroDef {
+                property_id: None,
                 source,
                 statements: statements_of(&root),
                 grid: parse_macro_grid(blob, TextEncoding::Unicode).ok(),
@@ -376,9 +387,22 @@ pub fn read_embedded_macros_in(
     object_type: Option<FormObjectType>,
 ) -> Result<Vec<MacroDef>, FileError> {
     let stream = form::stream_in(storage, object_name, object_type, StreamKind::Blob)?;
+    let holders = form::binary_properties(&stream.data);
+    let mut next_holder = 0;
     embedded_macro_grids_of(storage, &stream)
         .iter()
-        .map(|bytes| embedded_macro(bytes, stream.object_type, object_name))
+        .map(|bytes| {
+            // The grids and the properties are both in the order of the Blob,
+            // so a grid given twice is held by the next property with it.
+            let holder = holders[next_holder..]
+                .iter()
+                .position(|h| h.bytes == *bytes)
+                .map(|i| {
+                    next_holder += i + 1;
+                    &holders[next_holder - 1]
+                });
+            embedded_macro(bytes, stream.object_type, object_name, holder)
+        })
         .collect()
 }
 
@@ -409,11 +433,13 @@ fn embedded_macro_grids_of(storage: &AccessStorage, stream: &form::FormStream) -
 /// The macro of the grid `bytes`, embedded in the form or report
 /// `object_name` of `object_kind`: with the control and event its XML gives,
 /// or with no control and an empty event, and the statements of the grid,
-/// when it has no XML.
+/// when it has no XML. The property `holder` that holds the grid gives its
+/// ID, and the control where the XML has no `For`.
 fn embedded_macro(
     bytes: &[u8],
     object_kind: FormObjectType,
     object_name: &str,
+    holder: Option<&form::BinaryProperty>,
 ) -> Result<MacroDef, FileError> {
     let grid = parse_macro_grid(bytes, TextEncoding::Unicode)?;
     let (control, event, statements, xml) = match extract_axl_xml(bytes) {
@@ -433,7 +459,9 @@ fn embedded_macro(
             String::new(),
         ),
     };
+    let control = control.or_else(|| holder.and_then(|h| h.control.clone()));
     Ok(MacroDef {
+        property_id: holder.map(|h| h.prop_id),
         source: MacroSource::Embedded {
             object_kind,
             object_name: object_name.to_string(),
@@ -547,6 +575,7 @@ fn data_macros_from_xml(table: &str, xml: String) -> Result<Vec<MacroDef>, FileE
 /// document `xml` is.
 fn data_macro(table: &str, element: &MacroXmlElement, xml: &str) -> MacroDef {
     MacroDef {
+        property_id: None,
         source: MacroSource::Data {
             table: table.to_string(),
             event: element.attribute("Event").map(str::to_string),
@@ -2112,11 +2141,95 @@ mod tests {
     }
 
     #[test]
+    fn embedded_macros_give_the_id_of_the_property_that_holds_them() {
+        // The generators saved each macro as the <Event>EmMacro of its event
+        // with Access, which kept it in the property of that event. The XML
+        // names the event, so the IDs can be checked: those of Access for
+        // Microsoft 365, which made these files (0x01C4 and above are one
+        // higher than in older Access).
+        for (file, expected) in [
+            (
+                "V2010/macroGeneratedTestV2010.accdb",
+                &[
+                    ("frmEmbedded", None, "OnLoad", 0x0201),
+                    ("frmEmbedded", Some("btnHello"), "OnClick", 0x01EB),
+                    ("rptEmbedded", None, "OnOpen", 0x01FF),
+                ][..],
+            ),
+            (
+                "V2003/macroGeneratedTestV2003.mdb",
+                &[
+                    ("frmEmbedded", None, "OnLoad", 0x0201),
+                    ("frmEmbedded", Some("btnHello"), "OnClick", 0x01EB),
+                    ("rptEmbedded", None, "OnOpen", 0x01FF),
+                ][..],
+            ),
+            (
+                "V2010/macroTestV2010.accdb",
+                &[
+                    ("tblItems", None, "BeforeUpdate", 0x01F1),
+                    ("tblItems", Some("btnHello"), "OnClick", 0x01EB),
+                ][..],
+            ),
+        ] {
+            let path = skip_if_missing!(file);
+            let mut reader = PageReader::open(&path).unwrap();
+            let mut found = Vec::new();
+            for entry in crate::form::list_forms(&mut reader).unwrap() {
+                for def in
+                    read_embedded_macros_of_type(&mut reader, &entry.name, entry.object_type)
+                        .unwrap()
+                {
+                    let MacroSource::Embedded { control, event, .. } = def.source else {
+                        panic!("{file}: {:?}", def.source);
+                    };
+                    found.push((entry.name.clone(), control, event, def.property_id));
+                }
+            }
+            let expected: Vec<_> = expected
+                .iter()
+                .map(|(object, control, event, id)| {
+                    (
+                        object.to_string(),
+                        control.map(str::to_string),
+                        event.to_string(),
+                        Some(*id),
+                    )
+                })
+                .collect();
+            assert_eq!(found, expected, "{file}");
+        }
+    }
+
+    #[test]
+    fn embedded_macro_without_xml_takes_its_control_from_its_property() {
+        // A grid without _AXL: rows names neither its control nor its event:
+        // the property that holds it gives the control and its ID.
+        let bytes = grid_bytes("33", &[0x78, 0x00, 0x00, 0x00]);
+        let holder = form::BinaryProperty {
+            control: Some("cmdClose".to_string()),
+            prop_id: 0x01EA,
+            bytes: bytes.clone(),
+        };
+        let def = embedded_macro(&bytes, FormObjectType::Form, "frmOld", Some(&holder)).unwrap();
+        assert_eq!(
+            def.source,
+            MacroSource::Embedded {
+                object_kind: FormObjectType::Form,
+                object_name: "frmOld".to_string(),
+                control: Some("cmdClose".to_string()),
+                event: String::new(),
+            }
+        );
+        assert_eq!(def.property_id, Some(0x01EA));
+    }
+
+    #[test]
     fn embedded_macro_without_xml_reads_the_grid() {
         // A grid without _AXL: rows has no control and an empty event, and
         // its statements are those of its rows.
         let bytes = grid_bytes("33", &[0x78, 0x00, 0x00, 0x00]);
-        let def = embedded_macro(&bytes, FormObjectType::Report, "rptOld").unwrap();
+        let def = embedded_macro(&bytes, FormObjectType::Report, "rptOld", None).unwrap();
         let grid = parse_macro_grid(&bytes, TextEncoding::Unicode).unwrap();
         assert_eq!(
             def.source,

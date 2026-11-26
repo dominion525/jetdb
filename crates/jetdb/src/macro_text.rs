@@ -586,6 +586,7 @@ mod tests {
             statements: Vec::new(),
             xml: xml.to_string(),
             grid: None,
+            property_id: None,
         };
         let macros = [data(None, Some("dmNamed")), data(Some("AfterInsert"), None)];
         assert_eq!(
